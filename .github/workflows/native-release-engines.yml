@@ -1,0 +1,34 @@
+name: Native Linux release engines
+on:
+  push:
+    branches: [native-release-engines-20261111]
+permissions:
+  contents: read
+jobs:
+  engines:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [master, plasma]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libasound2-dev libx11-dev libxinerama-dev libxext-dev libfreetype6-dev libfontconfig1-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev libjack-jackd2-dev
+      - name: Compile and package Master Assistant
+        if: matrix.engine == 'master'
+        run: |
+          cmake -S plugins/lemon-master-assistant -B build-master -G Ninja -DCMAKE_BUILD_TYPE=Release -DOXYGEN_ENABLE_NATIVE_OPTIMIZATIONS=OFF -DFETCHCONTENT_SOURCE_DIR_JUCE="$PWD/plugins/lemon-master-assistant/JUCE"
+          cmake --build build-master --target oXygen_VST3 --parallel 2
+          python3 packaging/bundle-master-engine.py --bundle 'build-master/oXygen_artefacts/Release/VST3/ML Master Assistant.vst3' --os linux --arch x86_64 --output native-engine.zip
+      - name: Compile and package ML Plasma
+        if: matrix.engine == 'plasma'
+        run: |
+          mkdir -p ~/.lemon-studio-release
+          printf '{"minimum_free_gib": 10}' > ~/.lemon-studio-release/storage.json
+          CMAKE_BUILD_PARALLEL_LEVEL=2 python3 plugins/ml-plasma/build_native.py --output native-engine.zip --build-dir build-plasma --target-os linux --target-arch x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.engine }}
+          path: native-engine.zip
+          if-no-files-found: error
