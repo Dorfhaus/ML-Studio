@@ -13,21 +13,25 @@ jobs:
         engine: [master, plasma]
     steps:
       - uses: actions/checkout@v4
-      - name: Install native build dependencies
-        timeout-minutes: 4
+      - name: Prepare verified offline native build dependencies
         run: |
-          packages=(cmake ninja-build libasound2-dev libx11-dev libxinerama-dev libxext-dev libfreetype6-dev libfontconfig1-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev libjack-jackd2-dev)
-          missing=()
-          for p in "${packages[@]}"; do
-            if ! dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then missing+=("$p"); fi
-          done
-          if (( ${#missing[@]} )); then
-            sources="$(mktemp)"
-            printf '%s\n' 'deb https://archive.ubuntu.com/ubuntu jammy main universe' 'deb https://archive.ubuntu.com/ubuntu jammy-updates main universe' > "$sources"
-            options=(-o "Dir::Etc::sourcelist=$sources" -o Dir::Etc::sourceparts=- -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Acquire::Languages=none)
-            sudo apt-get "${options[@]}" update
-            sudo apt-get "${options[@]}" install -y --no-install-recommends "${missing[@]}"
-          fi
+          cd packaging/ci-native-deps
+          sha256sum --check SHA256SUMS
+          prefix="$RUNNER_TEMP/native-prefix"
+          mkdir -p "$prefix" "$RUNNER_TEMP/sdl-src"
+          for deb in *.deb; do dpkg-deb -x "$deb" "$prefix"; done
+          tar -xzf SDL2-2.30.9.tar.gz --strip-components=1 -C "$RUNNER_TEMP/sdl-src"
+          echo "$prefix/usr/bin" >> "$GITHUB_PATH"
+          {
+            echo "CMAKE_PREFIX_PATH=$prefix/usr"
+            echo "CMAKE_INCLUDE_PATH=$prefix/usr/include"
+            echo "CMAKE_LIBRARY_PATH=$prefix/usr/lib/x86_64-linux-gnu"
+            echo "C_INCLUDE_PATH=$prefix/usr/include:$prefix/usr/include/x86_64-linux-gnu"
+            echo "CPLUS_INCLUDE_PATH=$prefix/usr/include:$prefix/usr/include/x86_64-linux-gnu"
+            echo "LIBRARY_PATH=$prefix/usr/lib/x86_64-linux-gnu"
+            echo "LD_LIBRARY_PATH=$prefix/usr/lib/x86_64-linux-gnu"
+            echo "PKG_CONFIG_PATH=$prefix/usr/lib/x86_64-linux-gnu/pkgconfig"
+          } >> "$GITHUB_ENV"
       - name: Compile and package Master Assistant
         if: matrix.engine == 'master'
         run: |
@@ -39,7 +43,15 @@ jobs:
         run: |
           mkdir -p ~/.lemon-studio-release
           printf '{"minimum_free_gib": 10}' > ~/.lemon-studio-release/storage.json
-          CMAKE_BUILD_PARALLEL_LEVEL=2 python3 plugins/ml-plasma/build_native.py --output native-engine.zip --build-dir build-plasma --target-os linux --target-arch x86_64
+          export CI_CMAKE="$(command -v cmake)"
+          export CI_SDL="$RUNNER_TEMP/sdl-src"
+          cat > "$RUNNER_TEMP/cmake-plasma" <<'SH'
+          #!/bin/bash
+          if [[ "$1" == -S ]]; then exec "$CI_CMAKE" "$@" "-DFETCHCONTENT_SOURCE_DIR_SDL2=$CI_SDL"; fi
+          exec "$CI_CMAKE" "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/cmake-plasma"
+          CMAKE="$RUNNER_TEMP/cmake-plasma" python3 plugins/ml-plasma/build_native.py --output native-engine.zip --build-dir build-plasma --target-os linux --target-arch x86_64
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.engine }}
