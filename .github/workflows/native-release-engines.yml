@@ -14,7 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libasound2-dev libx11-dev libxinerama-dev libxext-dev libfreetype6-dev libfontconfig1-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev libjack-jackd2-dev
+        timeout-minutes: 4
+        run: |
+          packages=(cmake ninja-build libasound2-dev libx11-dev libxinerama-dev libxext-dev libfreetype6-dev libfontconfig1-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev libjack-jackd2-dev)
+          missing=()
+          for p in "${packages[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then missing+=("$p"); fi
+          done
+          if (( ${#missing[@]} )); then
+            sources="$(mktemp)"
+            printf '%s\n' 'deb https://archive.ubuntu.com/ubuntu jammy main universe' 'deb https://archive.ubuntu.com/ubuntu jammy-updates main universe' > "$sources"
+            options=(-o "Dir::Etc::sourcelist=$sources" -o Dir::Etc::sourceparts=- -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Acquire::Languages=none)
+            sudo apt-get "${options[@]}" update
+            sudo apt-get "${options[@]}" install -y --no-install-recommends "${missing[@]}"
+          fi
       - name: Compile and package Master Assistant
         if: matrix.engine == 'master'
         run: |
