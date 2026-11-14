@@ -456,11 +456,11 @@ fn file_box(ui: &mut Ui, s: &State, m: &Modal, f: &FileDlg) {
         kit::combo(ui.c, t, c, &label, font, kit::State::new(hov, f.filter_open, false));
     }
     // The band: the status, then the main button and Cancel.
-    let main = match f.mode {
+    let main = if f.renaming.is_some() {"Rename"} else {match f.mode {
         Mode::Open => "Open",
         Mode::Save => "Save",
         Mode::Folder => "Select folder",
-    };
+    }};
     let bw = |ui: &mut Ui, s: &str| (ui.c.text_width(font, tr(s)) + 28.0).max(84.0).round();
     let (mw, cw) = (bw(ui, main), bw(ui, "Cancel"));
     let cancel = Rect::new(r.right() - 12.0 - cw, r.bottom() - 37.0, cw, 30.0);
@@ -788,7 +788,7 @@ fn list(ui: &mut Ui, f: &FileDlg, r: Rect) {
     let t = ui.t;
     let lemon = lemon(ui);
     well(ui, r, None);
-    hit(ui, r, DHit::List, "");
+    hit(ui, r, DHit::List, if cfg!(windows) {"File actions: right-click for Explorer commands; F2 renames; F5 refreshes"}else{"F2 renames the selected file or folder; F5 refreshes"});
     let font = Font::new(13);
     let lh = ui.c.line_height(font);
     let head = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, HEAD_H);

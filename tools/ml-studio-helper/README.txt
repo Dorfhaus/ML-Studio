@@ -55,10 +55,15 @@ loose Markdown is temporary because launch replaces it with the build's guide.
 The index includes every article chunk instead of truncating articles at 3800
 characters. Inflected search terms share aliases. Retrieval remains bounded to
 three chunks / 7600 characters. Explicit editor questions consult the guide.
-For guide answers the model selects numbered passages; the app returns the actual
-text and includes surrounding workflow prerequisites for how-to questions. Model
-paraphrases are never displayed as verified instructions. Invalid/empty choices
-produce an honest missing-answer message. Exact guide passages remain English;
+For guide answers the app ranks task-specific articles and returns the leading
+guide chunk verbatim, with its title and prerequisites. The conversational model
+does not select or rewrite instructions. Basic editor/recording questions and
+short follow-ups stay on the guide path. Low-overlap searches produce a missing-
+answer message. Exact guide passages remain English;
+Missing-control and failed-step follow-ups retain the DAW context even without
+an editor name. Repeated unsuccessful instructions lead to clarification rather
+than another copy of the same passage. The bundled guide includes every registered
+Workspace Visibility label, settings path and default, plus diagnostic workflows.
 ordinary conversation/theory still uses the conversational model. This prevents
 invented additions, not selecting an irrelevant or outdated documented passage.
 
@@ -66,6 +71,7 @@ Run packaging/expand-guide-reference.py after changing settings, control hints,
 menus or declared plugin parameters; --check detects stale generated references.
 Read docs/guide-maintenance.md for review scope and remaining coverage limitations.
 With ML_HELPER_GUIDE pointing at the exported guide and TEMP on E:, run test_guide.py.
-It checks 45 practical questions, full-article retrieval, links, prerequisite
-retention and rejection of model-written extra advice. test_helper.py retains the
+It checks practical questions plus the reported routing/recording/attachment
+conversation, unsupported features, topic changes, new chats, links, prerequisites
+and rejection of model-written extra advice. test_helper.py retains the
 bounded-memory and real-model shutdown checks. Models are unchanged; no training.

@@ -13,6 +13,17 @@ fn helper_guide_contains_live_menu_reference_and_mixer_selection() {
     }
     assert!(text.contains("### Select multiple Mixer channels"));
     assert!(text.contains("Ctrl-click"));
+    for &(group, rows) in crate::workspace_visibility::GROUPS {
+        for &(label, key) in rows {
+            let title = format!("Visibility: {label} ({group})");
+            assert!(topics().iter().any(|topic| topic.title == title), "Missing guide topic: {title}");
+            assert!(text.contains(&format!("Settings > Visibility > {group} > {label}")));
+            let article = text.split(&format!("### {title}\n")).nth(1).unwrap().split("\n### ").next().unwrap();
+            let default = if key == "visible_settings-debug" || key == crate::playlist_tracks::VISIBILITY { "off" } else { "on" };
+            assert!(article.contains(&format!("default visibility is **{default}**")), "Wrong default: {title}");
+        }
+    }
+    assert!(text.contains("### Find a missing Playlist recording button"));
     if let Some(path) = std::env::var_os("ML_HELPER_EXPORT_GUIDE") {
         std::fs::write(path, text).unwrap();
     }

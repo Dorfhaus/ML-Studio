@@ -108,6 +108,7 @@ mod rack_mixer;
 #[cfg(target_os="macos")] #[path="strip_editor_mac.rs"] mod strip_editor;
 mod mini_eq;
 mod mixer_recording;
+mod recording_pickup;
 mod smart_recording;
 mod automation_feedback;
 mod recording_merge;
@@ -2253,3 +2254,4 @@ mod tests {
 }
 
 mod channel_bounce;
+mod bounce_route;

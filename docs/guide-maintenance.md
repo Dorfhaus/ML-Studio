@@ -4,7 +4,11 @@ The bundled source is `docs/user-guide.md`. The app reader and Helper share this
 
 ## Current audit: 14 November 2026
 
-The corpus expanded from 197 to 444 articles across the existing 13 chapters: 33 additional authored workflow articles and 214 generated reference articles. Earlier workflows remain. This is a substantial coverage expansion, not proof that every possible user question or third-party plugin is documented.
+The corpus expanded from 197 to 614 articles across the existing 13 chapters, including 375 generated reference articles. This includes 161 entries covering the complete Workspace Visibility registry, with exact paths and defaults. Missing recording-button prerequisites and seven diagnostic workflows were added in the latest pass. Earlier workflows remain. This is a substantial coverage expansion, not proof that every possible user question or third-party plugin is documented.
+
+The visibility exporter resolves referenced labels and inspector entries, and rejects an unrecognized default policy instead of guessing. The native Helper export test independently compares every compiled visibility registry entry against the reader's topics and exported text. Missing-control/failed-step conversations are tested as sequences, including omitted editor names and repeated failure, rather than only isolated retrieval queries.
+
+Guide answers now use ranked, attributed guide excerpts directly; the small conversational model no longer selects paragraph IDs. Editor operations and short contextual follow-ups use the guide, while creative/theory requests and ordinary conversation remain separate. Unknown feature searches need enough matching evidence. Regression cases include the user's complete routing/recording/attachment exchange, unsupported features, topic changes and New chat. This prevents model-written DAW instructions on the guide path; retrieval is still lexical and cannot guarantee semantic relevance for every wording or language.
 
 Reviewed workflows and primary evidence:
 

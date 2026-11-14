@@ -171,6 +171,7 @@ pub fn push_inputs(asio: bool, frames: usize, at: impl Fn(usize, usize) -> f32) 
 }
 
 fn push_inputs_at(asio: bool, frames: usize, captured_at: Option<Instant>, at: impl Fn(usize, usize) -> f32) {
+    if crate::recording_pickup::engine() {return;}
     if !INPUT_GATE.load(Ordering::Acquire) || DISPATCHING.compare_exchange(false,true,Ordering::Acquire,Ordering::Relaxed).is_err() { return; }
     if INPUT_GATE.load(Ordering::Acquire) && capture().on() {
         let primary = capture();

@@ -2,14 +2,19 @@
 import re
 from collections import Counter
 
-STOP = set('how do i can my me to the a an it of on in when for with from and or where does is what please you could would want'.split())
+STOP = set('how do i can my me to the a an it of on in when for with from and or where does is what please you could would want there way directly actually also just about tell use using other people happens dont cant cannot see find still not t don isn doesnt'.split())
 ALIASES = {'size': 'length', 'crackling': 'crackles', 'plugins': 'plugin', 'tracks': 'track',
            'channels': 'channel', 'inserts': 'insert', 'settings': 'setting',
            'selecting': 'select', 'selected': 'select', 'selection': 'select',
            'several': 'multiple', 'multi': 'multiple', 'multiselect': 'select',
            'routing': 'route', 'routed': 'route', 'menus': 'menu', 'shortcuts': 'shortcut',
            'keys': 'key', 'effects': 'effect', 'notes': 'note', 'clips': 'clip',
-           'hovering': 'hover', 'opening': 'open', 'recordings': 'recording'}
+           'hovering': 'hover', 'opening': 'open', 'recordings': 'record',
+           'recording': 'record', 'recorded': 'record', 'records': 'record',
+           'attatch': 'attach', 'attached': 'attach', 'attaching': 'attach',
+           'assign': 'route', 'assignment': 'route',
+           'vocals': 'microphone', 'mic': 'microphone', 'icon': 'button', 'icons': 'button',
+           'buttons': 'button', 'hidden': 'missing', 'disappeared': 'missing'}
 
 def words(value):
     return [ALIASES.get(word, word) for word in re.findall(r'[a-z0-9]+', value.casefold()) if word not in STOP]

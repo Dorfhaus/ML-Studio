@@ -30,6 +30,16 @@ pub struct Pending {
     pub pattern: u16,
     /// Render and replace: the pattern's clips get the audio.
     pub replace: bool,
+    route: Option<u16>,
+    source: os_model::Project,
+}
+
+fn original_route(s:&State, pattern:u16)->Option<u16> {
+    let pat=s.project.pattern(pattern)?;
+    let routes:std::collections::BTreeSet<_>=s.project.channels.iter()
+        .filter(|c|c.enabled && pat.notes.iter().any(|n|n.channel==c.index))
+        .map(|c|c.mixer_track).collect();
+    (routes.len()==1).then(||*routes.first().unwrap())
 }
 
 /// Where the renders go (§2): the data folder's Rendered folder; a project without a data folder uses one-click
@@ -160,13 +170,18 @@ pub fn replace_clips(s: &mut State, pattern: u16, ch: u16) -> usize {
 /// What a finished render does with the file at `path` (§2, §3): the channel (and for Render and replace the clips) in
 /// one undo step. Returns the hint bar's message.
 pub fn place(s: &mut State, p: &Pending, path: &Path) -> String {
+    if s.project!=p.source {return "Project changed during rendering. Audio was saved; the project was left untouched.".into();}
     let text = path.to_string_lossy().into_owned();
     if s.playlist.wave(&text).is_none() {
         return format!("{text} could not be read");
     }
     let before = crate::history::Snap::Rack(Box::new(crate::history::RackSide::now(s, s.project.channels.len())));
+    let route=match p.route.map(Ok).unwrap_or_else(||crate::bounce_route::free_insert(s)) {Ok(n)=>n,Err(e)=>return e};
+    let before=crate::bounce_route::with_insert(s,Some(route),before);
     crate::playlist::snapshot_with(s, if p.replace { REPLACE } else { QUICK }, before);
+    crate::bounce_route::ensure(s,route);
     let ch = add_channel(s, &text, p.pattern);
+    s.project.channels.last_mut().unwrap().mixer_track=route;
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if !p.replace {
         return format!("Rendered {} to {file}", crate::patterns::name_of(s, p.pattern));
@@ -197,9 +212,9 @@ impl App {
             return self.invalidate();
         }
         let stem = file_stem(&dir, &crate::patterns::name_of(s, pattern));
-        let job = job(s, &dir, &stem);
-        self.pattern_render = Some(Pending { pattern, replace });
-        self.start_export(job, false);
+        let mut job = job(s, &dir, &stem);
+        job.options.insert_fx=crate::bounce_route::next_free() || original_route(s,pattern).is_none();
+        self.start_pattern_bounce(job,pattern,replace);
     }
 
     /// PATTERNS > Render as audio clip... (§1): the Export form in its render mode: Play fixed on the current
@@ -217,7 +232,8 @@ impl App {
         }
         let dir = folder(s);
         let stem = file_stem(&dir, &crate::patterns::name_of(s, pattern));
-        let o = job(s, &dir, &stem).options;
+        let mut o = job(s, &dir, &stem).options;
+        o.insert_fx=crate::bounce_route::next_free() || original_route(s,pattern).is_none();
         self.open_export(false);
         let Some(crate::dialog::Modal { body: crate::dialog::Body::Project(crate::project_forms::Form::Export(f)), .. }) = self.state.dialogs.last_mut() else {
             return;
@@ -236,8 +252,22 @@ impl App {
             return self.invalidate();
         }
         let job = self.export_job(f);
-        self.pattern_render = Some(Pending { pattern: self.state.pattern.max(1), replace: false });
-        self.start_export(job, false);
+        self.start_pattern_bounce(job,self.state.pattern.max(1),false);
+    }
+
+    fn start_pattern_bounce(&mut self,mut job:ex::Job,pattern:u16,replace:bool) {
+        let route=if !job.options.insert_fx && !job.options.master_fx && !crate::bounce_route::next_free() {original_route(&self.state,pattern)}else{None};
+        self.pattern_render=Some(Pending{pattern,replace,route,source:self.state.project.clone()});
+        if route.is_some() {
+            let mut project=crate::rack::play_project(&self.state);
+            crate::bounce_route::neutralize(&mut project);
+            let keep=|t|crate::channel_bounce::mixer_target(t).is_none();
+            for a in &mut project.automations {a.targets.retain(|t|keep(*t));}
+            for p in &mut project.patterns {p.controls.retain(|v|keep(v.kind));}
+            project.init_controls.retain(|v|keep(v.target));
+            job.options.split=false;
+            self.start_project_export(project,job,false);
+        } else {self.start_export(job,false);}
     }
 
     /// A render has finished (`App::export_tick`): the channel and clips for its file, or what went wrong.
@@ -384,7 +414,7 @@ mod tests {
         assert!(app.pattern_render.is_none(), "{:?}", app.state.message);
         assert_eq!(app.state.project.channels.len(), channels + 1, "{:?}", app.state.message);
         let ch = app.state.project.channels.last().unwrap();
-        assert_eq!((ch.kind, ch.name.as_deref(), ch.mixer_track), (ChannelKind::AudioClip, Some("Verse"), 0));
+        assert_eq!((ch.kind, ch.name.as_deref(), ch.mixer_track), (ChannelKind::AudioClip, Some("Verse"), 1));
         let path = PathBuf::from(ch.sample_path.clone().unwrap());
         assert_eq!(path, d.join("Rendered").join("Verse.wav"));
         assert!(std::fs::metadata(&path).unwrap().len() > 44);

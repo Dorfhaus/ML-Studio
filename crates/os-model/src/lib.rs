@@ -1367,8 +1367,27 @@ pub struct HardwareOutput {
     pub first: u16,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RecordingPoint { #[default] External, Input, Effects, Eq, Level, Track }
+impl RecordingPoint {
+    pub const ALL: [Self;6] = [Self::External,Self::Input,Self::Effects,Self::Eq,Self::Level,Self::Track];
+    pub fn label(self)-> &'static str { match self {Self::External=>"External input only",Self::Input=>"External and mixer input",Self::Effects=>"Post effects",Self::Eq=>"Post EQ",Self::Level=>"Post level and panning",Self::Track=>"Post track"} }
+    pub fn short(self)-> &'static str {match self {Self::External=>"EXT",Self::Input=>"MIX",Self::Effects=>"FX",Self::Eq=>"EQ",Self::Level=>"LVL",Self::Track=>"POST"}}
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum InputMonitoring { Off, #[default] Armed, On }
+impl InputMonitoring {
+    pub fn audible(self,armed:bool)->bool {self==Self::On || self==Self::Armed && armed}
+    pub fn label(self)-> &'static str {match self {Self::Off=>"Off",Self::Armed=>"When armed",Self::On=>"On"}}
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MixerRecording { pub point: RecordingPoint, pub monitor: InputMonitoring }
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MixerTrack {
+    /// Recording location and input cue mode, saved with the channel.
+    #[serde(default)]
+    pub recording: MixerRecording,
     /// In-memory identity, preserved across edits/reordering; never serialized.
     #[serde(skip)]
     pub runtime_id: u64,
@@ -1451,6 +1470,7 @@ impl PartialEq for MixerTrack {
         // Runtime identity and file origin are not musical settings.
         let MixerTrack {
             runtime_id: _,
+            recording,
             clip_fx,
             rack_strip,
             edit_locked,
@@ -1486,7 +1506,7 @@ impl PartialEq for MixerTrack {
             icon,
             origin: _,
         } = self;
-        *clip_fx==o.clip_fx && *index == o.index
+        *recording==o.recording && *clip_fx==o.clip_fx && *index == o.index
             && *name == o.name
             && *color == o.color
             && *enabled == o.enabled
@@ -1539,6 +1559,7 @@ impl MixerTrack {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         MixerTrack {
             runtime_id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            recording: MixerRecording::default(),
             clip_fx: false,
             rack_strip: None,
             edit_locked: false,

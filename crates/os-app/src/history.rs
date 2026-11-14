@@ -69,6 +69,8 @@ pub enum Snap {
     Tempo(f64),
     Ara(usize, Option<String>, Option<Vec<u8>>),
     MixerInsert { n:u16,count:u16,remove:bool,previous:u16,selection:Vec<u16> },
+    /// Structural insertion must precede restoring routed channels on redo, and follow their removal on undo.
+    WithMixerInsert { insert:Box<Snap>, edit:Box<Snap> },
     MixerMoves { moves:Vec<(u16,u16)>,arrangements:Vec<os_model::Arrangement>,lanes:Vec<(u16,u16,u16,u16)> },
     MixerMove { from:u16,to:u16,arrangements:Vec<os_model::Arrangement>,lanes:Vec<(u16,u16,u16,u16)> },
     ChannelRoute(usize,u16),
@@ -94,6 +96,7 @@ pub enum Snap {
     StripBypass(u16,bool),
     DriveType(u16,u16),
     EqPosition(u16,bool),
+    MixerRecording(u16, os_model::MixerRecording),
     HardwareOutput(u16, Option<os_model::HardwareOutput>),
     EqEnabled(u16, bool),
     MixerLock(u16, bool),
@@ -410,6 +413,7 @@ impl Snap {
             Snap::AudioWarps(_)=>Snap::AudioWarps(s.project.audio_warps.clone()),
             Snap::Tempo(_) => Snap::Tempo(s.tempo),
             Snap::MixerInsert{n,count,remove,..}=>Snap::MixerInsert{n:*n,count:*count,remove:!*remove,previous:s.selected_mixer,selection:s.mixer.sel.clone()},
+            Snap::WithMixerInsert{insert,edit}=>Snap::WithMixerInsert{insert:Box::new(insert.now(s)),edit:Box::new(edit.now(s))},
             Snap::MixerMoves{moves,..}=>Snap::MixerMoves{moves:moves.iter().rev().map(|(a,b)|(*b,*a)).collect(),arrangements:s.project.arrangements.clone(),lanes:s.project.instrument_lanes.clone()},
             Snap::MixerMove{from,to,..}=>Snap::MixerMove{from:*to,to:*from,arrangements:s.project.arrangements.clone(),lanes:s.project.instrument_lanes.clone()},
             Snap::InstrumentLanes(_)=>Snap::InstrumentLanes(s.project.instrument_lanes.clone()),
@@ -433,6 +437,7 @@ impl Snap {
             Snap::MixerLock(t, _) => Snap::MixerLock(*t, crate::mixer::individually_locked(s, *t)),
             Snap::MixerGroupLock(t, _) => Snap::MixerGroupLock(*t, crate::mixer::group_locked(s, *t)),
             Snap::EqEnabled(t, _) => crate::mixer::track(s, *t).map_or_else(|| self.clone(), |m| Snap::EqEnabled(*t, m.slot_on[usize::from(crate::mini_eq::SLOT)])),
+            Snap::MixerRecording(t,_) => Snap::MixerRecording(*t,crate::recording_pickup::settings(s,*t)),
             Snap::HardwareOutput(t, _) => Snap::HardwareOutput(*t, crate::mixer::track(s, *t).and_then(|m| m.hardware_output.clone())),
             Snap::EqPosition(t,_) => crate::mixer::track(s,*t).map_or_else(||self.clone(),|m|Snap::EqPosition(*t,m.parametric_pre)),
             Snap::DriveType(t,_) => crate::mixer::track(s,*t).map_or_else(||self.clone(),|m|Snap::DriveType(*t,m.strip[6])),
@@ -479,6 +484,7 @@ impl Snap {
         match self {
             Snap::Playlist(_) | Snap::AttachedInstrument{..} => true,
             Snap::Several(v) => v.iter().any(Snap::has_playlist),
+            Snap::WithMixerInsert{edit,..}=>edit.has_playlist(),
             _ => false,
         }
     }
@@ -511,6 +517,7 @@ impl Snap {
                 }
             }
             Snap::Several(v) => v.iter_mut().for_each(|x| x.rescale(from, to)),
+            Snap::WithMixerInsert{edit,..}=>edit.rescale(from,to),
             // A channel or an initial value holds no ticks; a timebase step's are at its own timebase.
             Snap::Knob(..)
             | Snap::ClipFxTargets(..)
@@ -544,6 +551,7 @@ impl Snap {
             | Snap::TuneEnabled(..)
             | Snap::PeakLinks(..)
             | Snap::EqPosition(..)
+            | Snap::MixerRecording(..)
             | Snap::HardwareOutput(..)
             | Snap::EqEnabled(..)
             | Snap::MixerLock(..)
@@ -654,6 +662,10 @@ impl Snap {
             Snap::RackStrips(v) => {for c in v {crate::mixer::put_channel(s,c);}},
             Snap::MixerChannel(c) => crate::mixer::put_channel(s,*c),
             Snap::MixerInsert{n,count,remove,previous,selection}=>{if remove {crate::mixer::undo_insert(s,n,count);}else{crate::mixer::insert_tracks(s,Some(n),count);}s.selected_mixer=previous;s.mixer.sel=selection;},
+            Snap::WithMixerInsert{insert,edit}=>{
+                if matches!(insert.as_ref(),Snap::MixerInsert{remove:true,..}) {edit.put(s);insert.put(s);}
+                else {insert.put(s);edit.put(s);}
+            },
             Snap::MixerMoves{moves,arrangements,lanes}=>{for(from,to)in moves{crate::mixer::reorder(s,from,to,false);}s.project.arrangements=arrangements;s.project.instrument_lanes=lanes;},
             Snap::MixerMove{from,to,arrangements,lanes}=>{crate::mixer::reorder(s,from,to,false);s.project.arrangements=arrangements;s.project.instrument_lanes=lanes;},
             Snap::InstrumentLanes(v)=>s.project.instrument_lanes=v,
@@ -670,6 +682,7 @@ impl Snap {
             Snap::EqEnabled(t, enabled) => {
                 if let Some(m) = crate::mixer::track_mut(s, t) { m.slot_on[usize::from(crate::mini_eq::SLOT)] = enabled; }
             },
+            Snap::MixerRecording(t,r) => {if let Some(m)=crate::mixer::track_mut(s,t){m.recording=r;}},
             Snap::HardwareOutput(t, output) => {
                 if let Some(track) = crate::mixer::track_mut(s, t) { track.hardware_output = output; }
             }

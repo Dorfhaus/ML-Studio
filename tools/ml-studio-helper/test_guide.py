@@ -89,8 +89,87 @@ class GuideTests(unittest.TestCase):
   self.assertIn('First enable',reply)
   self.assertIn('Then press',reply)
   self.assertNotIn('delete',reply)
-  for invalid in ('[999]', 'invented advice', '[]'):
-   chat.generate=lambda *args:invalid
-   self.assertIn('not a verified answer',chat.guide_reply([],source))
+  chat.generate=lambda *args:self.fail('Guide answers must not depend on model selection')
+  self.assertIn('First enable',chat.guide_reply([],source))
+  self.assertIn("couldn't find verified instructions",chat.guide_reply([],[]))
+
+ def test_reported_stock_conversation_uses_correct_guide(self):
+  chat=Chat(1,'test',Path(os.environ['ML_HELPER_GUIDE']))
+  chat.generate=lambda *args:self.fail('These DAW questions must not call the conversational model')
+  for question,expected in [
+   ('how to i route a track to the mixer?', 'TRACK'),
+   ('how do i record a track?', 'input'),
+   ('can i record directly in the playlist?', 'Yes, you can record audio directly'),
+   ('the playlist', 'Yes, you can record audio directly'),
+   ('is there a way to attatch the mixer to the playlist?', 'Click Attach to Playlist'),
+   ('are you even reading the user guide?', 'User Guide loaded')]:
+   with self.subTest(question=question):
+    reply,sources=chat.answer(question)
+    self.assertIn(expected,reply)
+    self.assertNotIn('Insert Multiple Tracks',reply)
+    self.assertNotIn('Upload',reply)
+    self.assertTrue(reply.endswith(('.', '!', '?', ':')),reply)
+
+ def test_new_chat_and_general_conversation_release_guide_context(self):
+  chat=Chat(1,'test',Path(os.environ['ML_HELPER_GUIDE']))
+  chat.generate=lambda *args:'CHAT' if args[2]==48 else 'Hello!'
+  chat.answer('How do I record a track?')
+  self.assertIsNotNone(chat.route('and in the playlist?',chat.history))
+  reply,sources=chat.answer('How are you today?')
+  self.assertEqual(reply,'Hello!');self.assertEqual(sources,[])
+  self.assertIsNone(chat.route('What notes are in a C major chord?',chat.history))
+  chat.answer('How do I record a track?');chat.history.clear()
+  self.assertIsNone(chat.route('how about that?',[]))
+
+ def test_unsupported_feature_and_other_daw_are_not_invented(self):
+  chat=Chat(1,'test',Path(os.environ['ML_HELPER_GUIDE']))
+  chat.generate=lambda *args:self.fail('No ungrounded instructions')
+  reply,sources=chat.answer('How do I enable quantum teleportation in ML Studio?')
+  self.assertIn("couldn't find verified instructions",reply);self.assertEqual(sources,[])
+  reply,sources=chat.answer('How do I record a track in FL Studio?')
+  self.assertIn("can't verify that other DAW",reply);self.assertEqual(sources,[])
+
+ def test_missing_record_control_followups_never_generate_or_loop(self):
+  chat=Chat(1,'test',Path(os.environ['ML_HELPER_GUIDE']))
+  chat.generate=lambda *args:self.fail('Troubleshooting must stay on the guide path')
+  reply,_=chat.answer('can i record audio directly in the playlist?')
+  self.assertIn('off by default',reply)
+  reply,_=chat.answer('i dont see a red record button on the playlist')
+  self.assertIn('Playlist record and instrument buttons',reply)
+  self.assertIn('Attached track record buttons',reply)
+  self.assertIn('It is not an audio-record button',reply)
+  previous=reply
+  reply,sources=chat.answer('i dont see a red recording icon')
+  self.assertNotEqual(reply,previous)
+  self.assertIn("won't repeat",reply);self.assertTrue(sources)
+  for followup in ["I can't find it",'still not showing','that did not work','the option is missing']:
+   with self.subTest(followup=followup):
+    reply,sources=chat.answer(followup)
+    self.assertTrue(sources or "couldn't find" in reply)
+    self.assertNotIn('MIDI Note',reply)
+    if sources:self.assertIn("won't repeat",reply)
+
+ def test_visibility_registry_lookup_and_topic_changes(self):
+  chat=Chat(1,'test',Path(os.environ['ML_HELPER_GUIDE']))
+  for q,expected in [
+   ('Where is the Mixer hardware output selector?', 'Mixer hardware output selector'),
+   ('How do I show the Piano Roll vertical zoom control?', 'Vertical zoom control'),
+   ('Where is the Sampler Mixer track menu?', 'Sampler Mixer track menu')]:
+   self.assertTrue(any(expected in title for title,_ in chat.sources(q)),q)
+  chat.generate=lambda *args:'CHAT' if args[2]==48 else 'Hello!'
+  chat.answer('How do I record a track?')
+  self.assertEqual(chat.answer('How are you today?')[0],'Hello!')
+
+ def test_every_registered_visibility_label_is_retrievable_without_model(self):
+  chat=Chat(1,'test',Path(os.environ['ML_HELPER_GUIDE']))
+  chat.generate=lambda *args:self.fail('Known control label escaped to the model')
+  self.assertGreater(len(chat.visibility_terms),150)
+  for title in chat.visibility_terms:
+   label=title.removeprefix('Visibility: ').rsplit(' (',1)[0]
+   query='I cannot find '+label
+   with self.subTest(label=label):
+    search=chat.route(query,[])
+    self.assertIsNotNone(search)
+    self.assertIn(title,[t for t,_ in chat.sources(search)])
 
 if __name__=='__main__': unittest.main(verbosity=2)

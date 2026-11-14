@@ -29,6 +29,8 @@ pub struct Pending {
     original: Vec<Clip>,
     arrangement: u16,
     master_stem: u16,
+    live_mixer: bool,
+    source: Project,
 }
 fn automation(p: &Project, c: &Clip) -> bool {
     matches!(c.source,ClipSource::Channel(ch) if p.channels.iter().any(|v|v.index==ch&&v.kind==ChannelKind::Automation))
@@ -75,6 +77,7 @@ fn destination(s: &State, row: u16) -> Result<u16, String> {
 fn prepare(s: &State, row: u16, mode: Mode) -> Result<(Project, crate::export::Job, Pending), String> {
     let t = pl::track_info(s, row).ok_or("Track no longer exists")?;
     let freeze = mode == Mode::Freeze;
+    let live_mixer = freeze || !crate::bounce_route::next_free();
     if mode != Mode::BounceNew {
         if t.frozen.is_some() {
             return Err("This track is frozen. Choose Unfreeze track first.".into());
@@ -128,7 +131,7 @@ fn prepare(s: &State, row: u16, mode: Mode) -> Result<(Project, crate::export::J
         p.mixer.push(neutral(0));
     }
     let master_stem = p.mixer.len() as u16;
-    if freeze {
+    if live_mixer {
         // Individual pre-mixer stems: preserve the real mixer, buses, sends and sidechains during playback.
         for m in &mut p.mixer {
             *m = neutral(m.index);
@@ -192,7 +195,8 @@ fn prepare(s: &State, row: u16, mode: Mode) -> Result<(Project, crate::export::J
             }
         }
     }
-    let keep = |t: u32| mixer_target(t).is_none_or(|m| !freeze && m != 0);
+    let keep = |t: u32| mixer_target(t).is_none_or(|m| !live_mixer && m != 0);
+    for pat in &mut p.patterns { pat.controls.retain(|v| keep(v.kind)); }
     for a in &mut p.automations {
         a.targets.retain(|t| keep(*t));
     }
@@ -203,16 +207,16 @@ fn prepare(s: &State, row: u16, mode: Mode) -> Result<(Project, crate::export::J
     let mut job = pr::job(s, &dir, &stem);
     job.span = Some((0, u64::from(end)));
     job.instrument_rows = Some(rows);
-    job.capture_tracks = freeze.then(|| {
+    job.capture_tracks = live_mixer.then(|| {
         p.channels
             .iter()
             .filter(|c| ids.contains(&c.index))
             .map(|c| c.mixer_track as usize)
             .collect()
     });
-    job.options.split = freeze;
+    job.options.split = live_mixer;
     job.options.split_master = false;
-    job.options.insert_fx = !freeze;
+    job.options.insert_fx = !live_mixer;
     job.options.master_fx = false;
     job.track_names = (0..p.mixer.len()).map(|i| format!("Freeze {i}")).collect();
     Ok((
@@ -226,6 +230,8 @@ fn prepare(s: &State, row: u16, mode: Mode) -> Result<(Project, crate::export::J
             original,
             arrangement,
             master_stem,
+            live_mixer,
+            source: s.project.clone(),
         },
     ))
 }
@@ -243,7 +249,7 @@ pub fn unfreeze(s: &mut State, row: u16) -> String {
     "Track unfrozen; original clips restored".into()
 }
 fn place(s: &mut State, p: &Pending, files: &[PathBuf]) -> Result<String, String> {
-    if s.project.arrangement().map(|a| a.number) != Some(p.arrangement)
+    if s.project != p.source || s.project.arrangement().map(|a| a.number) != Some(p.arrangement)
         || pl::track_info(s, p.row) != Some(&p.track)
         || pl::clips(s)
             .iter()
@@ -255,9 +261,10 @@ fn place(s: &mut State, p: &Pending, files: &[PathBuf]) -> Result<String, String
         return Err("The source track changed during rendering. The audio was saved in Rendered; the Playlist was left untouched.".into());
     }
     let freeze = p.mode == Mode::Freeze;
+    let free = if p.live_mixer { None } else { Some(crate::bounce_route::free_insert(s)?) };
     let mut stems = Vec::new();
     for (i, path) in files.iter().enumerate() {
-        let mixer = if freeze {
+        let mixer = if p.live_mixer {
             if i == 0 {
                 continue;
             }
@@ -273,7 +280,7 @@ fn place(s: &mut State, p: &Pending, files: &[PathBuf]) -> Result<String, String
                 m
             }
         } else {
-            0
+            free.unwrap()
         };
         let text = path.to_string_lossy().into_owned();
         let w = s
@@ -284,7 +291,7 @@ fn place(s: &mut State, p: &Pending, files: &[PathBuf]) -> Result<String, String
             .ceil()
             .max(1.0) as u32;
         stems.push((text, mixer, length));
-        if !freeze {
+        if !p.live_mixer {
             break;
         }
     }
@@ -293,12 +300,15 @@ fn place(s: &mut State, p: &Pending, files: &[PathBuf]) -> Result<String, String
     }
     let row = if p.mode == Mode::BounceNew { destination(s, p.row)? } else { p.row };
     let before = crate::history::Snap::Rack(Box::new(crate::history::RackSide::now(s, s.project.channels.len())));
+    let before = crate::history::Snap::Several(vec![before,crate::history::Snap::Tail(Box::new(crate::history::Tail::now(s,s.project.channels.len())))]);
+    let before=crate::bounce_route::with_insert(s,free,before);
     let action = match p.mode {
         Mode::Freeze => "Freeze track",
         Mode::BounceNew => "Bounce audio in new track",
         Mode::BounceReplace => "Bounce and replace track",
     };
     pl::snapshot_with(s, action, before);
+    if let Some(n) = free { crate::bounce_route::ensure(s,n); }
     if p.mode == Mode::BounceNew {
         pl::insert_track(s, row);
         // As when muting a track by hand, end solo without toggling the other track states.
@@ -371,6 +381,26 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn workflow_features_bounce_routing_and_audio() {
+        for free in [false,true] {
+            crate::prefs::set_check(&crate::prefs::BOUNCE_FREE,free);
+            let (mut app,dir)=fixture(if free {"free-route"}else{"original-route"});
+            if free {for m in &mut app.state.project.mixer {m.name=Some(format!("Reserved {}",m.index));}}
+            app.state.project.mixer[1].volume=Some(0.61);
+            app.state.project.mixer[1].pan=Some(0.21);
+            let before=app.state.project.clone();let expected=audio(&crate::rack::play_project(&app.state));
+            app.render_track(0,Mode::BounceReplace);finish(&mut app);
+            let route=app.state.project.channels.last().unwrap().mixer_track;
+            if free {assert!(route>0 && route!=1);}else{assert_eq!(route,1);}
+            let got=audio(&crate::rack::play_project(&app.state));
+            assert!(expected.iter().zip(got).all(|(a,b)|(a-b).abs()<0.0001),"effects must be applied once");
+            crate::history::undo(&mut app.state).unwrap();assert_eq!(app.state.project.channels,before.channels);assert_eq!(app.state.project.mixer,before.mixer);assert_eq!(app.state.project.arrangements,before.arrangements);
+            crate::history::redo(&mut app.state).unwrap();assert_eq!(app.state.project.channels.last().unwrap().mixer_track,route);
+            let _=std::fs::remove_dir_all(dir);
+        }
+        crate::prefs::set_check(&crate::prefs::BOUNCE_FREE,false);
+    }
     fn fixture(tag: &str) -> (App, PathBuf) {
         let mut app = App::new(None);
         app.state.project = crate::app::test_project();
@@ -652,6 +682,9 @@ mod tests {
             .collect();
         assert_eq!(routes, vec![1, 2], "{:?}", app.state.message);
         assert!(app.state.project.frozen_instrument_rows().contains(&1));
+        let rendered=app.state.project.channels.clone();
+        crate::history::undo(&mut app.state).unwrap();assert_eq!(app.state.project.channels.len(),5);assert_eq!(pl::clips(&app.state),original);
+        crate::history::redo(&mut app.state).unwrap();assert_eq!(app.state.project.channels,rendered);
         unfreeze(&mut app.state, 0);
         assert_eq!(pl::clips(&app.state), original);
         assert!(app.state.project.frozen_instrument_rows().is_empty());

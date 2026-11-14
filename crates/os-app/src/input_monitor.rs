@@ -37,6 +37,7 @@ impl Read {
     }
 }
 pub struct Monitor {
+    audible: AtomicBool,
     on: AtomicBool,
     asio: AtomicBool,
     first: AtomicU32,
@@ -52,6 +53,7 @@ pub struct Monitor {
 impl Monitor {
     fn new() -> Self {
         Self {
+            audible:AtomicBool::new(true),
             on: AtomicBool::new(false),
             asio: AtomicBool::new(true),
             first: AtomicU32::new(0),
@@ -204,6 +206,10 @@ pub fn push_all(asio: bool, rate: u32, frames: usize, at: impl Fn(usize,usize)->
     monitor().push(asio,rate,frames,&at);
     for m in EXTRA_MONITORS.iter().filter_map(OnceLock::get) { m.push(asio,rate,frames,&at); }
 }
+pub fn audible(track:usize)->bool {
+    std::iter::once(monitor()).chain(EXTRA_MONITORS.iter().filter_map(OnceLock::get))
+        .find(|m|m.on() && m.track.load(Ordering::Relaxed) as usize==track).is_none_or(|m|m.audible.load(Ordering::Relaxed))
+}
 pub fn render_all(rate: u32, tracks: &mut [Vec<f32>], owner:u64) {
     monitor().render_owned(rate,tracks,owner);
     for m in EXTRA_MONITORS.iter().filter_map(OnceLock::get) { m.render_owned(rate,tracks,owner); }
@@ -261,16 +267,13 @@ impl crate::app::App {
         if crate::transport::is_headless() {
             return Ok(());
         }
-        let wanted = self.state.mixer.recording.armed.first().copied().and_then(|t| {
-            self.state
-                .mixer
-                .recording
-                .inputs
-                .get(&t)
-                .cloned()
-                .map(|i| (t, i))
-        });
-        let all: Vec<_> = self.state.mixer.recording.armed.iter().filter_map(|&t| self.state.mixer.recording.inputs.get(&t).cloned().map(|i|(t,i))).collect();
+        for m in std::iter::once(monitor()).chain(EXTRA_MONITORS.iter().filter_map(OnceLock::get)) {
+            let t=m.track.load(Ordering::Relaxed) as u16;
+            m.audible.store(crate::recording_pickup::settings(&self.state,t).monitor.audible(self.state.mixer.recording.armed.contains(&t)),Ordering::Relaxed);
+        }
+        let mut all: Vec<_> = self.state.mixer.recording.inputs.iter().filter(|(t,_)| self.state.mixer.recording.armed.contains(t) || crate::recording_pickup::settings(&self.state,**t).monitor==os_model::InputMonitoring::On).map(|(&t,i)|(t,i.clone())).collect();
+        all.sort_by_key(|(t,_)|*t);
+        let wanted=all.first().cloned();
         let config = crate::audio_cfg::AudioCfg::current();
         if self.input_monitor.selected == wanted && self.input_monitor.monitored == all
             && self.input_monitor.config.as_ref() == Some(&config)
@@ -323,13 +326,15 @@ impl crate::app::App {
             self.input_monitor.rate = stream.as_ref().map(|s| s.rate);
             self.input_monitor.stream = stream;
             monitor().start(track, &input);
+            monitor().audible.store(crate::recording_pickup::settings(&self.state,track).monitor.audible(self.state.mixer.recording.armed.contains(&track)),Ordering::Relaxed);
             let available = self.input_monitor.channels().or_else(|| self.transport.opened().map(|d| d.inputs));
             for (k,(t,i)) in all.iter().skip(1).enumerate() {
                 if k >= EXTRA_MONITORS.len() || i.device != input.device || i.asio != input.asio || available.is_some_and(|n| i.first+u16::from(i.stereo)>=n) {
                     stop_all();
                     return self.input_monitor.fail("An armed input is unavailable on the selected interface".into());
                 }
-                EXTRA_MONITORS[k].get_or_init(Monitor::new).start(*t,i);
+                let m=EXTRA_MONITORS[k].get_or_init(Monitor::new);m.start(*t,i);
+                m.audible.store(crate::recording_pickup::settings(&self.state,*t).monitor.audible(self.state.mixer.recording.armed.contains(t)),Ordering::Relaxed);
             }
             self.sync_live();
         }

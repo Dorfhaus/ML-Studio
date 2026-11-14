@@ -34,6 +34,7 @@ pub enum MHit {
     AttachedSlotScroll(usize),
     AttachedAddSlot(usize),
     Input(u16),
+    RecordingPickup(u16),
     HardwareOutput(u16),
     Disk(u16),
     /// Anywhere on a strip that is not a control.
@@ -146,6 +147,8 @@ pub enum MCmd {
     Detach,
     DriveType(u16,u8),
     RecordInput(u16,Option<crate::capture::Input>),
+    RecordingPoint(u16,os_model::RecordingPoint),
+    InputMonitoring(u16,os_model::InputMonitoring),
     HardwareOutput(u16, Option<os_model::HardwareOutput>),
     PlaylistInput(u16,Option<crate::capture::Input>),
     PlaylistInstrument(u16,u16),
@@ -679,6 +682,7 @@ pub fn hit(app: &mut App, h: MHit) -> Option<String> {
             set_layout(s, mode);
             None
         }
+        MHit::RecordingPickup(t)=>{s.playlist.popup=Some(crate::recording_pickup::menu(s,t,at.0,at.1+10.));None}
         MHit::Input(t)=>{s.playlist.popup=Some(crate::mixer_recording::input_menu(s,t,at.0,at.1+10.));None}
         MHit::HardwareOutput(t) => {
             s.playlist.popup = Some(hardware_output_menu(s, t, at, crate::device::current_output()));
@@ -2004,6 +2008,8 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
         MCmd::SaveEffectChain(track) => return crate::plugin_picker::chains::capture(app, track),
         MCmd::AttachPlaylist=>{crate::attached_mixer::toggle(app);return None;},
         MCmd::Detach=>{app.act(Action::DetachWin(Win::Mixer));return None;},
+        MCmd::RecordingPoint(t,p)=>return crate::recording_pickup::change(app,t,Some(p),None),
+        MCmd::InputMonitoring(t,m)=>return crate::recording_pickup::change(app,t,None,Some(m)),
         MCmd::RecordInput(t,i)=>return app.set_mixer_input(t,i),
         MCmd::PlaylistInput(row,i)=>return crate::playlist_tracks::set_input(app,row,i),
         MCmd::PlaylistInstrument(row,id)=>return crate::playlist_tracks::choose_instrument(app,row,id),
@@ -2029,7 +2035,7 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
             None
         }
         MCmd::AttachedSelect(n)=>{select(s,n,false);None},
-        MCmd::RecordInput(..)|MCmd::PlaylistInput(..)|MCmd::PlaylistInstrument(..)|MCmd::ArmDisk(_)|MCmd::ToggleLock(_)|MCmd::ToggleGroupLock(_)=>None,
+        MCmd::RecordingPoint(..)|MCmd::InputMonitoring(..)|MCmd::RecordInput(..)|MCmd::PlaylistInput(..)|MCmd::PlaylistInstrument(..)|MCmd::ArmDisk(_)|MCmd::ToggleLock(_)|MCmd::ToggleGroupLock(_)=>None,
         MCmd::TuneSetting(n,k,v)=>{
             if !(1..=3).contains(&k) {return None;}
             let old=track(s,n)?.tune;

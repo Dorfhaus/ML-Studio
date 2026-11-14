@@ -1,7 +1,667 @@
 {
-  "generated_articles": 214,
-  "guide_articles": 444,
+  "generated_articles": 381,
+  "guide_articles": 624,
   "records": [
+    {
+      "title": "Visibility: Host and join sessions (Collaboration)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Hint panel (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Hint panel MIDI light (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Time display (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Output monitor (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Recording options (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Automation recording mode (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Automation clip recording option (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mode buttons (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Utility buttons (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Main volume (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Varispeed (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Song position (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Global snap (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Pattern picker (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Toolbar logo (Toolbar panels)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Open-window highlights (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Playlist shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Piano Roll shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Channel Rack shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Browser shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Project Picker shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Plugin Picker shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Tempo Tapper shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Touch Controller shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: MCP activity orb (Editor feedback)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Selected effect sidechain source (Editor feedback)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Detected sample tempo dialog (Editor feedback)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Elastic scrollbars (Editor feedback)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Adaptive horizontal scrollbars (Editor feedback)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Interface language (Language)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Traditional insert knob settings (Theme customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Area color adjustments (Theme customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Typing keyboard octave menu (Input customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: MIDI controller setup (Input customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Smart disable setting (Input customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Advanced audio settings (Input customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Custom action buttons (Input customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Ctrl/Cmd+Shift drag range selection (Input customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: CPU and live monitor (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vintage CPU meter (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vintage output scope (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vintage sync and MIDI lights (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: AI control button when inactive (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Local Voice Assistant (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Tesla shortcut (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Lemon Tape in plugin menus (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Lemon Hall in plugin menus (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: ML Plasma in plugin menus (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Tesla time stretch and pitch shift (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Tesla audio cleanup / Playlist cleanup action (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Update button (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Donate button (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Report a Bug button (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Empty-space file actions (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Plugin Downloads tab (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Plugin Downloads filters and favorites (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Favorites tab (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Sample preview panel (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: File information panel (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector EQ (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector insert effects (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector sends (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector fader and strip (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector input selector (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector add slot button (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector routing button (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Inspector FX bypass button (Attached mixer inspector)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Instrument keyboard and note activity (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Sample drop choices (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Track drag destination (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Playlist clip brightness (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vocal tuning button (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Audio warp editor (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Audio timing detection sensitivity (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Attached mixer inspector (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Attach to Playlist button in Mixer (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Attached track record buttons (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Playlist record and instrument buttons (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip pitch and timing history (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Drag audio clip routing to Mixer (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Preview audio timing in Playlist playback (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Arrangement mini-map (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Follow new clips at the timeline end (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Playlist scrollbar style (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Bounce audio menu (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Bounce routing preference (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Fit dropped samples preference (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Audio clip waveforms (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Stretch button (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Comping button (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip picker preview buttons (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip Picker preview loop switch (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip Picker resize handle (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip picker usage filters (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip picker color strips (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clips picker button (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Add instrument button (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Clip color picker and custom swatches (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vocal Align command (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vocal Align review markers (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Keyboard width menu (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vertical zoom control (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Zoom shortcut setting (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Note mini-map (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Ghost notes from other channels (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Tools menu shortcut (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Chord Workspace shortcut (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Undo button (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Place Pattern to Playlist button (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer routing menu (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Live MIDI note glow (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Loop mode button (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Graph editor shortcut (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Channel selection outline (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Effect bypass button (Plugin windows)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Detach button (Plugin windows)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Sampler note effects (Plugin windows)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Sampler Mixer track menu (Plugin windows)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Effect Chain multi-selection and dragging (Plugin Picker)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: SSL 360 Link in Channel Strip picker (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer recording pickup button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer channel lock buttons (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Group lock option in Mixer padlock menu (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Insert Multiple Tracks menu item (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Delete extra effect slots button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer section shortcuts (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Stereo separation on Full Mixer strips (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Scroll to Drums button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Scroll to Instruments button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Scroll to Vocals button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Scroll to Effects button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Scroll to Buses button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Routing cables (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Channel meters (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer drag handles (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mini EQ panel (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mixer hardware output selector (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mini EQ bypass button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: File management actions (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Custom window layout menu (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Double-click resets faders and knobs (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Open menus on hover (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Advanced Export tab (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: User Guide menu item (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: ML Studio Helper companion (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: User Guide: Detach button (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Change Log (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: User Guide: Show me where (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Background logo and version (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vintage 0 dB markers (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vintage startup sound (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Theme tab (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Project tab (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Info tab (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Debug tab (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: About tab (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Menus tab and customization shortcut (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Controls tab (Settings tabs)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Band controls card (ML EQ)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Band overview and quick actions (ML EQ)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Right-click modulation controls (ML Wave)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Phase FM and ring modulation controls (ML Wave)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Plasma wavetable library (ML Wave)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
     {
       "title": "Setting: Main GUI scaling",
       "source": "crates/os-app/src/prefs.rs"
@@ -352,6 +1012,14 @@
     },
     {
       "title": "Setting: Open menus on hover",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Bounce to next free Mixer insert",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Fit dropped Playlist samples to project tempo",
       "source": "crates/os-app/src/prefs.rs"
     },
     {
@@ -861,8 +1529,8 @@
   ],
   "explicit_exclusions": {
     "settings_comments_needing_reverification": 16,
-    "dynamic_or_nonliteral_hints": 543,
-    "dynamic_menu_labels": 200
+    "dynamic_or_nonliteral_hints": 544,
+    "dynamic_menu_labels": 202
   },
   "scope": "Static preference declarations, direct editor hints, literal menu labels, configurable command shortcuts and constructor parameter names. Dynamic controls and behavioral completeness require manual review; catalog presence is not a claim that every feature is fully documented."
 }

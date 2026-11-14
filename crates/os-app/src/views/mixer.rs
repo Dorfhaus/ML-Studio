@@ -32,6 +32,11 @@ mod vintage_compact;
 // Includes the remove-send arrow above the send knob and the space beside both.
 const ROUTING_DECK_H: f32 = 64.;
 
+fn drag_handle(ui:&mut Ui,n:u16,r:Rect) {
+    ui.hit(r,Action::Mix(MHit::Strip(n)),"Drag to move this Mixer insert or the selected group. Escape cancels.");
+    for y in [-2.,0.,2.] {ui.c.fill_rect(Rect::new(r.cx()-3.,r.cy()+y,6.,1.),ui.t.text_dim);}
+}
+
 fn insertion_button(ui:&mut Ui,s:&State,area:Rect,selection_bottom:f32,n:u16,x:f32){
         let h = selection_bottom - area.y;
         if h<=20. || x<area.x || x>area.right()-10.0 {return;}
@@ -700,6 +705,9 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
     }
 
     if vertical {
+        if crate::workspace_visibility::shown("visible_mixer-drag-handles") {
+            drag_handle(ui,n,Rect::new(left+2.,ly.y(HEAD_Y0),10.,20.));
+        }
         let pane=vertical_rect(left,width,ly);
         console_skin::panel(ui,Rect::new(left,pane.bottom()+1.,width,bottom-pane.bottom()-17.),body,selected && t.style.vintage_2005);
         let deck=Rect::new(kx-(width-8.).min(112.)/2.,ly.y(LED_Y)-10.,(width-8.).min(112.),bottom-ly.y(LED_Y)-8.);
@@ -755,6 +763,9 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
         ui.c.fill_rect(Rect::new(left + 4.0, ly.y(PANEL_Y1) + 2.0, width - 8.0, 3.0), accent);
     }
     let name_rect = Rect::new(left + 5.0, if standard {ly.y(PANEL_Y0)+5.}else{meter.bottom()+5.}, width - 10.0, 18.0);
+    let handle=n>0 && !attached && crate::workspace_visibility::shown("visible_mixer-drag-handles");
+    if handle {drag_handle(ui,n,Rect::new(name_rect.x,name_rect.y,10.,name_rect.h));}
+    let name_rect=if handle {Rect::new(name_rect.x+11.,name_rect.y,(name_rect.w-11.).max(1.),name_rect.h)}else{name_rect};
     if !attached {
     if vintage_full {
         crate::vintage::recess(ui.c, name_rect, Color::rgb(0x435055));
@@ -1374,11 +1385,14 @@ fn attached_inspector_body(
     ui.c.text_clip(Font::new(13).bold(), inset.x+11., name.y+2., inset.w-27., t.text, &mx::name(s,n));
     chevron(ui, name.right()-9., name.cy(), true, t.text_dim);
     if input {
+        let pickup=crate::workspace_visibility::shown(crate::recording_pickup::VISIBILITY);
+        let gap=if pickup {29.}else{0.};
+        crate::recording_pickup::button(ui,s,n,Rect::new(inset.x,outer.y+49.,25.,19.));
         let label = s.mixer.recording.inputs.get(&n).map(|i|i.label()).unwrap_or_else(||"Choose input".into());
         if !attached::projection(s).buses.contains(&n) {
-            attached_button(ui, Rect::new(inset.x, outer.y+49., inset.w, 19.), &label, Action::Mix(MHit::Input(n)), false);
+            attached_button(ui, Rect::new(inset.x+gap, outer.y+49., inset.w-gap, 19.), &label, Action::Mix(MHit::Input(n)), false);
         } else {
-            ui.c.text(Font::new(10), inset.x+3., outer.y+52., t.text_dim, "BUS / OUTPUT");
+            ui.c.text(Font::new(10), inset.x+gap+3., outer.y+52., t.text_dim, "BUS / OUTPUT");
         }
     }
     let mut y = outer.y + header_height;
@@ -1557,10 +1571,7 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
     // Recording input selector above the effects.
     let input_bg = ui.t.s(0x2b2e30);
     ui.c.fill_rect(Rect::new(r.x, r.y + 23.0, r.w, 36.0), input_bg);
-    let mut g = Glyph::new();
-    g.polygon(&[(r.x + 7.0, r.y + 32.0), (r.x + 13.0, r.y + 32.0), (r.x + 18.0, r.y + 37.5), (r.x + 13.0, r.y + 43.0), (r.x + 7.0, r.y + 43.0)]);
-    ui.c.glyph(ui.t.s(0x40464a), &g);
-    ui.c.text(console_font(ui,s,9).bold(), r.x + 6.0, r.y + 43.0, ui.t.s(0x40464a), "EQ");
+    crate::recording_pickup::button(ui,s,n,Rect::new(r.x+2.,r.y+28.,25.,23.));
     let combo=Rect::new(r.x+27.,r.y+28.,159.,23.);
     let label=s.mixer.recording.inputs.get(&n).map(|i|format!("{} - {}",i.label(),i.device)).unwrap_or_else(||"(none)".into());
     let hov=ui.hit(combo,Action::Mix(MHit::Input(n)),format!("Audio input: {label}. Selecting an input arms audio recording"));

@@ -572,11 +572,17 @@ pub const MUTING_CHANNEL: Number = Number { key: "midi_muting_channel", label: "
 
 /// The declared checks.
 pub const DOUBLE_CLICK_RESET: Check = Check { key: "double_click_reset", label: "Double-click resets faders and knobs", default: false };
-pub const HOVER_MENUS: Check = Check { key: "hover_main_menus", label: "Open menus on hover", default: false };
+pub const HOVER_MENUS: Check = Check { key: "hover_main_menus", label: "Open menus on hover", default: true };
+/// General > Input: bounces otherwise keep their original Mixer processing live.
+pub const BOUNCE_FREE: Check = Check { key: "bounce_to_free_mixer", label: "Bounce to next free Mixer insert", default: false };
+/// General > Input: apply source-tempo detection when importing Playlist audio.
+pub const FIT_DROPS: Check = Check { key: "playlist_fit_sample_drops", label: "Fit dropped Playlist samples to project tempo", default: false };
 
 pub const CHECKS: &[&Check] = &[
     &DOUBLE_CLICK_RESET,
     &HOVER_MENUS,
+    &BOUNCE_FREE,
+    &FIT_DROPS,
     &RESTORE_AFTER_SOLO,
     &SELECT_FIRST_CHANNEL,
     &AUTO_ZOOM_PIANO,

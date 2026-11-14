@@ -934,6 +934,12 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                 if crate::workspace_visibility::shown("visible_hover-main-menus") {
                     rows.push(Check(crate::prefs::HOVER_MENUS.label, false));
                 }
+                if crate::workspace_visibility::shown("visible_bounce-route-setting") {
+                    rows.push(Check(crate::prefs::BOUNCE_FREE.label, false));
+                }
+                if crate::workspace_visibility::shown("visible_playlist-fit-drops-setting") {
+                    rows.push(Check(crate::prefs::FIT_DROPS.label, false));
+                }
                 rows.extend([
                     Check("Click-and-hold & special gesture functions", false),
                     Check("Use both mouse buttons in step sequencer", false),

@@ -4,6 +4,20 @@
   "sections": [
     {
       "date": "2026-11-14",
+      "title": "Bounce routing, sample fitting, Mixer dragging and a more helpful Melli \u00b7 public build 2026111403",
+      "changes": [
+        "Bounced Playlist tracks and instruments now keep their original Mixer routing by default, leaving Mixer effects live. An optional setting prints the processing and routes the bounce to a clean free insert, with undo and redo support.",
+        "Added optional automatic project-tempo fitting for samples dropped into the Playlist, using filename BPM or detected rhythm. Unrecognized material keeps its original speed.",
+        "Added visible drag handles across Mixer layouts, clearer insertion markers and cancellation when dropping outside the Mixer. Selected insert groups keep their routing when moved.",
+        "Windows Open and Save dialogs now offer Explorer context menus and file copy, cut and paste shortcuts. Added F2 file/folder renaming with collision protection on all platforms.",
+        "Menus open on hover by default for new profiles. Existing saved choices remain respected; the option is available under General > Input.",
+        "Added six Mixer recording pickup points and Off, When armed and On input-monitoring modes, with per-channel saved settings and undo support.",
+        "Fixed Melli sending basic ML Studio routing and recording questions into generic conversation. Follow-up questions about missing controls now retain guide context instead of inventing buttons.",
+        "Expanded the bundled User Guide to 624 articles, including every Workspace Visibility switch, missing-control troubleshooting and detailed documentation for the new workflows. Added visibility controls for the new preferences, Mixer grips and file-management actions."
+      ]
+    },
+    {
+      "date": "2026-11-14",
       "title": "Meet Melli, deeper help and smoother editing \u00b7 public build 2026111402",
       "changes": [
         "Added Help > ML Studio Helper (Melli), an optional animated offline companion with a speech bubble, conversational personality and guide-backed answers. Download and install its model and runtime from inside the app; no separate Python setup or account is required. Packages cover Windows x64, Linux x64 and both Mac architectures (Helper requires macOS 14+).",

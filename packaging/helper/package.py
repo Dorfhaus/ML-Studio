@@ -4,7 +4,7 @@ import argparse, hashlib, json, os, posixpath, shutil, stat, tarfile, urllib.req
 ROOT=Path(__file__).resolve().parents[2]
 LOCK=Path(__file__).with_name('sources.json')
 PLATFORMS=['windows','linux','mac-arm64','mac-x86_64']
-VERSION=2
+VERSION=4
 
 def sha(path):
  h=hashlib.sha256()

@@ -2411,6 +2411,13 @@ struct Ctl {
 static INPUT_OWNER: AtomicU64 = AtomicU64::new(1);
 struct DeviceInput { shared: Arc<Shared>, ctl: Arc<Ctl>, kind: Kind, owner: u64 }
 impl os_engine::engine::MixerInput for DeviceInput {
+    fn monitor_external(&self,track:usize)->bool {crate::input_monitor::audible(track)}
+    fn recording_point(&self,track:usize)->Option<os_model::RecordingPoint> {
+        if self.kind!=Kind::Song || self.ctl.paused.load(Ordering::Relaxed) || self.ctl.held.load(Ordering::Relaxed) {None}else{crate::recording_pickup::point(track)}
+    }
+    fn record(&mut self,track:usize,rate:u32,song:&os_engine::TransportInfo,delay:u32,audio:&[f32]) {
+        if self.recording_point(track).is_some() && song.playing {crate::recording_pickup::push(track,rate,song.frame,delay,audio);}
+    }
     fn render(&mut self, rate: u32, tracks: &mut [Vec<f32>]) {
         if self.ctl.paused.load(Ordering::Relaxed) { return; }
         let playing = self.shared.state.load(Ordering::Acquire) == PLAYING;

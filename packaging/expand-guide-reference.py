@@ -45,6 +45,46 @@ def readable(name):
  name=name.replace('lemon-','').replace('_',' ').replace('-',' ')
  return aliases.get(name,name.title())
 
+def visibility_rows():
+ # Read actual labels, including referenced preference and inspector labels.
+ path=ROOT/'crates/os-app/src/workspace_visibility.rs'
+ source=clean(path.read_text(encoding='utf-8'))
+ if 'key != "visible_settings-debug"&&key!=crate::playlist_tracks::VISIBILITY' not in source:
+  raise ValueError('Review changed visibility defaults before exporting the guide')
+ def label(expr):
+  direct=literal(expr)
+  if direct is not None:return direct
+  parts=expr.removesuffix('.label').split('::')
+  if parts[0]!='crate':raise ValueError('Unresolved visibility label: '+expr)
+  file=ROOT/'crates/os-app/src'/('/'.join(parts[1:-1])+'.rs')
+  text=file.read_text(encoding='utf-8')
+  definition=re.search(r'\bconst\s+'+re.escape(parts[-1])+r'\s*:[^=]+?=\s*(.*?);',text,re.S)
+  if not definition:raise ValueError('Unresolved visibility label: '+expr)
+  value=definition[1]
+  if expr.endswith('.label'):
+   match=re.search(r'\blabel:\s*('+STR+')',value)
+   if not match:raise ValueError(expr)
+   return decode(match[1])
+  result=literal(value)
+  if result is None:raise ValueError(expr)
+  return result
+ registry=source.split('pub(crate) const RESET:')[0]
+ for match in re.finditer(r'^    \(',registry,re.M):
+  args=call_args(registry,match.end())
+  if not args or len(args)<2:raise ValueError('Invalid visibility group')
+  group=literal(args[0]);rows=args[1]
+  if group is None:raise ValueError(args[0])
+  if rows=='crate::attached_mixer::INSPECTOR_VISIBILITY':
+   text=(ROOT/'crates/os-app/src/attached_mixer.rs').read_text(encoding='utf-8')
+   rows=text.split('const INSPECTOR_VISIBILITY:')[1].split('];')[0].split('=')[1]
+  elif not rows.startswith('&['):raise ValueError('Unresolved visibility group: '+rows)
+  for row in re.finditer(r'\(\s*(?:"|crate::)',rows):
+   fields=call_args(rows,row.start()+1)
+   if not fields or len(fields)!=2:raise ValueError('Invalid visibility row')
+   name=label(fields[0]);key=fields[1]
+   default=key not in ('"visible_settings-debug"','crate::playlist_tracks::VISIBILITY')
+   yield group,name,default
+
 def generate():
  original=GUIDE.read_text(encoding='utf-8-sig').split(MARK)[0].rstrip()
  pages=[];records=[];skipped=collections.Counter()
@@ -53,6 +93,14 @@ def generate():
   body='\n'.join(line.rstrip() for line in body.splitlines() if line.strip()!='-')
   pages.append('### '+title+'\nKeywords: '+title.lower()+' reference controls options settings\n'+body+'\n')
   records.append({'title':title,'source':src})
+ # Visibility is a prerequisite, distinct from turning a feature on.
+ for group,label,default in visibility_rows():
+  body=(f'To show or hide **{label}**, open **Settings > Visibility > {group} > {label}**. '
+        f'The default visibility is **{"on" if default else "off"}**. This choice is saved per profile. '
+        'Settings > General > Workspace Visibility > Choose what to show opens the same controls.\n'
+        'Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. '
+        'Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.')
+  article('Visibility: '+label+' ('+group+')',body,'crates/os-app/src/workspace_visibility.rs')
  # Each setting has its own retrievable article and exact allowed values.
  for path in [ROOT/'crates/os-app/src/prefs.rs',ROOT/'crates/os-app/src/shortcuts.rs']:
   s=path.read_text(encoding='utf-8')

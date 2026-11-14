@@ -365,6 +365,20 @@ enum FileKey {
 
 fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool, shift: bool) -> FileKey {
     use NamedKey as N;
+    #[cfg(windows)]
+    if f.list_focus && !f.filter_open && !alt && crate::workspace_visibility::shown("visible_file-management") {
+        let action=match key {
+            Key::Character(c) if ctrl && c.eq_ignore_ascii_case("c")=>Some((false,"copy")),
+            Key::Character(c) if ctrl && c.eq_ignore_ascii_case("x")=>Some((false,"cut")),
+            Key::Character(c) if ctrl && c.eq_ignore_ascii_case("v")=>Some((true,"paste")),
+            Key::Named(N::Delete) if !ctrl && !shift=>Some((false,"delete")),
+            _=>None,
+        };
+        if let Some((background,verb))=action {f.explorer_action(background,Some(verb));return FileKey::Nothing;}
+        if matches!(key,Key::Named(N::ContextMenu)) || (shift && matches!(key,Key::Named(N::F10))) {
+            f.explorer_action(f.sel.is_none(),None);return FileKey::Nothing;
+        }
+    }
     if f.filter_open {
         match key {
             Key::Named(N::Escape | N::Enter) => f.filter_open = false,
@@ -383,6 +397,8 @@ fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool, shift: bool) -> F
             f.focus = Focus::Path; f.list_focus = false; f.path.select_all();
         }
         Key::Character(c) if ctrl && shift && !alt && c.eq_ignore_ascii_case("n") => f.new_folder(),
+        Key::Named(N::F2) if f.list_focus && crate::workspace_visibility::shown("visible_file-management") => f.begin_rename(),
+        Key::Named(N::Escape) if f.cancel_rename() => {},
         Key::Named(N::Escape) => return FileKey::Cancel,
         Key::Named(N::Enter) if f.focus == Focus::Path => f.path_enter(),
         Key::Named(N::Enter) => return FileKey::Outcome(f.accept()),
@@ -419,6 +435,21 @@ fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool, shift: bool) -> F
 }
 
 impl App {
+    pub(crate) fn file_context_menu(&mut self) {
+        if !crate::workspace_visibility::shown("visible_file-management") {return;}
+        #[cfg(windows)]
+        {
+            let action=self.top_hit(self.mouse.0,self.mouse.1).map(|h|h.action.clone());
+            if let Some(Modal{body:Body::File(f),..})=self.state.dialogs.last_mut() {
+                match action {
+                    Some(Action::Dlg(DHit::Row(i)))=>{f.select(i);f.explorer_action(false,None);}
+                    Some(Action::Dlg(DHit::List))=>{f.sel=None;f.explorer_action(true,None);}
+                    _=>return,
+                }
+                self.invalidate();
+            }
+        }
+    }
     /// A dialog is open: it takes every click, key, wheel turn and drop.
     pub fn modal_open(&self) -> bool {
         !self.state.dialogs.is_empty()

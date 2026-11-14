@@ -89,29 +89,47 @@ mod win {
 
 #[cfg(windows)]
 pub(crate) fn shell_menu(path: &Path) -> Result<(), String> {
+    shell_action(path,false,None)
+}
+
+#[cfg(windows)]
+pub(crate) fn shell_action(path: &Path, background:bool, verb:Option<&str>) -> Result<(), String> {
     use windows::core::{PCSTR, PCWSTR};
     use windows::Win32::{
         Foundation::POINT,
         System::Com::CoTaskMemFree,
         UI::{Shell::*, WindowsAndMessaging::*},
     };
-    if !path.is_file() {
-        return Err("Locate the sample before opening its shell menu".into());
+    if !path.is_absolute() || !path.exists() {
+        return Err("Locate this item before opening its Explorer actions".into());
     }
+    let verb=verb.map(std::ffi::CString::new).transpose().map_err(|e|e.to_string())?;
     let wide = win::wide(path);
     win::apartment(move || unsafe {
         let owner = GetForegroundWindow();
         let mut full = std::ptr::null_mut();
         SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut full, 0, None)?;
         let result = (|| {
-            let mut child = std::ptr::null_mut();
-            let folder: IShellFolder = SHBindToParent(full, Some(&mut child))?;
-            let context: IContextMenu = folder.GetUIObjectOf(owner, &[child as *const _], None)?;
+            let context: IContextMenu = if background {
+                let desktop=SHGetDesktopFolder()?;
+                let folder:IShellFolder=desktop.BindToObject(full,None)?;
+                folder.CreateViewObject(owner)?
+            } else {
+                let mut child = std::ptr::null_mut();
+                let folder: IShellFolder = SHBindToParent(full, Some(&mut child))?;
+                folder.GetUIObjectOf(owner, &[child as *const _], None)?
+            };
             let menu = CreatePopupMenu()?;
             let result = (|| {
                 context
                     .QueryContextMenu(menu, 0, 1, 0x7fff, CMF_NORMAL)
                     .ok()?;
+                if let Some(verb)=&verb {
+                    return context.InvokeCommand(&CMINVOKECOMMANDINFO {
+                        cbSize:std::mem::size_of::<CMINVOKECOMMANDINFO>() as u32,
+                        hwnd:owner,lpVerb:PCSTR(verb.as_ptr().cast()),nShow:1,..Default::default()
+                    });
+                }
                 let mut pos = POINT::default();
                 GetCursorPos(&mut pos)?;
                 let id = TrackPopupMenu(

@@ -7,7 +7,7 @@ pub struct Pending { row: usize, source: Project, host: Option<(usize, Vec<u8>)>
 fn channel_level(t: u32, id: u16) -> bool {
     matches!(os_model::target::decode(t), os_model::target::Target::ChannelVolume(c) | os_model::target::Target::ChannelPan(c) if c == id)
 }
-fn mixer_target(t:u32)->Option<u16> {
+pub(crate) fn mixer_target(t:u32)->Option<u16> {
     use os_model::target::Target::*;
     match os_model::target::decode(t) {MixerVolume(t)|MixerPan(t)|MixerSeparation(t)|MixerEq(t,..)|MixerStrip(t,..)|MixerSend(t,..)|SlotOn(t,..)|SlotMix(t,..)|SlotParam(t,..)=>Some(t),_=>None}
 }
@@ -73,6 +73,7 @@ fn prepare(s: &State, row: usize, wet: bool) -> Result<(Project, crate::export::
 impl App {
     pub(crate) fn consolidate_channel(&mut self,row:usize) { self.bounce_channel(row,false); }
     pub(crate) fn bounce_channel(&mut self,row:usize,wet:bool) {
+        let wet = wet && crate::bounce_route::next_free();
         if let Err(e)=crate::clip_effects::normalize(self){self.state.message=Some(e);self.invalidate();return;}
         if self.export.is_some() {return;}
         match prepare(&self.state,row,wet) {
@@ -98,6 +99,7 @@ impl App {
             let wave=self.state.playlist.wave(&text).ok_or("Cannot read rendered audio")?;
             let length=(wave.secs()*self.state.project.tick_tempo(self.state.tempo)*self.state.project.ppq as f64/60.).ceil() as u32;
             let s=&mut self.state;
+            let free=if p.wet {Some(crate::bounce_route::free_insert(s)?)} else {None};
             let mut changes=vec![Snap::Replace(Box::new(Replaced{row:p.row,ch:s.project.channels[p.row].clone(),host:p.host.map(|(i,b)|(i,Some(b))),other:None})),Snap::Patterns{patterns:s.project.patterns.clone(),current:s.pattern}, Snap::Tail(Box::new(history::Tail::now(s,s.project.channels.len())))];
             let id=s.project.channels[p.row].index;
             let archived_id=s.project.channels.iter().map(|c|c.index).max().unwrap_or(0).checked_add(1).ok_or("Channel limit reached")?;
@@ -107,8 +109,9 @@ impl App {
                     changes.push(Snap::Init((u32::from(archived_id)<<16)|(v.target&0xffff),None));
                 }
             }
-            let before=Snap::Several(changes);
+            let before=crate::bounce_route::with_insert(s,free,Snap::Several(changes));
             pl::snapshot_with(s,"Consolidate channel",before);
+            if let Some(n)=free {crate::bounce_route::ensure(s,n);}
             let archived_id=s.project.channels.iter().map(|c|c.index).max().unwrap_or(0).checked_add(1).ok_or("Channel limit reached")?;
             let mut archived=p.archived.clone();
             archived.index=archived_id;archived.enabled=false;
@@ -118,7 +121,7 @@ impl App {
             let id=c.index;
             c.kind=ChannelKind::AudioClip;c.plugin=None;c.plugin_state=None;c.sample_path=Some(text);
             c.pitch_cents=0;c.misc=os_model::ChannelMisc{pitch_range:c.misc.pitch_range,main_pitch:false,..Default::default()};
-            if p.wet {c.volume=0.78125;c.pan=0.0;c.mixer_track=0;}
+            if p.wet {c.volume=0.78125;c.pan=0.0;c.mixer_track=free.unwrap();}
             c.envelopes=Default::default();c.sound=Default::default();c.sound.sampler_flags=Some(os_model::ChannelSound::AUDIO_CLIP_FLAGS);
             for pat in &mut s.project.patterns {
                 for n in &mut pat.notes {if n.channel==id {n.channel=archived_id;}}
@@ -137,7 +140,7 @@ impl App {
             self.plugins.drop_key(p.row);
             self.transport.set_instruments(self.plugins.instruments());
             s.piano.dirty=true;
-            Ok(if p.wet {"Channel bounced with mixer effects and tails; audio plays through the master once. Original retained muted; Undo restores it."} else {"Channel consolidated. Mixer effects stay live; Undo restores the instrument and MIDI. Original source saved beside the WAV."}.to_string())
+            Ok(if p.wet {"Channel bounced with mixer effects and tails to a free Mixer insert. Original retained muted; Undo restores it."} else {"Channel rendered to its original Mixer insert. Mixer effects stay live; Undo restores the instrument and MIDI. Original source saved beside the WAV."}.to_string())
         });
         self.state.message=Some(result.unwrap_or_else(|e|format!("Consolidate: {e}")));self.invalidate();
     }
@@ -237,6 +240,7 @@ mod tests {
     #[test]
     fn rack_features_bounce_renders_real_audio_and_undo_restores_source() {
         for wet in [false,true] {
+        crate::prefs::set_check(&crate::prefs::BOUNCE_FREE,wet);
         let mut app=App::new(None);app.state.project=crate::app::test_project();app.state.tempo=120.;app.state.song_mode=true;
         app.state.project.mixer[1].volume=Some(0.65);
         app.state.project.mixer[1].eq[0][0]=600;
@@ -261,6 +265,8 @@ mod tests {
         assert!(app.channel_bounce.is_some(),"{:?}",app.state.message);
         let now=std::time::Instant::now();while app.export.is_some(){assert!(now.elapsed().as_secs()<60);app.export_tick();std::thread::sleep(std::time::Duration::from_millis(5));}
         assert_eq!(app.state.project.channels[0].kind,ChannelKind::AudioClip,"{:?}",app.state.message);
+        if wet {assert_ne!(app.state.project.channels[0].mixer_track,0);assert_ne!(app.state.project.channels[0].mixer_track,original.channels[0].mixer_track);}
+        else {assert_eq!(app.state.project.channels[0].mixer_track,original.channels[0].mixer_track);}
         let output=app.state.project.channels[0].sample_path.as_deref().unwrap();let wave=app.state.playlist.wave(output).unwrap();
         assert!(wave.peaks.iter().any(|(lo,hi)|lo.abs().max(hi.abs())>0.01));
         assert_eq!(app.state.project.channels.len(),original.channels.len()+1);
@@ -272,6 +278,8 @@ mod tests {
         assert_eq!(app.state.project.channels,original.channels);
         assert_eq!(app.state.project.patterns,original.patterns);
         assert_eq!(app.state.project.arrangements,original.arrangements);
+        assert_eq!(app.state.project.mixer,original.mixer);
         }
+        crate::prefs::set_check(&crate::prefs::BOUNCE_FREE,false);
     }
 }

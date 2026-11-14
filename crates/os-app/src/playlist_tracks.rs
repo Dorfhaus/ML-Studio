@@ -143,6 +143,9 @@ pub fn record(app:&mut App,row:u16)->Option<String>{
     if !writable(&app.state,row){return Some("Unlock or unfreeze this track before recording".into());}
     let n=owner(&app.state,row);
     if let Some(n)=n{if mixer::locked(&app.state,n){return Some(mixer::LOCK_MESSAGE.into());}}
+    if let Some(n)=n.filter(|n|crate::recording_pickup::settings(&app.state,*n).point!=os_model::RecordingPoint::External) {
+        app.state.playlist.track=row;return app.arm_mixer_disk(n);
+    }
     if n.is_none_or(|n|!app.state.mixer.recording.inputs.contains_key(&n)){
         if let Some(ch)=instrument(&app.state,row){
             if mixer::locked(&app.state,app.state.project.channels[ch].mixer_track){return Some(mixer::LOCK_MESSAGE.into());}
@@ -162,7 +165,7 @@ pub fn record(app:&mut App,row:u16)->Option<String>{
     if let Some(n)=n.filter(|n|app.state.mixer.recording.inputs.contains_key(n)){app.arm_mixer_disk(n)}else{input_menu(app,row)}
 }
 pub fn armed(s:&State,row:u16)->bool{
-    if let Some(n)=owner(s,row){if s.mixer.recording.inputs.contains_key(&n){return s.mixer.recording.armed.contains(&n);}}
+    if let Some(n)=owner(s,row){if s.mixer.recording.inputs.contains_key(&n)||crate::recording_pickup::settings(s,n).point!=os_model::RecordingPoint::External{return s.mixer.recording.armed.contains(&n);}}
     s.playlist.track==row&&s.rec.armed&&crate::record::Opt::Notes.on()&&s.project.channels.get(s.selected_channel).is_some_and(|ch|s.project.instrument_lanes.iter().any(|v|v.0==ch.index&&Some(v.1)==s.project.arrangement().map(|a|a.number)&&v.2==row))
 }
 pub fn set_input(app:&mut App,row:u16,input:Option<crate::capture::Input>)->Option<String>{

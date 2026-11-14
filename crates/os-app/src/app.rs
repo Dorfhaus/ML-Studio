@@ -4929,9 +4929,9 @@ impl App {
             },
         };
         let overlays = views::paint(&mut ui, &self.state, &info);
-        if let Some(Drag::MixSelect{to,started:true,..})=self.drag {
+        if let Some(Drag::MixSelect{from,to,started:true,..})=self.drag {
             if let Some(r)=ui.hits.iter().find(|h|h.action==Action::Mix(crate::mixer::MHit::Strip(to))).map(|h|h.rect) {
-                ui.c.fill_rect(Rect::new(r.x,r.y,3.0,r.h),ui.t.accent);
+                ui.c.fill_rect(Rect::new(if to>from {r.right()-3.}else{r.x},r.y,3.0,r.h),ui.t.accent);
             }
         }
 
@@ -5233,7 +5233,7 @@ impl App {
         let len = (secs * tempo / 60.0 * f64::from(p.ppq.max(1))).ceil() as u32;
         let track = crate::playlist::free_track(s, 0, start, start + len.max(1));
         let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        s.message = Some(match crate::playlist::add_audio_clip(s, &path, track, start) {
+        s.message = Some(match crate::playlist::add_audio_clip_as(s, &path, track, start,"Playlist edit") {
             Some(_) => format!("Added audio clip {name}"),
             None => format!("Could not read {name} as audio"),
         });
@@ -6551,7 +6551,7 @@ impl App {
                 Drag::MixSelect { from,x0,to,started } => {
                     let started=started || (x-x0).abs()>6.0;
                     let under=self.hits.iter().rev().find_map(|h|match h.action {
-                        Action::Mix(crate::mixer::MHit::Strip(n)) if n>0 && x>=h.rect.x && x<h.rect.right()=>Some(n), _=>None,
+                        Action::Mix(crate::mixer::MHit::Strip(n)) if n>0 && h.rect.contains(x,y)=>Some(n), _=>None,
                     }).unwrap_or(to);
                     self.drag=Some(Drag::MixSelect{from,x0,to:under,started});
                     if started {
@@ -7591,6 +7591,7 @@ impl App {
         if crate::input_bindings::press(self, 1) { return; }
         if crate::plugin_picker::under_pointer(self) { return; }
         self.close_song_info();
+        if self.modal_open() {self.file_context_menu();return;}
         if crate::typein::is_open(&self.state) || crate::remote::is_open(&self.state) || self.modal_open() {
             return;
         }
@@ -8026,7 +8027,8 @@ impl App {
         }
         if let Some(Drag::MixSelect{from,to,started,..})=self.drag.clone() {
             self.drag=None;
-            if started {crate::mixer::reorder_selected(&mut self.state,from,to);}else{crate::mixer::select(&mut self.state,from,false);}
+            let inside=self.hits.iter().any(|h|matches!(h.action,Action::Mix(crate::mixer::MHit::Strip(n)) if n>0) && h.rect.contains(self.mouse.0,self.mouse.1));
+            if started && inside {crate::mixer::reorder_selected(&mut self.state,from,to);}else if !started {crate::mixer::select(&mut self.state,from,false);}
             self.invalidate();return;
         }
         if let Some(Drag::ChannelRoute { row, origin, started, popup_item }) = self.drag {
@@ -11607,6 +11609,28 @@ mod tests {
     }
 
     #[test]
+    fn recording_pickup_button_opens_options_and_hides_without_reset() {
+        use crate::mixer::{MHit,MCmd};
+        for design in os_theme::Design::ALL {for view in [crate::mixer::WIDE,crate::mixer::TRADITIONAL] {
+            let mut app=App::new(None);app.state.project=default_project();app.set_design(design,false);
+            app.state.z=vec![Win::Mixer];app.state.show_browser=false;app.state.selected_mixer=1;
+            app.act(Action::Mix(MHit::View(view)));
+            crate::settings_file::set_flag(crate::recording_pickup::VISIBILITY,true);
+            let mut c=Canvas::new(1920,1400,1.25).unwrap();frame(&mut app,&mut c,None);
+            let b=hit_rect(&app,&Action::Mix(MHit::RecordingPickup(1)));assert!(b.w>=25. && b.h>=23.);app.mouse=(b.cx(),b.cy());
+            app.act(Action::Mix(MHit::RecordingPickup(1)));
+            assert_eq!(app.state.playlist.popup.as_ref().unwrap().items.len(),11);
+            if let Some(out)=std::env::var_os("OS_SHOT_DIR"){frame(&mut app,&mut c,None);c.pixmap.save_png(PathBuf::from(out).join(format!("recording-menu-{design:?}-{view}.png"))).unwrap();}
+            crate::mixer::run(&mut app,MCmd::RecordingPoint(1,os_model::RecordingPoint::Effects));
+            app.state.playlist.popup=None;
+            crate::settings_file::set_flag(crate::recording_pickup::VISIBILITY,false);frame(&mut app,&mut c,None);
+            assert!(!app.hits.iter().any(|h|h.action==Action::Mix(MHit::RecordingPickup(1))));
+            assert_eq!(crate::recording_pickup::settings(&app.state,1).point,os_model::RecordingPoint::Effects);
+        }}
+        crate::settings_file::set_flag(crate::recording_pickup::VISIBILITY,true);
+    }
+
+    #[test]
     fn mixer_selected_channel_outline_has_flush_caps() {
         for design in os_theme::Design::ALL {for scale in [1.,1.25,1.5,1.75,2.] {
             let mut app=App::new(None);app.state.project=default_project();app.set_design(design,false);
@@ -14993,6 +15017,8 @@ mod tests {
         use crate::prefs::{self, DOUBLE_CLICK_RESET, HOVER_MENUS};
         use crate::views::settings::{self, SAct};
         use crate::workspace_visibility as visibility;
+        assert!(HOVER_MENUS.default);
+        prefs::set_check(&HOVER_MENUS,false);
         let mut app = App::new(None);
         app.state.project = test_project();
         app.state.z = vec![Win::Mixer];
@@ -25381,6 +25407,21 @@ LemonStudioStyle.button-radius=8
       let mut c=Canvas::new(1920,1080,1.).unwrap();frame(&mut a,&mut c,None);mx::select(&mut a.state,2,false);mx::select(&mut a.state,4,true);
       let r=hit_rect(&a,&Action::Mix(mx::MHit::Strip(4)));let dest=hit_rect(&a,&Action::Mix(mx::MHit::Strip(6)));a.mouse_move(r.cx(),r.y+3.);a.mouse_down();assert_eq!(mx::selected(&a.state).len(),2);a.mouse_move(dest.cx(),dest.y+3.);a.mouse_up();assert_eq!((mx::name(&a.state,5),mx::name(&a.state,6)),("T2".into(),"T4".into()));
       a.key(&Key::Named(NamedKey::ArrowLeft),false,true);assert_eq!((mx::name(&a.state,4),mx::name(&a.state,5)),("T2".into(),"T4".into()));a.key(&Key::Named(NamedKey::ArrowRight),false,true);assert_eq!((mx::name(&a.state,5),mx::name(&a.state,6)),("T2".into(),"T4".into()));assert_eq!(mx::selected(&a.state).len(),2);
+    }
+
+    #[test]fn workflow_features_mixer_handles_across_layouts_and_cancel(){
+        use winit::keyboard::{Key,NamedKey};
+        use crate::mixer as mx;
+        for (vintage,layout) in [(false,mx::WIDE),(false,mx::TRADITIONAL),(false,crate::rack_mixer::VIEW),(true,mx::TRADITIONAL)] {
+            eprintln!("Mixer drag layout: vintage={vintage}, layout={layout}");
+            let mut a=App::new(None);a.state.project=test_project();a.state.z=vec![Win::Mixer];a.state.vintage_2005=vintage;mx::set_layout(&mut a.state,layout);
+            let mut c=Canvas::new(1920,1080,1.).unwrap();frame(&mut a,&mut c,None);
+            let grip=|a:&App,n|a.hits.iter().find(|h|h.action==Action::Mix(mx::MHit::Strip(n)) && h.hint.starts_with("Drag to move")).expect("visible drag handle").rect;
+            let start=grip(&a,2);let end=grip(&a,4);let before=a.state.project.clone();
+            a.mouse_move(start.cx(),start.cy());a.mouse_down();a.mouse_move(end.cx(),end.cy());a.key(&Key::Named(NamedKey::Escape),false,false);a.mouse_up();assert_eq!(a.state.project,before);
+            a.mouse_move(start.cx(),start.cy());a.mouse_down();a.mouse_move(end.cx(),end.cy());a.mouse_move(0.,0.);a.mouse_up();assert_eq!(a.state.project,before);
+            a.mouse_move(start.cx(),start.cy());a.mouse_down();a.mouse_move(end.cx(),end.cy());a.mouse_up();assert_ne!(a.state.project,before,"{vintage} / {layout}");a.undo_key(false);assert_eq!(a.state.project,before);
+        }
     }
 
     #[test]fn workflow_batch_ctrl_marquee_and_individual_track_heights(){

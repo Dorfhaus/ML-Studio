@@ -1,6 +1,6 @@
 //! Persistent workers shared by instrument rendering and the mixer dependency graph.
 //! Every job owns its mutable DSP state. Reply queues belong to one engine instance.
-use super::{MixTrack, TransportInfo, finish_mix_audio, run_slot, send_mix_audio, strip_process};
+use super::{MixTrack, TransportInfo, record_stage, record_level, finish_mix_audio, run_slot, send_mix_audio, strip_process};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
@@ -152,12 +152,18 @@ impl Job {
         self.addition_count = 0;
         self.backup.clear();
         self.backup.extend_from_slice(&self.buf);
+        let mut record_delay=self.mix.pad.len() as u32;
+        record_stage(&mut self.mix,os_model::RecordingPoint::Input,&self.buf,0);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if self.track != 0 {
                 strip_process(&mut self.mix, &mut self.buf);
+                if self.mix.custom_strip && !self.mix.strip_bypassed {record_delay+=self.mix.tune.as_ref().map_or(0,|t|t.latency() as u32);}
             }
             let limit = os_dsp::glide::engine_limit(self.rate);
             for fx in &mut self.mix.effects {
+                if fx.slot==10 && !self.mix.parametric_pre && self.mix.recording.point==Some(os_model::RecordingPoint::Effects) {
+                    self.mix.recording.audio.clear();self.mix.recording.audio.extend_from_slice(&self.buf);self.mix.recording.delay=record_delay;
+                }
                 if fx.slot != 10 && Some(fx.slot) != self.mix.strip_slot && !self.slots_enabled {
                     continue;
                 }
@@ -187,6 +193,7 @@ impl Job {
                     (self.track, &self.mix.routes, &mut add),
                     (key, main),
                 );
+                if fx.on {record_delay+=fx.delay;}
             }
         }));
         // Never strand the engine waiting for a panicking plugin. Return the owned
@@ -197,7 +204,11 @@ impl Job {
             self.missed += 1;
         }
         let frames = self.buf.len() / 2;
+        if self.mix.parametric_pre || !self.mix.effects.iter().any(|f|f.slot==10) {record_stage(&mut self.mix,os_model::RecordingPoint::Effects,&self.buf,record_delay);}
+        record_stage(&mut self.mix,os_model::RecordingPoint::Eq,&self.buf,record_delay);
+        record_level(&mut self.mix,&self.buf,self.rate,record_delay);
         finish_mix_audio(&mut self.mix, &mut self.buf, frames, self.rate);
+        record_stage(&mut self.mix,os_model::RecordingPoint::Track,&self.buf,record_delay);
         let mut add = |dest, signal: &[f32]| {
             append(&mut self.additions, &mut self.addition_count, dest, signal)
         };

@@ -391,6 +391,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
             let c = if selected && lemon { lk::ink_on_lit(ui.t) } else if selected || hov { ui.t.tx(0x9aa1a5) } else { ui.t.s(0x6d7275) };
             ui.c.text_center(Font::new(17), Rect::new(left, ly.y(HEAD_Y0), width, 21.0), c, &n.to_string());
         }
+        if crate::workspace_visibility::shown("visible_mixer-drag-handles") {super::drag_handle(ui,n,Rect::new(hr.x+1.,hr.y,9.,hr.h));}
     }
 
     // Dark head panel (name, LED, pan) with a rounded bottom.

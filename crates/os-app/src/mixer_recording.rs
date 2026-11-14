@@ -48,7 +48,8 @@ pub fn input_menu(s: &State,t: u16,x: f32,y: f32)->Popup {
         for stereo in [false,true] {
             let list:Vec<_>=Input::of(&device,asio,channels).into_iter().filter(|i|i.stereo==stereo).collect();
             if list.is_empty(){continue;}
-            items.push(PItem::head(format!("{device} - {}",if stereo{"stereo"}else{"mono"})));
+            items.push(PItem::sub("Recording and monitoring",crate::recording_pickup::items(s,t)));
+    items.push(PItem::head(format!("{device} - {}",if stereo{"stereo"}else{"mono"})));
             for input in list {
                 let selected=now==Some(&input);
                 items.push(PItem::new(input.label(),Cmd::Mixer(MCmd::RecordInput(t,Some(input)))).mark(Mark::Radio(selected)));
@@ -99,6 +100,10 @@ impl App {
             if self.state.mixer.recording.armed.is_empty() && Opt::Smart.on(){auto_filter();}
             self.invalidate(); return self.sync_input_monitor().err();
         }
+        if crate::recording_pickup::settings(&self.state,t).point!=os_model::RecordingPoint::External {
+            self.state.mixer.recording.armed.insert(t);audio_filter();self.state.rec.armed=true;self.state.song_mode=true;
+            self.invalidate();return self.sync_input_monitor().err();
+        }
         match self.state.mixer.recording.inputs.get(&t).cloned() {
             Some(i)=>self.set_mixer_input(t,Some(i)),
             None=>{let(x,y)=self.mouse; self.state.playlist.popup=Some(input_menu(&self.state,t,x,y+10.));self.invalidate();None}
@@ -110,8 +115,8 @@ impl App {
         self.sync_input_monitor()?;
         if self.audio_rec.is_some(){return if self.one_click_starting(){Ok(())}else{Err("The previous audio take is still being saved".into())};}
         let Some(t)=self.state.mixer.recording.armed.first().copied() else{return Ok(())};
-        let Some(input)=self.state.mixer.recording.inputs.get(&t).cloned() else{return Err("Select an audio input first".into())};
-        let stream=if input.asio {
+        let input=self.state.mixer.recording.inputs.get(&t).cloned().unwrap_or_else(crate::recording_pickup::internal_input);
+        let stream=if input.device.is_empty() {None}else if input.asio {
             if let Some(device)=self.transport.opened() {
                 if device.host!=crate::device::ASIO || device.name!=input.device || input.first+u16::from(input.stereo)>=device.inputs {
                     return Err("The selected ASIO input is unavailable. Check Settings > Audio and select an input again".into());
@@ -140,10 +145,11 @@ impl App {
         if free.len()!=armed.len() { return Err("Not enough empty Playlist tracks for the armed inputs".into()); }
         let mut tracks = Vec::new();
         for (t,row) in armed.into_iter().zip(free) {
-            let selected=self.state.mixer.recording.inputs.get(&t).cloned().ok_or("An armed track has no input")?;
-            if selected.device!=input.device || selected.asio!=input.asio { return Err("Armed inputs must use the same audio interface".into()); }
+            let selected=self.state.mixer.recording.inputs.get(&t).cloned().unwrap_or_else(crate::recording_pickup::internal_input);
+            if selected.device.is_empty() && crate::recording_pickup::settings(&self.state,t).point==os_model::RecordingPoint::External {return Err("External input only requires an audio input".into());}
+            if !selected.device.is_empty() && !input.device.is_empty() && (selected.device!=input.device || selected.asio!=input.asio) { return Err("Armed inputs must use the same audio interface".into()); }
             let channels = if selected.asio { self.transport.opened().map(|d| d.inputs) } else { stream.as_ref().map(|s|s.channels).or_else(||self.input_monitor.channels()) };
-            if channels.is_some_and(|n| selected.first+u16::from(selected.stereo)>=n) { return Err(format!("{}: input unavailable",crate::mixer::name(&self.state,t))); }
+            if !selected.device.is_empty() && channels.is_some_and(|n| selected.first+u16::from(selected.stereo)>=n) { return Err(format!("{}: input unavailable",crate::mixer::name(&self.state,t))); }
             let color=crate::mixer::track(&self.state,t).and_then(|m|m.color);
             tracks.push((selected,Destination { attached:crate::attached_mixer::active(&self.state),mixer:t,row,start,length:1,name:crate::mixer::name(&self.state,t),color }));
         }

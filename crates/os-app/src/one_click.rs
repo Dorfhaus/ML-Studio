@@ -18,6 +18,7 @@ pub const RECORDED: &str = "Recorded items";
 
 /// A recording under way, or its file being made.
 pub struct AudioRec {
+    engine: bool,
     loop_span: Option<(u32,u32)>,
     loop_wrapped: bool,
     last_tick: f64,
@@ -136,6 +137,7 @@ impl App {
         if let Some(r)=self.audio_rec.as_mut(){
             r.start_tick=target;r.last_tick=f64::from(target);
             r.start_secs=os_engine::laws::tick_to_frame(f64::from(target),self.state.project.ppq.max(1),self.state.project.tick_tempo(self.state.tempo),48000) as f64/48000.;
+            if r.engine {crate::recording_pickup::retarget(r.start_secs);}
             if let Some(d)=r.destination.as_mut(){d.start=target;}
             for e in &mut r.others{e.destination.start=target;}
             for d in &mut self.state.mixer.recording.live{d.start=target;}
@@ -146,23 +148,31 @@ impl App {
     }
     pub(crate) fn begin_mixer_group(&mut self, tracks: Vec<(Input,crate::mixer_recording::Destination)>, stream: Option<InputStream>) -> Result<(),String> {
         if tracks.is_empty() || tracks.len() > 64 { return Err("Select between 1 and 64 recording tracks".into()); }
-        capture::stop_group();
+        capture::stop_group();crate::recording_pickup::stop();
+        let engine=tracks.iter().any(|(_,d)|crate::recording_pickup::settings(&self.state,d.mixer).point!=os_model::RecordingPoint::External);
+        let armed:Vec<_>=tracks.iter().map(|(_,d)|d.mixer).collect();
+        if engine {
+            let secs=os_engine::laws::tick_to_frame(tracks[0].1.start as f64,self.state.project.ppq.max(1),self.state.project.tick_tempo(self.state.tempo),48000) as f64/48000.;
+            crate::recording_pickup::start(&self.state,&armed,secs);
+        }
         let dir = crate::data_folder::folder(&self.state).or_else(crate::app::theme_dir).unwrap_or_else(std::env::temp_dir).join("Recorded");
         let mut extras = Vec::new();
         for (k,(input,destination)) in tracks.iter().skip(1).enumerate() {
             let source = capture::extra_capture(k);
-            source.start_input(input);
+            if !engine {source.start_input(input);}
             let safe: String = destination.name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect();
             let name = capture::file_name(&format!("{}-{}",destination.mixer,safe),chrono::Local::now().naive_local());
             match Recorder::start_from(dir.join(name),48000,source) {
                 Ok(recorder) => extras.push(ExtraTake { source, recorder, input:input.clone(), destination:destination.clone() }),
-                Err(e) => { source.stop(); return Err(e); }
+                Err(e) => { crate::recording_pickup::stop();crate::capture::stop_group(); return Err(e); }
             }
         }
         let (input,dest) = &tracks[0];
-        self.one_click_begin(input.clone(),stream,false)?;
+        if let Err(e)=self.one_click_begin_mode(input.clone(),stream,false,engine){crate::recording_pickup::stop();crate::capture::stop_group();return Err(e);}
         self.set_audio_destination(dest.clone());
         self.audio_rec.as_mut().unwrap().others = extras;
+        self.audio_rec.as_mut().unwrap().engine=engine;
+
         self.state.mixer.recording.live = tracks.into_iter().map(|(_,d)| d).collect();
         Ok(())
     }
@@ -227,10 +237,13 @@ impl App {
 
     /// Starts taking in `input` into a new file (no playback: `one_click_start` plays).
     pub(crate) fn one_click_begin(&mut self, input: Input, stream: Option<InputStream>, editor: bool) -> Result<(), String> {
+        self.one_click_begin_mode(input,stream,editor,false)
+    }
+    fn one_click_begin_mode(&mut self, input:Input, stream:Option<InputStream>, editor:bool, engine:bool)->Result<(),String> {
         let rate = stream.as_ref().map(|s| s.rate).or(if input.asio { None } else { self.input_monitor.rate });
         let dir = crate::data_folder::folder(&self.state).or_else(crate::app::theme_dir).unwrap_or_else(std::env::temp_dir).join("Recorded");
         let name = capture::file_name(&crate::backup::project_name(self.state.path.as_deref()), chrono::Local::now().naive_local());
-        capture().start_input(&input);
+        if !engine {crate::recording_pickup::stop();capture().start_input(&input);}
         capture::start_group();
         let recorder = match Recorder::start(dir.join(name), rate.unwrap_or(48000)) {
             Ok(r) => r,
@@ -245,7 +258,7 @@ impl App {
         let start_secs = os_engine::laws::tick_to_frame(f64::from(start_tick), p.ppq.max(1), tempo, 48000) as f64 / 48000.0;
         self.state.rec.audio = true;
         let loop_span = if crate::record::Opt::Loop.on() { self.selection_loop() } else { None };
-        self.audio_rec = Some(AudioRec { loop_span, loop_wrapped:false, last_tick:start_tick as f64, others: Vec::new(), input, failure:None, destination:None,stream, recorder: Some(recorder), rate, start_tick, start_secs, est: (0.0, 0), timed_est: (0.0, 0), ending: false, editor });
+        self.audio_rec = Some(AudioRec { engine, loop_span, loop_wrapped:false, last_tick:start_tick as f64, others: Vec::new(), input, failure:None, destination:None,stream, recorder: Some(recorder), rate, start_tick, start_secs, est: (0.0, 0), timed_est: (0.0, 0), ending: false, editor });
         if !editor {
             let mixer=self.state.selected_mixer;
             self.set_audio_destination(crate::mixer_recording::Destination {
@@ -270,7 +283,7 @@ impl App {
                 r.failure=Some("The ASIO driver did not open the selected input. Check Settings > Audio and the interface input configuration".into());
                 t.stop();
             }
-            let rate = r.rate.or(device.as_ref().map(|d| d.rate)).unwrap_or(48000);
+            let rate = if r.engine {crate::recording_pickup::rate()}else{r.rate.or(device.as_ref().map(|d| d.rate)).unwrap_or(48000)};
             if live && r.loop_span.is_some() {
                 let tick=t.tick();
                 if tick+0.5<r.last_tick {r.loop_wrapped=true;}
@@ -308,15 +321,16 @@ impl App {
             };
             let offset = (crate::prefs::recording_offset_ms() * f64::from(rate) / 1000.0).round() as i64;
             let head = if r.timed_est.1 > 0 || r.est.1 > 0 { head - offset } else { head };
-            capture::stop_group();
+            capture::stop_group();crate::recording_pickup::stop();
             r.stream = None;
-            for extra in &r.others {
+            for (k,extra) in r.others.iter().enumerate() {
+                let head=if r.engine {i64::from(crate::recording_pickup::delay(k+1))-offset}else{head};
                 extra.recorder.set_rate(rate); extra.recorder.set_head(head); extra.recorder.finish();
             }
             r.rate = Some(rate);
             if let Some(w) = &r.recorder {
                 w.set_rate(rate);
-                w.set_head(head);
+                w.set_head(if r.engine {i64::from(crate::recording_pickup::delay(0))-offset}else{head});
                 w.finish();
             }
             r.ending = true;

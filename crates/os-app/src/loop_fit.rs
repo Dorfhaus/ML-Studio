@@ -256,6 +256,16 @@ pub(crate) fn set_fitted_time(sound:&mut os_model::ChannelSound,beats:f64) {
     sound.stretch[3]=os_model::stretch_mode::STRETCH_PRO as u32;
 }
 
+/// Import-only fitting: leave one-shots and unrecognized material at their original speed.
+pub(crate) fn dropped_beats(path:&str,tempo:f64)->Option<f64> {
+    if !crate::prefs::check(&crate::prefs::FIT_DROPS) {return None;}
+    let file=std::path::Path::new(path);
+    if std::fs::metadata(file).ok()?.len()>256*1024*1024 {return None;}
+    let sample=os_engine::sample::load_shared(file).ok()?;
+    let (beats,_)=source_beats(&sample,path,tempo)?;
+    (beats>=1. && beats<=4096.).then_some(beats)
+}
+
 /// Fit each selected placement to the bar length at its start, preserving the original sample window.
 fn fit_selected_bars(app: &mut App, indices: &[usize]) -> Result<String, String> {
     let s = &mut app.state;
@@ -399,6 +409,23 @@ pub fn run(app: &mut App, i: usize, cmd: Fit) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+ #[test]
+ fn workflow_features_fit_imports_without_changing_recordings() {
+    let mut app=crate::app::App::new(None);app.state.project=crate::app::test_project();app.state.tempo=120.;
+    let path=std::env::temp_dir().join(format!("lemon-drop-{}-90bpm.wav",std::process::id()));
+    os_engine::wav::write_f32_stereo(&mut std::fs::File::create(&path).unwrap(),8000,&vec![0.2;128000]).unwrap();
+    let text=path.to_string_lossy();
+    crate::prefs::set_check(&crate::prefs::FIT_DROPS,false);
+    let i=pl::import_audio_clip(&mut app.state,&text,0,0).unwrap();assert_eq!(pl::clips(&app.state)[i].length,16*u32::from(app.state.project.ppq));
+    crate::prefs::set_check(&crate::prefs::FIT_DROPS,true);
+    let i=pl::import_audio_clip(&mut app.state,&text,1,0).unwrap();assert_eq!(pl::clips(&app.state)[i].length,12*u32::from(app.state.project.ppq));
+    let fitted=app.state.project.channels.last().unwrap().sound;
+    crate::history::undo(&mut app.state).unwrap();assert!(!pl::clips(&app.state).iter().any(|c|c.track==1));
+    crate::history::redo(&mut app.state).unwrap();assert_eq!(app.state.project.channels.last().unwrap().sound,fitted);
+    let i=pl::add_audio_clip_as(&mut app.state,&text,2,0,"Recorded items").unwrap();assert_eq!(pl::clips(&app.state)[i].length,16*u32::from(app.state.project.ppq));
+    let loaded=os_flp::project::load(&os_flp::project::create(&app.state.project).unwrap()).unwrap();assert_eq!(loaded.channels[loaded.channels.len()-2].sound.stretch,fitted.stretch);
+    crate::prefs::set_check(&crate::prefs::FIT_DROPS,false);let _=std::fs::remove_file(path);
+ }
  use super::*;
 
  #[test]

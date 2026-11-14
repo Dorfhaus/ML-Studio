@@ -698,6 +698,7 @@ fn handed_on(level: f32) -> i64 {
 }
 
 struct MixTrack {
+    recording: RecordingTap,
     runtime_id: u64,
     /// Fader (0..16000, 12800 = unity), pan (-6400..6400) and stereo separation (-64..64, positive merges) as stored;
     /// automation rewrites them, then the matrix (spec: audio/mixer.md).
@@ -844,6 +845,7 @@ impl MixTrack {
     fn unity() -> MixTrack {
         let unity = [[1.0, 0.0], [0.0, 1.0]];
         MixTrack {
+            recording: RecordingTap::default(),
             runtime_id: 0,
             vol: 12800,
             pan: 0,
@@ -991,6 +993,35 @@ pub struct EngineReport {
 /// Implementations must not wait for hardware or allocate in `render`.
 pub trait MixerInput: Send {
     fn render(&mut self, rate: u32, tracks: &mut [Vec<f32>]);
+    fn monitor_external(&self, _track:usize)->bool {true}
+    fn recording_point(&self, _track: usize) -> Option<os_model::RecordingPoint> { None }
+    fn record(&mut self, _track: usize, _rate:u32, _song:&TransportInfo, _delay:u32, _audio:&[f32]) {}
+}
+
+#[derive(Default)]
+struct RecordingTap {
+    point: Option<os_model::RecordingPoint>,
+    audio: Vec<f32>,
+    delay: u32,
+    gains: Option<[[Glide;2];2]>,
+}
+fn record_stage(track:&mut MixTrack, point:os_model::RecordingPoint, audio:&[f32], delay:u32) {
+    if track.recording.point==Some(point) {
+        track.recording.audio.clear();track.recording.audio.extend_from_slice(audio);track.recording.delay=delay;
+    }
+}
+fn record_level(track:&mut MixTrack, audio:&[f32], rate:u32, delay:u32) {
+    if track.recording.point!=Some(os_model::RecordingPoint::Level) {return;}
+    let on=track.on;track.on=true;let matrix=track.compute_matrix();track.on=on;
+    let gains=track.recording.gains.get_or_insert_with(||matrix.map(|r|r.map(Glide::new)));
+    let frames=audio.len()/2;let limit=os_dsp::glide::engine_limit(rate);
+    let mut ramps=[[gains[0][0].block(matrix[0][0],frames,limit),gains[0][1].block(matrix[0][1],frames,limit)],
+                   [gains[1][0].block(matrix[1][0],frames,limit),gains[1][1].block(matrix[1][1],frames,limit)]];
+    track.recording.audio.clear();
+    for f in audio.chunks_exact(2) {track.recording.audio.extend_from_slice(&[
+        ramps[0][0].next()*f[0]+ramps[0][1].next()*f[1],ramps[1][0].next()*f[0]+ramps[1][1].next()*f[1]]);}
+    track.recording.delay=delay;
+
 }
 
 fn strip_process(track:&mut MixTrack,buf:&mut[f32]) {
@@ -1514,6 +1545,7 @@ impl Engine {
                             .collect()
                     };
                     let mut t = MixTrack {
+                        recording: RecordingTap::default(),
                         runtime_id: m.runtime_id,
                         vol: (m.volume.unwrap_or(0.8) * 16000.0).round() as i32,
                         pan: (m.pan.unwrap_or(0.0) * 6400.0).round() as i32,
@@ -4202,14 +4234,21 @@ impl Engine {
     /// The mixer over this tick: each track's effects, then its gain / pan (ramped over the tick after an edit), then
     /// its output added into its destinations; the master's output is the song.
     fn mix(&mut self, frames: usize, song: &TransportInfo) {
+        for (t,track) in self.tracks.iter_mut().enumerate() {
+            let point=if self.exporting {None} else {self.mixer_input.as_ref().and_then(|i|i.recording_point(t))};
+            if point!=track.recording.point {track.recording.gains=None;}
+            track.recording.point=point;track.recording.audio.clear();track.recording.delay=0;
+        }
         if !self.exporting {
             if let Some(input) = &mut self.mixer_input {
                 self.input_bus.resize_with(self.bus.len(), Vec::new);
                 for b in &mut self.input_bus { b.clear(); b.resize(frames * 2, 0.0); }
                 input.render(self.rate, &mut self.input_bus);
-                for ((input, bus), track) in self.input_bus.iter_mut().zip(&mut self.bus).zip(&mut self.tracks) {
-                    track.input_pad.run(input);
-                    for (dst, sample) in bus.iter_mut().zip(input) { *dst += *sample; }
+                for (t,((signal, bus), track)) in self.input_bus.iter_mut().zip(&mut self.bus).zip(&mut self.tracks).enumerate() {
+                    record_stage(track,os_model::RecordingPoint::External,signal,0);
+                    if !input.monitor_external(t) {signal.fill(0.);}
+                    track.input_pad.run(signal);
+                    for (dst, sample) in bus.iter_mut().zip(signal) { *dst += *sample; }
                 }
             }
         }
@@ -4219,6 +4258,11 @@ impl Engine {
             Some(moved) => moved,
             None => self.mix_serial(frames, song),
         };
+        if !self.exporting {if let Some(input)=&mut self.mixer_input {
+            for (t,track) in self.tracks.iter().enumerate() {if track.recording.point.is_some() && !track.recording.audio.is_empty() {
+                input.record(t,self.rate,song,track.recording.delay,&track.recording.audio);
+            }}
+        }}
         for (link,env) in &mut self.peak_links {
             if let Some(buf)=self.bus.get(link.source as usize){
                 let attack=(-1000./(5.*self.rate as f32)).exp();let release=(-1000./(link.release_ms.max(10) as f32*self.rate as f32)).exp();
@@ -4263,10 +4307,16 @@ impl Engine {
             let (keys, key_buf, main_buf) = (&self.key_out, &mut self.key_buf, &mut self.main_buf);
             // A slot runs when its own switch is on and the track's slots are enabled (spec: audio/mixer.md).
             let fx_started = Instant::now();
-            if t != 0 {strip_process(track,&mut buf);}
+            let mut record_delay=track.pad.len() as u32;
+            record_stage(track,os_model::RecordingPoint::Input,&buf,record_delay);
+            if t != 0 {strip_process(track,&mut buf);if track.custom_strip && !track.strip_bypassed {record_delay+=track.tune.as_ref().map_or(0,|t|t.latency() as u32);}}
             {
                 let slots_enabled = track.slots_enabled && if t == 0 { self.master_fx } else { self.insert_fx };
+                let eq_pre=track.parametric_pre;
                 for fx in &mut track.effects {
+                    if fx.slot==10 && !eq_pre && track.recording.point==Some(os_model::RecordingPoint::Effects) {
+                        track.recording.audio.clear();track.recording.audio.extend_from_slice(&buf);track.recording.delay=record_delay;
+                    }
                     // The dedicated mixer EQ is independent of the ten plugin slots' bypass.
                     if fx.slot != 10 && Some(fx.slot)!=track.strip_slot && !slots_enabled { continue; }
                     let feed = |s: Option<usize>| s.and_then(|s| keys.get(s)?.as_deref()).filter(|k| k.len() == buf.len());
@@ -4277,9 +4327,14 @@ impl Engine {
                     };
                     let extra = (t, &track.routes[..], &mut add as &mut dyn FnMut(usize, &[f32]));
                     run_slot(fx, self.smart_disable && !self.exporting, &mut buf, rate, limit, song, dry, l, r, (&mut *busy.0, busy.1, busy.2, &mut *busy.3), &mut moved, extra, (key, main));
+                    if fx.on {record_delay+=fx.delay;}
                 }
             }
+            if track.parametric_pre || !track.effects.iter().any(|f|f.slot==10) {record_stage(track,os_model::RecordingPoint::Effects,&buf,record_delay);}
+            record_stage(track,os_model::RecordingPoint::Eq,&buf,record_delay);
+            record_level(track,&buf,self.rate,record_delay);
             finish_mix_audio(track, &mut buf, frames, self.rate);
+            record_stage(track,os_model::RecordingPoint::Track,&buf,record_delay);
             // What the track puts out, for the slots that listen to it (spec: audio/sidechain.md "Sidechain input").
             if let Some(k) = self.key_out.get_mut(t).and_then(Option::as_mut) {
                 k.clear();
@@ -8389,6 +8444,36 @@ mod tests {
     }
 
     /// spec: ui/mixer.md §7: a slot's plugin processes its track; the LED bypasses it, the mix knob blends it.
+    #[test]
+    fn recording_pickups_capture_real_stages_serial_and_parallel() {
+        use os_model::RecordingPoint as Point;
+        struct Gain(f32);
+        impl crate::instrument::HostedEffect for Gain {fn process_fx(&mut self,_:u32,l:&mut[f32],r:&mut[f32]) {for x in l.iter_mut().chain(r){*x*=self.0;}}}
+        struct Input {point:Point,heard:bool,out:Arc<Mutex<Vec<f32>>>}
+        impl MixerInput for Input {
+            fn render(&mut self,_:u32,t:&mut[Vec<f32>]){t[1].fill(0.2);}
+            fn monitor_external(&self,_:usize)->bool {self.heard}
+            fn recording_point(&self,t:usize)->Option<Point>{(t==1).then_some(self.point)}
+            fn record(&mut self,t:usize,_:u32,_:&TransportInfo,_:u32,audio:&[f32]){if t==1{*self.out.lock().unwrap()=audio.to_vec();}}
+        }
+        for workers in [1,2] {for pre in [false,true] {for mute in [false,true] {for heard in [false,true] {for point in Point::ALL {
+            let mut p=song(vec![],vec![]);p.mixer=(0..4).map(os_model::MixerTrack::new).collect();
+            p.mixer[1].volume=Some(0.6);p.mixer[1].enabled=!mute;p.mixer[1].parametric_pre=pre;
+            let mut e=Engine::new(&p,&mut SampleLibrary::new(None),48000,PlayMode::Song);e.set_worker_limit(workers);e.set_multicore(workers>1);
+            e.parallel.cost=vec![Duration::from_millis(1);4];
+            e.set_effect(1,0,Arc::new(Mutex::new(Gain(2.))));e.set_effect(1,10,Arc::new(Mutex::new(Gain(0.5))));
+            e.tracks[1].settle();let out=Arc::new(Mutex::new(Vec::new()));
+            e.set_mixer_input(Box::new(Input{point,heard,out:out.clone()}));
+            for b in &mut e.bus {*b=vec![0.;256];}e.bus[1].fill(0.3);
+            let song=e.transport_at(0);e.mix(128,&song);
+            let mixed=if heard {0.5}else{0.3};let gain=os_dsp::mixer::fader_matrix_law(e.tracks[1].vol,0,0,true,e.tracks[1].law)[0];
+            let expected=match point {Point::External=>0.2,Point::Input=>mixed,Point::Effects=>if pre{mixed}else{mixed*2.},Point::Eq=>mixed,Point::Level=>mixed*gain,Point::Track=>if mute{0.}else{mixed*gain}};
+            if workers>1 && mix_workers::available(){assert!(e.parallel.done[1],"actual mixer worker graph used");}
+            let actual=out.lock().unwrap();assert_eq!(actual.len(),256);
+            assert!(actual.iter().all(|v|(*v-expected).abs()<1e-5),"{point:?}, workers={workers}, pre={pre}, mute={mute}, monitor={heard}: {} vs {expected}",actual[0]);
+        }}}}}
+    }
+
     #[test]
     fn mini_eq_survives_plugin_slot_bypass() {
         struct Gain(f32);
