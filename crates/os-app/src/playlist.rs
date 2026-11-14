@@ -214,6 +214,7 @@ pub enum Mark {
 /// Commands of the playlist's popup menus (§10).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cmd {
+    HeaderDrop(crate::playlist_tracks::drops::Command),
     #[cfg(plugin_windows)]
     SamplerTrack(crate::route_picker::SamplerTrackCommand),
     TrackLink(crate::playlist_links::Command),
@@ -516,6 +517,10 @@ pub struct PItem {
 }
 
 impl PItem {
+    pub fn display_label(&self,language:crate::prefs::language::Language) -> &str {
+        match &self.label { Cow::Borrowed(s)=>language.text(s), Cow::Owned(s)=>s }
+    }
+
     pub fn new(label: impl Into<Cow<'static, str>>, cmd: Cmd) -> Self {
         PItem { label: label.into(), key: "", cmd, mark: Mark::None, enabled: true, dim: false, head: false, sep: false, col: false, children: Vec::new() }
     }
@@ -2581,7 +2586,7 @@ pub fn track_after_used(s: &State) -> u16 {
 /// Linked controls overlay the selected matching loop (otherwise a matching loop at the playhead or first match).
 /// Unlinked controls retain the time-selection/song-span placement on a free track.
 pub fn create_automation(s: &mut State, tgt: u32, name: &str, value: f64) -> u16 {
-    create_automation_on(s,tgt,name,value,None)
+    create_automation_on(s,tgt,name,value,None,true,None)
 }
 
 /// Move control uses the same routed placement as direct creation. Unlinked controls use an empty row.
@@ -2594,13 +2599,47 @@ pub fn capture_automation(s: &mut State,tgt:u32,name:&str,value:f64)->Option<u16
         Some((0..TRACKS).find(|&t| !s.mixer.recording.live.iter().any(|d| d.row == t)
             && !clips(s).iter().any(|c| c.track == t))?)
     };
-    Some(create_automation_on(s,tgt,name,value,free))
+    Some(create_automation_on(s,tgt,name,value,free,true,None))
 }
 
-fn create_automation_on(s:&mut State,tgt:u32,name:&str,value:f64,free:Option<u16>)->u16 {
+pub(crate) fn recording_row(s:&State,start:u32,end:u32)->Option<u16> {
+    (0..TRACKS).find(|&t| track_on(s,t) && !track_info(s,t).is_some_and(|r|r.locked||r.frozen.is_some()||r.folder)
+        && !s.mixer.recording.live.iter().any(|d|d.row==t)
+        && !clips(s).iter().any(|c|c.track==t && c.position<end && c.end()>start))
+}
+fn automation_owner(s:&State,tgt:u32)->Option<u16> {
+    let linked=automation_destination(s,tgt);
+    linked.map(|clip| clip.track).or_else(|| {
+        match target::decode(tgt) {
+            target::Target::SlotParam(insert, ..) if insert > 0 => {
+                let arrangement = s.project.arrangement().map(|a| a.number);
+                s.project.instrument_lanes.iter().find(|&&(ch, number, _, _)| {
+                    Some(number) == arrangement && s.project.channels.iter().any(|c| c.index == ch && c.mixer_track == insert)
+                }).map(|&(_, _, row, _)| row).or(Some((insert - 1).min(TRACKS - 1)))
+            }
+            _ => None,
+        }
+    })
+}
+/// Linked recordings share the same row and overlay controls as manual clips.
+pub(crate) fn recording_destination(s:&State,tgt:u32,start:u32,end:u32)->Option<Option<u16>> {
+    if let Some(row)=automation_owner(s,tgt) {
+        if track_info(s,row).is_some_and(|r|r.locked||r.frozen.is_some()||r.folder){return None;}
+        Some(None)
+    }else {recording_row(s,start,end).map(Some)}
+}
+pub(crate) fn recorded_automation(s:&mut State,tgt:u32,name:&str,start:u32,end:u32,value:f64)->Option<u16> {
+    let free=recording_destination(s,tgt,start,end)?;
+    Some(create_automation_on(s,tgt,name,value,free,false,Some((start,end.max(start+1)))))
+}
+pub(crate) fn recorded_automation_on_row(s:&mut State,tgt:u32,name:&str,start:u32,end:u32,value:f64,row:u16)->u16 {
+    create_automation_on(s,tgt,name,value,Some(row),false,Some((start,end.max(start+1))))
+}
+
+fn create_automation_on(s:&mut State,tgt:u32,name:&str,value:f64,free:Option<u16>,initialize:bool,span:Option<(u32,u32)>)->u16 {
     // One undo step, "Create automation clip": the playlist, and the control's initial value while "Initialize controls
     // automatically" is on (spec: ui/settings-choices.md "Advanced: Initialize controls automatically").
-    let init = crate::init::automatic(tgt, value);
+    let init = if initialize || crate::init::entry(s,tgt).is_none() {crate::init::automatic(tgt, value)} else {None};
     arr_mut(s);
     let mut snap = crate::history::Snap::Several(vec![
         crate::history::Snap::Playlist(Box::new(capture(s))),
@@ -2612,24 +2651,12 @@ fn create_automation_on(s:&mut State,tgt:u32,name:&str,value:f64,free:Option<u16
     crate::history::record(s, crate::history::CREATE_AUTOMATION, snap);
     let name = &unique_channel_name(s, name);
     let index = s.project.channels.iter().map(|c| c.index + 1).max().unwrap_or(0);
-    let linked = if free.is_some() {None} else {automation_destination(s,tgt)};
-    let owner = linked.map(|clip| clip.track).or_else(|| {
-        if free.is_some() { return None; }
-        match target::decode(tgt) {
-            target::Target::SlotParam(insert, ..) if insert > 0 => {
-                let arrangement = s.project.arrangement().map(|a| a.number);
-                s.project.instrument_lanes.iter().find(|&&(ch, number, _, _)| {
-                    Some(number) == arrangement && s.project.channels.iter().any(|c| c.index == ch && c.mixer_track == insert)
-                }).map(|&(_, _, row, _)| row).or(Some((insert - 1).min(TRACKS - 1)))
-            }
-            _ => None,
-        }
-    });
+    let owner=if free.is_some(){None}else{automation_owner(s,tgt)};
     let coverage = owner.and_then(|row| clips(s).iter()
         .filter(|clip| clip.track == row && clip_matches_target(s, clip, tgt))
         .map(|clip| (clip.position, clip.end()))
         .reduce(|(start, end), (a, b)| (start.min(a), end.max(b))));
-    let (a,b) = coverage.unwrap_or_else(|| match s.playlist.range {
+    let (a,b) = span.or(coverage).unwrap_or_else(|| match s.playlist.range {
         Some((r0,r1)) if r1>r0 => (r0,r1), _=>automation_span(s),
     });
     let beats = f64::from(b - a) / f64::from(ppq(s));
@@ -2809,7 +2836,9 @@ pub fn add_audio_clip_as(s: &mut State, path: &str, track: u16, tick: u32, name:
     let index = s.project.channels.iter().map(|c| c.index + 1).max().unwrap_or(0);
     let name = std::path::Path::new(path).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Audio".into());
     // New samples use the attached source lane; ordinary Playlist drops retain Master routing.
-    let mixer_track = crate::attached_mixer::owner(s,track).unwrap_or(0);
+    let mixer_track = crate::attached_mixer::owner(s,track).or_else(||
+        (crate::playlist_links::mode(s,track)==os_model::PlaylistTrackMode::Audio).then(||crate::playlist_links::linked_output(s,track)).flatten()
+    ).unwrap_or(0);
     if mixer_track>0 {crate::attached_mixer::bind(s,track,mixer_track);}
     s.project.channels.push(Channel {
         index,
@@ -3044,6 +3073,7 @@ pub(crate) fn default_options_menu(s: &State, x: f32, y: f32) -> Popup {
                 PItem::sep(),
                 PItem::new("Insert space", Cmd::InsertSpace).key("Ctrl+Ins"),
                 PItem::new("Delete space", Cmd::DeleteSpace).key("Ctrl+Del"),
+                crate::playlist_tracks::drops::menu(),
             ],
         ),
         PItem::sub(
@@ -4305,7 +4335,20 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
                     Overlay::TrackInsertion(edge)
                 });
             } else {
-                s.playlist.drop_folder=folder_target(s,target);
+                let moving_child = group_track(s,row).is_some_and(|p|track_info(s,p).is_some_and(|r|r.folder))
+                    && crate::comping::parent(s,row).is_none();
+                let folder = if moving_child { track_info(s,target).filter(|r|r.folder).map(|_|target) }
+                    else { folder_target(s,target) };
+                s.playlist.drop_folder=folder.filter(|_|movable_members(s,&folder_members(s,row)) && target!=row);
+                let root = group_track(s,target).unwrap_or(target);
+                let mut end = root + 1;
+                while end < TRACKS && track_info(s,end).is_some_and(|r|r.grouped) { end += 1; }
+                s.playlist.overlay = (row != target && folder.is_none()).then(|| {
+                    let edge = if moving_child {
+                        if target < row { g.y_of(target) } else { g.y_of(target) + g.rows.height(target) }
+                    } else if target < row { g.y_of(root) } else { g.y_of(end-1) + g.rows.height(end-1) };
+                    Overlay::TrackInsertion(edge)
+                });
             }
             app.drag=Some(Drag::Pl(PlDrag::Track{row,y0,started:true}));
             if y<grid.y+16. || y>grid.bottom()-16. {
@@ -5153,6 +5196,7 @@ pub fn commit_edit(s: &mut State) {
 
 /// Run a menu / shortcut command. Returns a status message, if any.
 pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
+    if let Cmd::HeaderDrop(command)=cmd {app.state.playlist.popup=None;return crate::playlist_tracks::drops::run(app,command);}
     if let Cmd::TrackLink(ref command)=cmd {let result=crate::playlist_links::run(app,command.clone());app.invalidate();return result;}
     if let Cmd::PopupBack(p) = cmd { app.state.playlist.popup = Some(*p); return None; }
     let grid = app.pl_grid();
@@ -5522,7 +5566,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         }
         #[cfg(plugin_windows)]
         Cmd::SamplerTrack(_) => None,
-        Cmd::InputBinding(_) | Cmd::MenuLayout(_) | Cmd::MainMenu(..) | Cmd::PopupBack(_) | Cmd::TypingLayout(_) | Cmd::Harmony(_) | Cmd::Nothing | Cmd::Pick(..) | Cmd::Browser(_) | Cmd::Plugin(_) | Cmd::Project(_) | Cmd::Rack(_) | Cmd::Mixer(_) | Cmd::Param(_) | Cmd::Preset(_) | Cmd::Misc(..) | Cmd::PluginMenu(..) | Cmd::PluginDetach(..) | Cmd::WaveSize(..) | Cmd::Piano(_) | Cmd::Audio(_) | Cmd::Cpu(_) | Cmd::MetronomeSound(_) | Cmd::MetronomeVolume(_) | Cmd::Record(_) | Cmd::RecPrecountBars(_) | Cmd::OneClick(..) | Cmd::OneClickEditor | Cmd::Rec(_) | Cmd::ContinuousScrolling | Cmd::Pattern(_) | Cmd::ClockMode(_) | Cmd::ClockBeat(_) | Cmd::Toolbar(_) | Cmd::ToolbarPreset(_) | Cmd::WorkspaceLayout(_) | Cmd::ToolbarSave | Cmd::ToolbarDelete | Cmd::TimeSig(..) | Cmd::AddSignature | Cmd::MarkerSigAt(_) | Cmd::MarkerEveryMenu | Cmd::Bar(..) | Cmd::PanningLaw(_) | Cmd::TimeMode(_) | Cmd::Timebase(_) => None,
+        Cmd::HeaderDrop(_) | Cmd::InputBinding(_) | Cmd::MenuLayout(_) | Cmd::MainMenu(..) | Cmd::PopupBack(_) | Cmd::TypingLayout(_) | Cmd::Harmony(_) | Cmd::Nothing | Cmd::Pick(..) | Cmd::Browser(_) | Cmd::Plugin(_) | Cmd::Project(_) | Cmd::Rack(_) | Cmd::Mixer(_) | Cmd::Param(_) | Cmd::Preset(_) | Cmd::Misc(..) | Cmd::PluginMenu(..) | Cmd::PluginDetach(..) | Cmd::WaveSize(..) | Cmd::Piano(_) | Cmd::Audio(_) | Cmd::Cpu(_) | Cmd::MetronomeSound(_) | Cmd::MetronomeVolume(_) | Cmd::Record(_) | Cmd::RecPrecountBars(_) | Cmd::OneClick(..) | Cmd::OneClickEditor | Cmd::Rec(_) | Cmd::ContinuousScrolling | Cmd::Pattern(_) | Cmd::ClockMode(_) | Cmd::ClockBeat(_) | Cmd::Toolbar(_) | Cmd::ToolbarPreset(_) | Cmd::WorkspaceLayout(_) | Cmd::ToolbarSave | Cmd::ToolbarDelete | Cmd::TimeSig(..) | Cmd::AddSignature | Cmd::MarkerSigAt(_) | Cmd::MarkerEveryMenu | Cmd::Bar(..) | Cmd::PanningLaw(_) | Cmd::TimeMode(_) | Cmd::Timebase(_) => None,
         Cmd::NotYet(name) => Some(format!("{name}: not available yet")),
         Cmd::Tool(t) => {
             crate::playlist_tools::select(s, t);
@@ -5831,6 +5875,12 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             s.piano.clip_session=None;
             if let Some(ClipSource::Pattern(n)) = clips(s).get(i).map(|c| c.source) {
                 s.pattern = n;
+                // Empty instrument-track patterns have no first note to identify their instrument.
+                let row=clips(s)[i].track;
+                let arr=arr_mut(s).number;
+                let linked=s.project.instrument_lanes.iter().rev().find(|v|v.1==arr&&v.2==row&&v.3==n)
+                    .and_then(|v|s.project.channels.iter().position(|c|c.index==v.0));
+                if let Some(ch)=linked {s.selected_channel=ch;s.rack.select_only(ch);}
                 s.raise(crate::app::Win::PianoRoll);
             }
             None

@@ -28,6 +28,8 @@ pub enum MHit {
     AttachedChannels,
     AttachedRecord(u16),
     AttachedPiano(u16),
+    PlaylistInstrument(u16),
+    PlaylistInstruments(u16),
     AttachedSlot(u8,usize),
     AttachedSlotScroll(usize),
     AttachedAddSlot(usize),
@@ -146,6 +148,7 @@ pub enum MCmd {
     RecordInput(u16,Option<crate::capture::Input>),
     HardwareOutput(u16, Option<os_model::HardwareOutput>),
     PlaylistInput(u16,Option<crate::capture::Input>),
+    PlaylistInstrument(u16,u16),
     ArmDisk(u16),
     Rename(u16),
     ToggleLock(u16),
@@ -495,7 +498,7 @@ pub fn select(s: &mut State, n: u16, ctrl: bool) {
 pub(crate) fn fader_group(s:&State,t:u16)->Vec<(u16,f64)> {
     let group=if selected(s).contains(&t){selected(s)}else{vec![t]};
     group.into_iter().filter(|&n| !locked(s, n))
-        .filter_map(|n| track(s, n).map(|m| (n, m.volume.unwrap_or(0.8)))).collect()
+        .filter_map(|n| track(s, n).map(|_| (n, s.displayed_volume(n)))).collect()
 }
 pub(crate) fn move_faders(s:&mut State,group:&[(u16,f64)],leader:u16,start:f64,delta:f64)->f64{
     let end=(start+delta).clamp(0.,1.);
@@ -633,6 +636,8 @@ pub(crate) fn close_locked_editors(app: &mut App) {
 pub fn hit(app: &mut App, h: MHit) -> Option<String> {
     if h==MHit::AttachedInspector{crate::workspace_visibility::toggle(crate::attached_mixer::VISIBILITY);app.invalidate();return None;}
     if let MHit::AttachedPiano(row)=h{return crate::attached_mixer::piano(app,row,false);}
+    if let MHit::PlaylistInstrument(row)=h{return crate::playlist_tracks::open_instrument(app,row);}
+    if let MHit::PlaylistInstruments(row)=h{return crate::playlist_tracks::instrument_menu(app,row);}
     if let MHit::AttachedSlot(k,_)=h{return hit(app,MHit::SlotName(k));}
     if let MHit::AttachedRecord(row)=h{return crate::attached_mixer::record_lane(app,row);}
     if h==MHit::AttachPlaylist {crate::attached_mixer::toggle(app);return None;}
@@ -655,7 +660,7 @@ pub fn hit(app: &mut App, h: MHit) -> Option<String> {
     let s = &mut app.state;
     match h {
         MHit::AttachedLayout=>{let n=s.selected_mixer;let items=["Standard","Custom strip","Vox strip"].into_iter().enumerate().map(|(i,label)|PItem::new(label,Cmd::Mixer(MCmd::ChannelLayout(n,i as u8))).mark(Mark::Radio(track(s,n).is_some_and(|m|m.channel_layout==i as u8)))).collect();s.playlist.popup=Some(Popup{x:at.0,y:at.1+12.,items,sub:None,scroll:[0;2],cascade:vec![]});None},
-        MHit::AttachedSendLabel(_) | MHit::AttachedInspector | MHit::AttachedPiano(_) | MHit::AttachPlaylist | MHit::AttachedRecord(_) | MHit::AttachedSlot(..) | MHit::AttachedSlotScroll(_)=>None,
+        MHit::PlaylistInstrument(_) | MHit::PlaylistInstruments(_) | MHit::AttachedSendLabel(_) | MHit::AttachedInspector | MHit::AttachedPiano(_) | MHit::AttachPlaylist | MHit::AttachedRecord(_) | MHit::AttachedSlot(..) | MHit::AttachedSlotScroll(_)=>None,
         MHit::AttachedSelect(n)=>{select(s,n,false);None},
         MHit::AttachedChannels=>{
             let items=(0..=inserts(s)).filter(|n|track(s,*n).is_some_and(|m|!m.clip_fx)).map(|n|PItem::new(format!("{n}  {}",name(s,n)),Cmd::Mixer(MCmd::AttachedSelect(n))).mark(Mark::Radio(n==s.selected_mixer))).collect();
@@ -836,14 +841,7 @@ pub fn hit(app: &mut App, h: MHit) -> Option<String> {
             s.playlist.popup = Some(if slot_name(s, t, i).is_some() { slot_menu(s, i, at.0, at.1) } else { effect_menu(s, i, at.0, at.1) });
             None
         }
-        MHit::SlotLed(i) => {
-            let t = s.selected_mixer;
-            let m = track_mut(s, t)?;
-            let k = usize::from(i);
-            m.slot_on[k] = !m.slot_on[k];
-            changed(s);
-            None
-        }
+        MHit::SlotLed(i) => toggle_slot(s, s.selected_mixer, i),
         MHit::Lock(_) | MHit::Scale | MHit::EqGraph | MHit::OpenEq | MHit::EqPosition | MHit::EqBypass => None,
     }
 }
@@ -876,7 +874,8 @@ pub fn eq_graph_hint(s: &State, g: os_ui::Rect, x: f32) -> String {
 
 /// Right click on a mixer control. Returns false when it is not handled here (knob menus).
 pub fn right(app: &mut App, h: MHit) -> bool {
-    if let MHit::AttachedRecord(row)=h{if !crate::attached_mixer::active(&app.state){app.state.message=crate::playlist_tracks::input_menu(app,row);return true;}}
+    if let MHit::AttachedRecord(row)=h{app.state.message=crate::playlist_tracks::input_menu(app,row);return true;}
+    if let MHit::PlaylistInstrument(row)|MHit::PlaylistInstruments(row)=h{app.state.message=crate::playlist_tracks::instrument_menu(app,row);return true;}
     if h == MHit::AttachedInspector {
         let items = attached_inspector_items(&app.state);
         app.state.playlist.popup = Some(Popup {
@@ -2007,6 +2006,7 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
         MCmd::Detach=>{app.act(Action::DetachWin(Win::Mixer));return None;},
         MCmd::RecordInput(t,i)=>return app.set_mixer_input(t,i),
         MCmd::PlaylistInput(row,i)=>return crate::playlist_tracks::set_input(app,row,i),
+        MCmd::PlaylistInstrument(row,id)=>return crate::playlist_tracks::choose_instrument(app,row,id),
         MCmd::ArmDisk(t)=>return app.arm_mixer_disk(t),
         _=>{}
     }
@@ -2029,7 +2029,7 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
             None
         }
         MCmd::AttachedSelect(n)=>{select(s,n,false);None},
-        MCmd::RecordInput(..)|MCmd::PlaylistInput(..)|MCmd::ArmDisk(_)|MCmd::ToggleLock(_)|MCmd::ToggleGroupLock(_)=>None,
+        MCmd::RecordInput(..)|MCmd::PlaylistInput(..)|MCmd::PlaylistInstrument(..)|MCmd::ArmDisk(_)|MCmd::ToggleLock(_)|MCmd::ToggleGroupLock(_)=>None,
         MCmd::TuneSetting(n,k,v)=>{
             if !(1..=3).contains(&k) {return None;}
             let old=track(s,n)?.tune;
@@ -2685,6 +2685,17 @@ impl App {
     }
 }
 
+/// Shared by the Mixer and the host frame, without changing the selected insert.
+pub(crate) fn toggle_slot(s: &mut State, t: u16, k: u8) -> Option<String> {
+    if locked(s, t) { return Some(LOCK_MESSAGE.into()); }
+    let on = *track(s, t)?.slot_on.get(usize::from(k))?;
+    crate::history::record(s, "Effect bypass", crate::history::Snap::SlotEnabled(t, k, on));
+    track_mut(s, t)?.slot_on[usize::from(k)] = !on;
+    s.params.record_values.push((os_model::target::slot(t,k,os_model::target::SLOT_ON),format!("{} - Slot {} enabled",name(s,t),k+1),f64::from(!on)));
+    changed(s);
+    None
+}
+
 /// The plugin frame's title for a mixer slot: "Name (Insert N)" / "(Master)" (§7).
 #[cfg(plugin_windows)]
 pub fn fx_info(p: &os_model::Project, ui: &MixerUi, key: usize) -> Option<crate::plugin_window::ChannelInfo> {
@@ -2721,6 +2732,24 @@ pub fn fx_info(p: &os_model::Project, ui: &MixerUi, key: usize) -> Option<crate:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_effect_bypass_preserves_selection_locks_and_undo() {
+        let mut a=app();
+        a.state.selected_mixer=2;
+        let before=a.state.project.clone();
+        toggle_slot(&mut a.state,1,0);
+        let after=a.state.project.clone();
+        assert_eq!(a.state.selected_mixer,2);
+        assert_eq!(track(&a.state,1).unwrap().slot_on[0],!before.mixer.iter().find(|m|m.index==1).unwrap().slot_on[0]);
+        assert_eq!(track(&a.state,2),before.mixer.iter().find(|m|m.index==2));
+        crate::history::undo(&mut a.state).unwrap();assert_eq!(a.state.project,before);
+        crate::history::redo(&mut a.state).unwrap();assert_eq!(a.state.project,after);
+        track_mut(&mut a.state,1).unwrap().edit_locked=true;
+        let before=a.state.project.clone();let steps=a.state.history.done();
+        assert_eq!(toggle_slot(&mut a.state,1,0),Some(LOCK_MESSAGE.into()));
+        assert_eq!(a.state.project,before);assert_eq!(a.state.history.done(),steps);
+    }
 
     #[test]
     fn mixer_track_menu_renames_and_applies_custom_color_with_undo() {

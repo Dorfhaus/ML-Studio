@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use os_ui::Rect;
 use winit::keyboard::{Key, NamedKey};
 
-use crate::app::{App, Drag};
+use crate::app::{Action, App, Drag};
 use crate::filedlg::{FileDlg, Focus, Outcome, SortBy, ROW_H};
 
 /// The icon of a message box.
@@ -57,6 +57,9 @@ pub enum Then {
     InputBindings(bool),
     MidiControllerPreset(String, bool),
     VocalDownload(u16),
+    MelliInstall,
+    MelliProgress,
+    MelliRemove,
     WarpApply,
     SetDetectedProjectTempo(f64),
     ResetMixerTracks(Vec<u16>),
@@ -116,6 +119,7 @@ pub enum Then {
     DeleteToolbarPreset(PathBuf),
     /// Load sample... for this rack row.
     RackSample(usize),
+    BrowserSample,
     /// The replace question of the Save dialog under it: Yes answers that dialog with this path.
     Replace(PathBuf),
     /// File ▸ Browser extra search folders: the folder for this row (`App::search_folder_chosen`).
@@ -193,11 +197,13 @@ pub struct Msg {
     pub remember: Option<(&'static crate::messages::Message, bool)>,
     /// The buttons' own labels, in the order of `buttons` (empty: the answers' labels, "Yes", "No", ...).
     pub labels: Vec<&'static str>,
+    /// Actual completed/total bytes; None leaves ordinary message boxes unchanged.
+    pub progress: Option<(u64, u64)>,
 }
 
 impl Msg {
     pub fn new(kind: Kind, title: &str, text: Vec<(String, bool)>, buttons: &[Answer], then: Then) -> Msg {
-        Msg { kind, title: title.into(), text, buttons: buttons.to_vec(), focus: 0, then, remember: None, labels: Vec::new() }
+        Msg { kind, title: title.into(), text, buttons: buttons.to_vec(), focus: 0, then, remember: None, labels: Vec::new(), progress: None }
     }
 
     /// The same box with buttons labelled `labels` (in the order of its buttons) instead of the answers' names.
@@ -265,9 +271,27 @@ impl Modal {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TextTarget { Name, Path, Project(u8) }
+
+fn text_field(body: &mut Body, target: TextTarget) -> Option<&mut Field> {
+    match (body, target) {
+        (Body::File(f), TextTarget::Name) => { f.focus=Focus::Name; f.list_focus=false; Some(&mut f.name) },
+        (Body::File(f), TextTarget::Path) => { f.focus=Focus::Path; f.list_focus=false; Some(&mut f.path) },
+        (Body::Project(crate::project_forms::Form::Save(f)), TextTarget::Project(i)) if i==0 || (f.info_open && i<=4) => {
+            f.focus=i; Some(if i==0 { &mut f.name } else { &mut f.info[usize::from(i)-1] })
+        },
+        (Body::Project(crate::project_forms::Form::Rename(f)), TextTarget::Project(i)) if i==0 || (i==1 && f.folder_editable()) => {
+            f.focus=i; Some(if i==0 { &mut f.name } else { &mut f.folder })
+        },
+        _ => None,
+    }
+}
+
 /// The parts of a dialog that take clicks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DHit {
+    TextCaret(TextTarget, usize),
     Collaboration(crate::collaboration::Command),
     NoteProperties(crate::piano_note_properties::Command),
     ClipFx(crate::clip_effects::Command),
@@ -328,99 +352,9 @@ pub enum DHit {
     Form(crate::project_forms::FHit),
 }
 
-/// A one-line text field: the text, the caret (in characters) and whether all of it is selected (typing replaces it).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Field {
-    pub text: String,
-    pub caret: usize,
-    pub all: bool,
-}
-
-impl Field {
-    pub fn set(&mut self, s: &str) {
-        self.text = s.into();
-        self.caret = self.len();
-        self.all = false;
-    }
-
-    pub fn len(&self) -> usize {
-        self.text.chars().count()
-    }
-
-    pub fn select_all(&mut self) {
-        self.all = !self.text.is_empty();
-        self.caret = self.len();
-    }
-
-    /// Byte offset of character `i`.
-    fn at(&self, i: usize) -> usize {
-        self.text.char_indices().nth(i).map_or(self.text.len(), |(b, _)| b)
-    }
-
-    /// The text up to the caret (where it is drawn).
-    pub fn before_caret(&self) -> &str {
-        &self.text[..self.at(self.caret)]
-    }
-
-    /// Removes a selection; true when there was one.
-    fn take_all(&mut self) -> bool {
-        if !self.all {
-            return false;
-        }
-        self.text.clear();
-        self.caret = 0;
-        self.all = false;
-        true
-    }
-
-    pub fn insert(&mut self, s: &str) {
-        self.take_all();
-        let b = self.at(self.caret);
-        self.text.insert_str(b, s);
-        self.caret += s.chars().count();
-    }
-
-    /// The editing keys. True when the key was taken.
-    pub fn key(&mut self, key: &Key, ctrl: bool, alt: bool) -> bool {
-        match key {
-            Key::Named(NamedKey::Backspace) => {
-                if !self.take_all() && self.caret > 0 {
-                    self.caret -= 1;
-                    let b = self.at(self.caret);
-                    self.text.remove(b);
-                }
-            }
-            Key::Named(NamedKey::Delete) => {
-                if !self.take_all() && self.caret < self.len() {
-                    let b = self.at(self.caret);
-                    self.text.remove(b);
-                }
-            }
-            Key::Named(NamedKey::ArrowLeft) => {
-                self.caret = if self.all { 0 } else { self.caret.saturating_sub(1) };
-                self.all = false;
-            }
-            Key::Named(NamedKey::ArrowRight) => {
-                self.caret = if self.all { self.len() } else { (self.caret + 1).min(self.len()) };
-                self.all = false;
-            }
-            Key::Named(NamedKey::Home) => {
-                self.caret = 0;
-                self.all = false;
-            }
-            Key::Named(NamedKey::End) => {
-                self.caret = self.len();
-                self.all = false;
-            }
-            Key::Named(NamedKey::Space) => self.insert(" "),
-            Key::Character(c) if ctrl && !alt && c.eq_ignore_ascii_case("a") => self.select_all(),
-            // Ctrl+Alt is AltGr on Windows: it types characters.
-            Key::Character(c) if (!ctrl || alt) && !c.chars().any(char::is_control) => self.insert(c),
-            _ => return false,
-        }
-        true
-    }
-}
+#[path = "dialog_text.rs"]
+mod text;
+pub use text::Field;
 
 /// What a key did in the file dialog.
 enum FileKey {
@@ -429,7 +363,7 @@ enum FileKey {
     Cancel,
 }
 
-fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool) -> FileKey {
+fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool, shift: bool) -> FileKey {
     use NamedKey as N;
     if f.filter_open {
         match key {
@@ -445,10 +379,15 @@ fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool) -> FileKey {
         return FileKey::Nothing;
     }
     match key {
+        Key::Character(c) if ctrl && !alt && c.eq_ignore_ascii_case("l") => {
+            f.focus = Focus::Path; f.list_focus = false; f.path.select_all();
+        }
+        Key::Character(c) if ctrl && shift && !alt && c.eq_ignore_ascii_case("n") => f.new_folder(),
         Key::Named(N::Escape) => return FileKey::Cancel,
         Key::Named(N::Enter) if f.focus == Focus::Path => f.path_enter(),
         Key::Named(N::Enter) => return FileKey::Outcome(f.accept()),
         Key::Named(N::Tab) => {
+            f.list_focus=false;
             f.focus = if f.focus == Focus::Name { Focus::Path } else { Focus::Name };
             if f.focus == Focus::Path {
                 f.path.select_all();
@@ -468,7 +407,7 @@ fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool) -> FileKey {
         _ => {
             let name = f.focus == Focus::Name;
             let field = if name { &mut f.name } else { &mut f.path };
-            if field.key(key, ctrl, alt) {
+            if field.key_mod(key, ctrl, alt, shift) {
                 f.status = None;
                 if name {
                     f.list_focus = false;
@@ -516,7 +455,7 @@ impl App {
     /// Closes the top dialog with `reply` and carries out what waited for it.
     fn answer(&mut self, reply: Reply) {
         let Some(m) = self.state.dialogs.pop() else { return };
-        if matches!(self.drag, Some(Drag::Dialog { .. } | Drag::DialogBar { .. })) {
+        if matches!(self.drag, Some(Drag::Dialog { .. } | Drag::DialogBar { .. } | Drag::DialogText(_))) {
             self.drag = None;
         }
         self.modal_changed();
@@ -534,7 +473,7 @@ impl App {
                 m.then
             }
             Body::File(f) => {
-                if matches!(f.then,Then::RackSample(_)) && f.preview_last.is_some(){crate::browser_preview::dismiss(self);}
+                if matches!(f.then,Then::RackSample(_) | Then::BrowserSample) && f.preview_last.is_some(){crate::browser_preview::dismiss(self);}
                 if let Reply::File(Some(p)) = &reply {
                     f.remember(p);
                 }
@@ -600,6 +539,15 @@ impl App {
         }
     }
 
+    pub(crate) fn dialog_text_drag(&mut self, target: TextTarget, x: f32) {
+        let nearest=self.hits.iter().filter_map(|h| match h.action {
+            Action::Dlg(DHit::TextCaret(t,p)) if t==target => Some((p,(h.rect.cx()-x).abs())), _=>None,
+        }).min_by(|a,b| a.1.total_cmp(&b.1)).map(|v|v.0);
+        if let (Some(pos),Some(m))=(nearest,self.state.dialogs.last_mut()) {
+            if let Some(f)=text_field(&mut m.body,target) { f.place(pos,true); }
+        }
+    }
+
     /// A click on a part of the top dialog.
     pub(crate) fn dialog_click(&mut self, h: DHit) {
         self.invalidate();
@@ -621,6 +569,9 @@ impl App {
             }
         }
         match h {
+            DHit::TextCaret(target, pos) => {
+                if let Some(f)=text_field(&mut m.body,target) { f.place(pos,self.shift); self.drag=Some(Drag::DialogText(target)); }
+            },
             DHit::Collaboration(c)=>crate::collaboration::command(self,c),
             DHit::AiEnable=>crate::ai_control::enable(self),
             DHit::AiApprove(yes)=>crate::ai_control::approve(self,yes),
@@ -851,7 +802,7 @@ impl App {
                     self.answer(Reply::Button(a));
                 }
             }
-            Body::File(f) => match file_key(f, key, ctrl, alt) {
+            Body::File(f) => match file_key(f, key, ctrl, alt, shift) {
                 FileKey::Nothing => {}
                 FileKey::Outcome(o) => self.file_outcome(o),
                 FileKey::Cancel => self.answer(Reply::File(None)),
@@ -883,7 +834,7 @@ impl App {
 
     pub(crate) fn sample_dialog_preview(&mut self) {
         let Some(Modal{body:Body::File(f),..})=self.state.dialogs.last_mut() else{return};
-        if !matches!(f.then,Then::RackSample(_))||!f.preview{return;}
+        if !matches!(f.then,Then::RackSample(_) | Then::BrowserSample)||!f.preview{return;}
         let path=f.sel.and_then(|i|f.entries.get(i)).filter(|e|!e.dir).map(|e|f.dir.join(&e.name));
         if path==f.preview_last{return;}
         f.preview_last=path.clone();
@@ -1007,3 +958,7 @@ pub mod fake {
         assert_eq!(app.state.project,before);assert!(app.state.sample_loads.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "dialog_workflow_tests.rs"]
+mod workflow_tests;

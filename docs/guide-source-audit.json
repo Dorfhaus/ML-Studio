@@ -1,0 +1,868 @@
+{
+  "generated_articles": 214,
+  "guide_articles": 444,
+  "records": [
+    {
+      "title": "Setting: Main GUI scaling",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Pop-ups scaling",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Toolbars scaling",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Colorful waveforms",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Mixer style",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Playlist scrollbar style",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Interface language",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Note names",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Black notes",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Autosave",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Location",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Maximum",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Restore previous state after solo",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Select first channel with notes when the pattern changes",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto zoom in piano roll",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Brighter Playlist clips",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Small scrollbars in editors",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto zip empty channels",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Monophonic painting in piano roll",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Enable automatic crossfades in new projects",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Play truncated notes on transport",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Reset plugins on transport",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Alternate meter scale",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Create automation clips at the playback position",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto select linked modules",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Hide plugin window toolbar by default",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto-route Channel Rack samples to mixer inserts",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto name channels",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto name effect slots",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Detach all new plugins",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Open detached plugins with the main window",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Disable typing keyboard priority by default",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Limit the number of open plugin editors",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Show startup splash screen",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Silent startup",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Use both mouse buttons in step sequencer",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Startup project",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Click-and-hold & special gesture functions",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Maximum undo levels",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Undo knob tweaks",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Alternate undo mode",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Put undone recordings in the recycle bin",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Show undo history in the browser when undoing changes",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Show recent changes at the top",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Read sample root note",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Read sample tempo information",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Animation refresh rate",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Don't limit windows to screen",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Initialize controls automatically",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Fast sample preview",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto keep long audio on disk",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Threaded project sample loading",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Cursors scaling",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Legacy scaling",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: High visibility",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Force refreshes",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Thick lines",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Transparent menus",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Transparent windows",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Optimize for",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Invert pencil buttons",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto close",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Smart disable",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Align tick lengths",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Multithreaded generator processing",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Multithreaded mixer processing",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Plugin delay compensation during playback",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Audio worker limit",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Audio processing priority",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Recording format",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Recording offset",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Playback resampling quality",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Project data size warning",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Ask for data folder",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Copy used samples to the project folder",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Pickup (takeover mode)",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Auto accept detected controller",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Foot pedal controls note off",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Toggle on release",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Link note on velocity to",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Link release velocity to",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Controller type",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Synchronization type",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Omni preview MIDI channel",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Song marker jump MIDI channel",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Generator muting MIDI channel",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Double-click resets faders and knobs",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Open menus on hover",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Piano Roll zoom keys",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Vertical scrolling speed",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Horizontal scrolling speed",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Smoothing",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Browser preview track",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Metronome track",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Toggle browser",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Toggle plugin picker",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Toggle project picker",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Show plugin database",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Show when necessary",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Show every time",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Don't show",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Show clip properties",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Setting: Show channel settings",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "App - menu labels 1",
+      "source": "crates/os-app/src/app.rs"
+    },
+    {
+      "title": "Ara - menu labels 1",
+      "source": "crates/os-app/src/ara.rs"
+    },
+    {
+      "title": "Browser - menu labels 1",
+      "source": "crates/os-app/src/browser.rs"
+    },
+    {
+      "title": "Browser Preview - control hints 1",
+      "source": "crates/os-app/src/browser_preview.rs"
+    },
+    {
+      "title": "Harmony - control hints 1",
+      "source": "crates/os-app/src/harmony.rs"
+    },
+    {
+      "title": "Changelog - control hints 1",
+      "source": "crates/os-app/src/help/changelog.rs"
+    },
+    {
+      "title": "Wiki - control hints 1",
+      "source": "crates/os-app/src/help/wiki.rs"
+    },
+    {
+      "title": "Import Report - menu labels 1",
+      "source": "crates/os-app/src/import_report.rs"
+    },
+    {
+      "title": "Instrument Stack - menu labels 1",
+      "source": "crates/os-app/src/instrument_stack.rs"
+    },
+    {
+      "title": "Knobs - menu labels 1",
+      "source": "crates/os-app/src/knobs.rs"
+    },
+    {
+      "title": "Loop Fit - menu labels 1",
+      "source": "crates/os-app/src/loop_fit.rs"
+    },
+    {
+      "title": "Messages - menu labels 1",
+      "source": "crates/os-app/src/messages.rs"
+    },
+    {
+      "title": "Midi Play - menu labels 1",
+      "source": "crates/os-app/src/midi_play.rs"
+    },
+    {
+      "title": "Mini Eq - control hints 1",
+      "source": "crates/os-app/src/mini_eq.rs"
+    },
+    {
+      "title": "Misc - menu labels 1",
+      "source": "crates/os-app/src/misc.rs"
+    },
+    {
+      "title": "Mixer - menu labels 1",
+      "source": "crates/os-app/src/mixer.rs"
+    },
+    {
+      "title": "Mixer - menu labels 2",
+      "source": "crates/os-app/src/mixer.rs"
+    },
+    {
+      "title": "Mixer - menu labels 3",
+      "source": "crates/os-app/src/mixer.rs"
+    },
+    {
+      "title": "Mixer - unavailable menu placeholders 1",
+      "source": "crates/os-app/src/mixer.rs"
+    },
+    {
+      "title": "Mixer - unavailable menu placeholders 2",
+      "source": "crates/os-app/src/mixer.rs"
+    },
+    {
+      "title": "Mixer Recording - menu labels 1",
+      "source": "crates/os-app/src/mixer_recording.rs"
+    },
+    {
+      "title": "Mpe - menu labels 1",
+      "source": "crates/os-app/src/mpe.rs"
+    },
+    {
+      "title": "One Click - menu labels 1",
+      "source": "crates/os-app/src/one_click.rs"
+    },
+    {
+      "title": "Params - menu labels 1",
+      "source": "crates/os-app/src/params.rs"
+    },
+    {
+      "title": "Params - unavailable menu placeholders 1",
+      "source": "crates/os-app/src/params.rs"
+    },
+    {
+      "title": "Peak Link - menu labels 1",
+      "source": "crates/os-app/src/peak_link.rs"
+    },
+    {
+      "title": "Piano Note Mode - control hints 1",
+      "source": "crates/os-app/src/piano_note_mode.rs"
+    },
+    {
+      "title": "Piano Note Mode - menu labels 1",
+      "source": "crates/os-app/src/piano_note_mode.rs"
+    },
+    {
+      "title": "Piano Tools - menu labels 1",
+      "source": "crates/os-app/src/piano_tools.rs"
+    },
+    {
+      "title": "Piano Tools - menu labels 2",
+      "source": "crates/os-app/src/piano_tools.rs"
+    },
+    {
+      "title": "Piano Tools - unavailable menu placeholders 1",
+      "source": "crates/os-app/src/piano_tools.rs"
+    },
+    {
+      "title": "Playlist - menu labels 1",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 2",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 3",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 4",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 5",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 6",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 7",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 8",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - menu labels 9",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - unavailable menu placeholders 1",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist - unavailable menu placeholders 2",
+      "source": "crates/os-app/src/playlist.rs"
+    },
+    {
+      "title": "Playlist Controls - menu labels 1",
+      "source": "crates/os-app/src/playlist_controls.rs"
+    },
+    {
+      "title": "Playlist Links - menu labels 1",
+      "source": "crates/os-app/src/playlist_links.rs"
+    },
+    {
+      "title": "Playlist Tools - menu labels 1",
+      "source": "crates/os-app/src/playlist_tools.rs"
+    },
+    {
+      "title": "Drops - menu labels 1",
+      "source": "crates/os-app/src/playlist_tracks/drops.rs"
+    },
+    {
+      "title": "Plugin Downloads - control hints 1",
+      "source": "crates/os-app/src/plugin_downloads.rs"
+    },
+    {
+      "title": "Plugin Menu - menu labels 1",
+      "source": "crates/os-app/src/plugin_menu.rs"
+    },
+    {
+      "title": "Plugin Picker - control hints 1",
+      "source": "crates/os-app/src/plugin_picker.rs"
+    },
+    {
+      "title": "Presets - menu labels 1",
+      "source": "crates/os-app/src/presets.rs"
+    },
+    {
+      "title": "Project Info - control hints 1",
+      "source": "crates/os-app/src/project_info.rs"
+    },
+    {
+      "title": "Project Picker - menu labels 1",
+      "source": "crates/os-app/src/project_picker.rs"
+    },
+    {
+      "title": "Rack - menu labels 1",
+      "source": "crates/os-app/src/rack.rs"
+    },
+    {
+      "title": "Rack - menu labels 2",
+      "source": "crates/os-app/src/rack.rs"
+    },
+    {
+      "title": "Rack - unavailable menu placeholders 1",
+      "source": "crates/os-app/src/rack.rs"
+    },
+    {
+      "title": "Rack Controls - menu labels 1",
+      "source": "crates/os-app/src/rack_controls.rs"
+    },
+    {
+      "title": "Channel Strip mixer - control hints 1",
+      "source": "crates/os-app/src/rack_mixer.rs"
+    },
+    {
+      "title": "Channel Strip mixer - menu labels 1",
+      "source": "crates/os-app/src/rack_mixer.rs"
+    },
+    {
+      "title": "Record - menu labels 1",
+      "source": "crates/os-app/src/record.rs"
+    },
+    {
+      "title": "Record Lead - menu labels 1",
+      "source": "crates/os-app/src/record_lead.rs"
+    },
+    {
+      "title": "Remote - menu labels 1",
+      "source": "crates/os-app/src/remote.rs"
+    },
+    {
+      "title": "Route Picker - menu labels 1",
+      "source": "crates/os-app/src/route_picker.rs"
+    },
+    {
+      "title": "Theme Library - menu labels 1",
+      "source": "crates/os-app/src/theme_library.rs"
+    },
+    {
+      "title": "Arpeggiate view - control hints 1",
+      "source": "crates/os-app/src/views/arpeggiate.rs"
+    },
+    {
+      "title": "Browser view - control hints 1",
+      "source": "crates/os-app/src/views/browser.rs"
+    },
+    {
+      "title": "Cabledebug view - control hints 1",
+      "source": "crates/os-app/src/views/cabledebug.rs"
+    },
+    {
+      "title": "Channel Win view - control hints 1",
+      "source": "crates/os-app/src/views/channel_win.rs"
+    },
+    {
+      "title": "Dialog view - control hints 1",
+      "source": "crates/os-app/src/views/dialog.rs"
+    },
+    {
+      "title": "Menus view - control hints 1",
+      "source": "crates/os-app/src/views/menus.rs"
+    },
+    {
+      "title": "Menus view - menu labels 1",
+      "source": "crates/os-app/src/views/menus.rs"
+    },
+    {
+      "title": "Midi Form view - control hints 1",
+      "source": "crates/os-app/src/views/midi_form.rs"
+    },
+    {
+      "title": "Midi Page view - control hints 1",
+      "source": "crates/os-app/src/views/midi_page.rs"
+    },
+    {
+      "title": "Traditional view - control hints 1",
+      "source": "crates/os-app/src/views/mixer/traditional.rs"
+    },
+    {
+      "title": "Vintage Compact view - control hints 1",
+      "source": "crates/os-app/src/views/mixer/vintage_compact.rs"
+    },
+    {
+      "title": "Mixer view - control hints 1",
+      "source": "crates/os-app/src/views/mixer.rs"
+    },
+    {
+      "title": "Mixer view - control hints 2",
+      "source": "crates/os-app/src/views/mixer.rs"
+    },
+    {
+      "title": "Mod view - control hints 1",
+      "source": "crates/os-app/src/views/mod.rs"
+    },
+    {
+      "title": "Mondebug view - control hints 1",
+      "source": "crates/os-app/src/views/mondebug.rs"
+    },
+    {
+      "title": "Patterns view - control hints 1",
+      "source": "crates/os-app/src/views/patterns.rs"
+    },
+    {
+      "title": "Perf view - control hints 1",
+      "source": "crates/os-app/src/views/perf.rs"
+    },
+    {
+      "title": "Piano Roll view - control hints 1",
+      "source": "crates/os-app/src/views/piano.rs"
+    },
+    {
+      "title": "Piano Roll view - control hints 2",
+      "source": "crates/os-app/src/views/piano.rs"
+    },
+    {
+      "title": "Piano Dlg view - control hints 1",
+      "source": "crates/os-app/src/views/piano_dlg.rs"
+    },
+    {
+      "title": "Playlist view - control hints 1",
+      "source": "crates/os-app/src/views/playlist.rs"
+    },
+    {
+      "title": "Playlist view - control hints 2",
+      "source": "crates/os-app/src/views/playlist.rs"
+    },
+    {
+      "title": "Project Forms view - control hints 1",
+      "source": "crates/os-app/src/views/project_forms.rs"
+    },
+    {
+      "title": "Studio view - control hints 1",
+      "source": "crates/os-app/src/views/rack/studio.rs"
+    },
+    {
+      "title": "Rack view - control hints 1",
+      "source": "crates/os-app/src/views/rack.rs"
+    },
+    {
+      "title": "Rack view - control hints 2",
+      "source": "crates/os-app/src/views/rack.rs"
+    },
+    {
+      "title": "Settings view - control hints 1",
+      "source": "crates/os-app/src/views/settings.rs"
+    },
+    {
+      "title": "Settings view - control hints 2",
+      "source": "crates/os-app/src/views/settings.rs"
+    },
+    {
+      "title": "Strum view - control hints 1",
+      "source": "crates/os-app/src/views/strum.rs"
+    },
+    {
+      "title": "Tapper view - control hints 1",
+      "source": "crates/os-app/src/views/tapper.rs"
+    },
+    {
+      "title": "Toolbar view - control hints 1",
+      "source": "crates/os-app/src/views/toolbar.rs"
+    },
+    {
+      "title": "Toolbar view - control hints 2",
+      "source": "crates/os-app/src/views/toolbar.rs"
+    },
+    {
+      "title": "Typein view - control hints 1",
+      "source": "crates/os-app/src/views/typein.rs"
+    },
+    {
+      "title": "Vintage Toolbar view - control hints 1",
+      "source": "crates/os-app/src/views/vintage_toolbar.rs"
+    },
+    {
+      "title": "View - control hints 1",
+      "source": "crates/os-app/src/vocal/view.rs"
+    },
+    {
+      "title": "Warp - control hints 1",
+      "source": "crates/os-app/src/warp.rs"
+    },
+    {
+      "title": "Workspace Layout - menu labels 1",
+      "source": "crates/os-app/src/workspace_layout.rs"
+    },
+    {
+      "title": "Configurable command shortcuts - exact defaults",
+      "source": "crates/os-app/src/shortcuts.rs"
+    },
+    {
+      "title": "Citrus - parameter names 1",
+      "source": "plugins/citrus"
+    },
+    {
+      "title": "ML Delay - parameter names 1",
+      "source": "plugins/lemon-delay"
+    },
+    {
+      "title": "ML Delay - parameter names 2",
+      "source": "plugins/lemon-delay"
+    },
+    {
+      "title": "ML Limiter - parameter names 1",
+      "source": "plugins/lemon-limiter"
+    },
+    {
+      "title": "ML Reverb - parameter names 1",
+      "source": "plugins/lemon-reverb"
+    },
+    {
+      "title": "ML Sampler - parameter names 1",
+      "source": "plugins/lemon-sampler"
+    },
+    {
+      "title": "ML Sampler - parameter names 2",
+      "source": "plugins/lemon-sampler"
+    },
+    {
+      "title": "ML Chorus - parameter names 1",
+      "source": "plugins/lemon-small-fx"
+    },
+    {
+      "title": "ML Stereo Shaper - parameter names 1",
+      "source": "plugins/lemon-small-fx"
+    },
+    {
+      "title": "ML Tesla - parameter names 1",
+      "source": "plugins/tesla"
+    }
+  ],
+  "explicit_exclusions": {
+    "settings_comments_needing_reverification": 16,
+    "dynamic_or_nonliteral_hints": 543,
+    "dynamic_menu_labels": 200
+  },
+  "scope": "Static preference declarations, direct editor hints, literal menu labels, configurable command shortcuts and constructor parameter names. Dynamic controls and behavioral completeness require manual review; catalog presence is not a claim that every feature is fully documented."
+}

@@ -21,6 +21,17 @@ use crate::toolbar::{place, At, BarHit, Moving, Panel, Placed, Target, Tile, PAN
 pub const MORE_W: f32 = 18.0;
 /// The overflow arrow provides access to windows hidden by a narrow toolbar.
 pub const MORE_HINT: &str = "More windows and toolbar options";
+pub(crate) const OPEN_HIGHLIGHTS: &str = "visible_win-open-highlights";
+
+/// Every open window stays lit, including covered, collapsed and detached editors.
+pub(super) fn window_shortcut_open(s: &State, action: &Action) -> bool {
+    shown(OPEN_HIGHLIGHTS) && match action {
+        Action::ToggleWin(win) => s.shown(*win),
+        Action::ProjectPicker => crate::project_picker::is_open(s),
+        Action::PickerOpen => crate::plugin_menu::is_open(s),
+        _ => false,
+    }
+}
 
 /// The Studio rack's compact corners and flat faces, using the active toolbar palette.
 const STUDIO_RADIUS: f32 = 4.0;
@@ -1384,26 +1395,27 @@ fn window_buttons(ui: &mut Ui, c: &Ctx, which: Range<usize>) -> bool {
             return false;
         }
         let hov = ui.hit(r, action.clone(), hint) || ui.down(r, action);
+        let on = window_shortcut_open(c.s, action);
         if c.s.vintage_2005 && i < 5 {
             // FL4 orders Playlist, Rack, Piano Roll, Browser and Mixer.
-            let frame = [0, 4, 2, 8, 6][i] + usize::from(hov);
+            let frame = [0, 4, 2, 8, 6][i] + usize::from(on || hov);
             if crate::vintage_skin::native(ui.c, "SCBtns", frame, (r.cx()-14.5).round(), (r.cy()-12.5).round()) {
                 continue;
             }
         }
         let ink = if super::lemon(ui) && !c.s.vintage_2005 {
-            if hov || !c.s.toolbar.flat {
-                studio_tile(ui, r.inset(1.0), if hov { ui.t.button_hi } else { ui.t.toolbar.mix(ui.t.button, 0.45) });
+            if on || hov || !c.s.toolbar.flat {
+                studio_tile(ui, r.inset(1.0), if on { ui.t.pill } else if hov { ui.t.button_hi } else { ui.t.toolbar.mix(ui.t.button, 0.45) });
             }
-            if hov { ui.t.accent } else { ui.t.glyph }
+            if on { ui.t.pill_text } else if hov { ui.t.accent } else { ui.t.glyph }
         } else {
-            super::tool_face(ui, r, if hov { super::Look::Hot } else { super::Look::Off })
+            super::tool_face(ui, r, if on { super::Look::On } else if hov { super::Look::Hot } else { super::Look::Off })
         };
         if c.s.vintage_2005 {
             ui.c.fill_rrect(r.inset(1.),12.,Color::rgb(0x23353b));
             ui.c.fill_rect_gradient(r.inset(2.),Color::rgb(0x87999e),Color::rgb(0x344d55),11.);
-            ui.c.stroke_rrect(r.inset(4.),9.,1.,Color::rgb(0x293f46));
-            icons::draw(ui.c,icon,Rect::new(r.x+7.,r.y+8.,16.,16.),if hov {ui.t.accent}else{Color::rgb(0xc3d7d0)});
+            ui.c.stroke_rrect(r.inset(4.),9.,1.,if on {ui.t.accent}else{Color::rgb(0x293f46)});
+            icons::draw(ui.c,icon,Rect::new(r.x+7.,r.y+8.,16.,16.),if on || hov {ui.t.accent}else{Color::rgb(0xc3d7d0)});
         } else {icons::draw(ui.c, icon, Rect::new(r.x + 5.0, r.y + 6.5, 20.0, 20.0), ink);}
     }
     // FL's news panel (x 1304..1470, with its separator) is left out: it suggested an online service Lemon Studio
@@ -1833,6 +1845,69 @@ mod tests {
             let was_open = app.state.show_browser;
             click(&mut app, &mut canvas, browser.cx(), browser.cy());
             assert_ne!(app.state.show_browser, was_open);
+        }
+    }
+
+    #[test]
+    fn open_window_shortcuts_render_independently_and_visibility_keeps_windows() {
+        fn pixels(canvas:&Canvas,r:Rect)->Vec<u8> {
+            let k=canvas.scale;
+            let mut bytes=Vec::new();
+            for y in (r.y*k).ceil() as u32..(r.bottom()*k).floor() as u32 {
+                let start=((y*canvas.pixmap.width()+(r.x*k).ceil() as u32)*4) as usize;
+                let end=((y*canvas.pixmap.width()+(r.right()*k).floor() as u32)*4) as usize;
+                bytes.extend_from_slice(&canvas.pixmap.data()[start..end]);
+            }
+            bytes
+        }
+        let wins=[Win::Playlist,Win::PianoRoll,Win::ChannelRack,Win::Mixer,Win::Browser];
+        crate::settings_file::set_flag(super::OPEN_HIGHLIGHTS,true);
+        for design in os_theme::Design::ALL {
+            for flat in [false,true] {
+                let mut app=App::new(None);
+                app.set_design(design,false);
+                app.state.toolbar.flat=flat;
+                app.state.startup_layout_pending=false;
+                app.mouse=(-1.,-1.);
+                let mut canvas=Canvas::new(2400,1000,1.).unwrap();
+                for w in wins {app.state.hide(w);}
+                app.paint(&mut canvas,None);
+                let off:Vec<_>=wins.iter().map(|w|pixels(&canvas,hit(&app,&Action::ToggleWin(*w)))).collect();
+                for w in wins {app.state.raise(w);}
+                // Open Playlist and Mixer remain lit even behind other windows and
+                // on a separate monitor. Rendering here creates no native windows.
+                app.state.native_detached=vec![Win::Mixer];
+                app.paint(&mut canvas,None);
+                let on:Vec<_>=wins.iter().map(|w|pixels(&canvas,hit(&app,&Action::ToggleWin(*w)))).collect();
+                for i in 0..wins.len(){assert_ne!(off[i],on[i],"{:?}, {design:?}, flat={flat}",wins[i]);}
+                app.state.hide(Win::Mixer);
+                app.paint(&mut canvas,None);
+                assert_eq!(pixels(&canvas,hit(&app,&Action::ToggleWin(Win::Mixer))),off[3]);
+                assert_eq!(pixels(&canvas,hit(&app,&Action::ToggleWin(Win::Playlist))),on[0]);
+                crate::settings_file::set_flag(super::OPEN_HIGHLIGHTS,false);
+                app.paint(&mut canvas,None);
+                for i in 0..wins.len(){assert_eq!(pixels(&canvas,hit(&app,&Action::ToggleWin(wins[i]))),off[i]);}
+                assert!(app.state.shown(Win::Playlist));
+                assert!(!app.state.shown(Win::Mixer));
+                assert!(app.state.native_detached.contains(&Win::Mixer));
+                crate::settings_file::set_flag(super::OPEN_HIGHLIGHTS,true);
+                if let Ok(path)=std::env::var("LEMON_WINDOW_HIGHLIGHT_SHOT") {
+                    app.state.raise(Win::Mixer);app.paint(&mut canvas,None);
+                    canvas.pixmap.save_png(format!("{path}-{design:?}-{flat}.png")).unwrap();
+                }
+                for w in [Win::Tapper,Win::Touch] {
+                    app.state.raise(w);assert!(super::window_shortcut_open(&app.state,&Action::ToggleWin(w)));
+                    app.state.hide(w);assert!(!super::window_shortcut_open(&app.state,&Action::ToggleWin(w)));
+                }
+                app.open_project_picker((10.,100.));
+                assert!(super::window_shortcut_open(&app.state,&Action::ProjectPicker));
+                app.state.playlist.popup=None;
+                assert!(!super::window_shortcut_open(&app.state,&Action::ProjectPicker));
+                app.state.plugin_picker.open=true;
+                assert!(super::window_shortcut_open(&app.state,&Action::PickerOpen));
+                app.state.plugin_picker.open=false;
+                assert!(!super::window_shortcut_open(&app.state,&Action::PickerOpen));
+            }
         }
     }
 

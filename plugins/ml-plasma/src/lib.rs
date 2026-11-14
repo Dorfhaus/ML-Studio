@@ -14,6 +14,7 @@ pub const ID: &str = "de.michaellane.ml-plasma";
 pub const VISIBILITY: &str = "visible_plugin-plasma";
 const FILE: &str = "ML Plasma.clap";
 const BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plasma.zip"));
+mod cache;
 
 #[derive(Deserialize)]
 struct Manifest {
@@ -89,6 +90,8 @@ fn unpack(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
     let stage = root.join(format!("{hash}-{}-{serial}.tmp", std::process::id()));
     fs::create_dir(&stage).map_err(|e| err(&e))?;
     let result = (|| {
+        let names:Vec<_>=manifest.files.iter().map(|e|e.path.clone()).collect();
+        fs::write(stage.join("cache-files.json"),serde_json::to_vec(&names).map_err(|e|err(&e))?).map_err(|e|err(&e))?;
         for entry in &manifest.files {
             let mut file = archive.by_name(&entry.path).map_err(|e| err(&e))?;
             if file.size() != entry.size
@@ -138,15 +141,16 @@ fn unpack(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
 }
 
 pub fn bundle_path() -> Result<PathBuf, String> {
-    static PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    static PATH: OnceLock<Result<(PathBuf,fs::File), String>> = OnceLock::new();
     PATH.get_or_init(|| {
         let root = os_paths::user_dir()
             .ok_or("ML Studio user directory is unavailable")?
             .join("Builtin Plugins")
             .join("ML Plasma");
-        unpack(BYTES, &root)
+        let hash=format!("{:x}",Sha256::digest(BYTES));let lease=cache::lease(&root,&hash)?;
+        let path=unpack(BYTES, &root)?;cache::prune(&root,&hash);Ok((path,lease))
     })
-    .clone()
+    .as_ref().map(|(path,_)|path.clone()).map_err(Clone::clone)
 }
 
 pub fn library() -> Result<std::sync::Arc<os_clap::Library>, String> {

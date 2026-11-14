@@ -1,0 +1,143 @@
+{
+  "version": 2,
+  "platforms": {
+    "windows": {
+      "python": {
+        "name": "cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16%2B20261110-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "sha256": "355ee61b8207b91574491b1c6dc9b0ebb4408fc56bfafe498f3ef439314b52dc",
+        "size": 22365213
+      },
+      "runtimes": [
+        {
+          "name": "llama-b12378-bin-win-vulkan-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12378/llama-b12378-bin-win-vulkan-x64.zip",
+          "sha256": "1748d1377abfc802a679116e4e04b01c30b96a1aa285e7bbd06e3078c72a4919",
+          "size": 38116588
+        },
+        {
+          "name": "llama-b12378-bin-win-cpu-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12378/llama-b12378-bin-win-cpu-x64.zip",
+          "sha256": "2bea6ad03073278b66dfb71791510327d6747ba77d4f20fb528ce357df892952",
+          "size": 25122595
+        }
+      ],
+      "wheels": [
+        {
+          "name": "pyside6_essentials-6.12.0-cp310-abi3-win_amd64.whl",
+          "url": "https://files.pythonhosted.org/packages/03/61/9a7e32a37b224f68506785bfb0f288d516098ec71681782d72b695a6c95d/pyside6_essentials-6.12.0-cp310-abi3-win_amd64.whl",
+          "sha256": "c9a95102aa23c1f86516a30d5a9be37552d324eee7e567eb7508973f1218cb42",
+          "size": 82153795
+        },
+        {
+          "name": "shiboken6-6.12.0-cp310-abi3-win_amd64.whl",
+          "url": "https://files.pythonhosted.org/packages/2a/b6/bee97e7a2edeab72aafabb46ee5adc939790a638d107860b4cad7a20e407/shiboken6-6.12.0-cp310-abi3-win_amd64.whl",
+          "sha256": "a1906cb8116869178c64b6bab52623bbc8b4ceed7b30bfc3c9aa0f6e67f6438e",
+          "size": 1265476
+        }
+      ]
+    },
+    "linux": {
+      "python": {
+        "name": "cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16%2B20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "6a9e62dad033790aef722dbd370e0ce76ce17b73627ba3ae679f537049350b39",
+        "size": 34709145
+      },
+      "runtimes": [
+        {
+          "name": "llama-b12378-bin-ubuntu-vulkan-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12378/llama-b12378-bin-ubuntu-vulkan-x64.tar.gz",
+          "sha256": "a2bc82157f05f4e7a2e2bd8b1544ede906f4c725b04a6673cea7739b74ebb116",
+          "size": 36193056
+        },
+        {
+          "name": "llama-b12378-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12378/llama-b12378-bin-ubuntu-x64.tar.gz",
+          "sha256": "ddb75de21e747b82869e5925cce9429a0770542c33701b82361b60a1fcff0237",
+          "size": 23336604
+        }
+      ],
+      "wheels": [
+        {
+          "name": "pyside6_essentials-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl",
+          "url": "https://files.pythonhosted.org/packages/7b/3c/7597d8dcb36aa8315427635ec6ec9d850ffbad4ce78b9118ac854889f2d3/pyside6_essentials-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl",
+          "sha256": "16f4b5e41daf49235ae048458243da9efe5f3d8040f9cc5aa454ce69893d3bd9",
+          "size": 84346433
+        },
+        {
+          "name": "shiboken6-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl",
+          "url": "https://files.pythonhosted.org/packages/49/c2/a04fa003b4360e99d8e3fc2829abacf37396ace63ea1cd616402209ec7c6/shiboken6-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl",
+          "sha256": "3bde565bb0890044b5c7f63808adddede5abc241e9395a2bfed61919884d6240",
+          "size": 279268
+        }
+      ]
+    },
+    "mac-arm64": {
+      "python": {
+        "name": "cpython-3.12.16+20261110-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16%2B20261110-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "2f11b8aa3726bdbd87dd9eb76568412faddf4f47e26913fa45d6a2e424972acd",
+        "size": 25237581
+      },
+      "runtimes": [
+        {
+          "name": "llama-b12378-bin-macos-arm64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12378/llama-b12378-bin-macos-arm64.tar.gz",
+          "sha256": "38e5ef34aa6f03feaf2ecfd31e4fa2edd8ee177604a48bea79bfc02d39264ddb",
+          "size": 16922579
+        }
+      ],
+      "wheels": [
+        {
+          "name": "pyside6_essentials-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "url": "https://files.pythonhosted.org/packages/e1/90/d528f8dd3f9f20712bc719e10c698d27c998e1dd76ed3f33b6fb606d0972/pyside6_essentials-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "sha256": "0867b709a724db28b161227c7d6ecb5ed10cc09226a53542417ac6dee1308239",
+          "size": 116002775
+        },
+        {
+          "name": "shiboken6-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "url": "https://files.pythonhosted.org/packages/b5/45/11536fba5f50a57671eb14441c6098096f3e57074e54c9d7d66039a5831e/shiboken6-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "sha256": "47105e05baf57d35453e07d240bbe59cb4b8d9565377ea5134ff9fb37d4f5c02",
+          "size": 479653
+        }
+      ]
+    },
+    "mac-x86_64": {
+      "python": {
+        "name": "cpython-3.12.16+20261110-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16%2B20261110-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "b78a4c479f1964ec484880bee567568266f68da102269fb93a05fe8716b45f91",
+        "size": 24957926
+      },
+      "runtimes": [
+        {
+          "name": "llama-b12378-bin-macos-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12378/llama-b12378-bin-macos-x64.tar.gz",
+          "sha256": "210c9a1ed469cb612124ed039d4effd4a5e123e353df70225cca23ff7db71e8b",
+          "size": 12671701
+        }
+      ],
+      "wheels": [
+        {
+          "name": "pyside6_essentials-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "url": "https://files.pythonhosted.org/packages/e1/90/d528f8dd3f9f20712bc719e10c698d27c998e1dd76ed3f33b6fb606d0972/pyside6_essentials-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "sha256": "0867b709a724db28b161227c7d6ecb5ed10cc09226a53542417ac6dee1308239",
+          "size": 116002775
+        },
+        {
+          "name": "shiboken6-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "url": "https://files.pythonhosted.org/packages/b5/45/11536fba5f50a57671eb14441c6098096f3e57074e54c9d7d66039a5831e/shiboken6-6.12.0-cp310-abi3-macosx_14_0_universal2.whl",
+          "sha256": "47105e05baf57d35453e07d240bbe59cb4b8d9565377ea5134ff9fb37d4f5c02",
+          "size": 479653
+        }
+      ]
+    }
+  },
+  "model": {
+    "name": "Qwen3.5-0.8B-UD-Q3_K_XL.gguf",
+    "url": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/Qwen3.5-0.8B-UD-Q3_K_XL.gguf",
+    "sha256": "30a1353e67c9795e375dac8a19d25429ace0ec2b6ca55436406ee02d2603a218",
+    "size": 492216576
+  }
+}

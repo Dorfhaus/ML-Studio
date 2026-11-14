@@ -12,6 +12,7 @@ mod spotlight;
 mod wiki;
 
 use content::{chapters, results, topics};
+pub(crate) use content::helper_text;
 pub(crate) use spotlight::{active, paint as paint_spotlight};
 
 pub const LABEL: &str = "User Guide";

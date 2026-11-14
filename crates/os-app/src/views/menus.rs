@@ -128,6 +128,7 @@ pub const OPT_INFO: usize = 9;
 pub const HELP_MENU: usize = 7;
 pub const HELP_ABOUT: usize = 6;
 pub const HELP_GUIDE: usize = 0;
+pub const HELP_STUDIO_HELPER: usize = 8;
 pub const HELP_CHANGE_LOG: usize = 4;
 /// Index of the ADD and TOOLS menus.
 pub const ADD_MENU: usize = 2;
@@ -354,6 +355,7 @@ const HELP: &[Item] = &[
     SEP,
     it("About...", "").on(),
     it("Community Discord", "").on(),
+    it(crate::studio_helper::LABEL, "").on(),
 ];
 
 pub const MENUS: &[Menu] = &[
@@ -526,6 +528,7 @@ pub fn label_now(s: &State, menu: usize, item: &Item) -> std::borrow::Cow<'stati
 /// Whether an entry is in its menu now: EDIT's Redo only with Alternate undo mode on and a history to act on (spec:
 /// ui/menus.md "EDIT": only Undo while the history is empty).
 pub fn in_menu(s: &State, menu: usize, item: &Item) -> bool {
+    if menu == HELP_MENU && item.label == crate::studio_helper::LABEL { return crate::studio_helper::available(); }
     if menu == VIEW && item.label == "Arrange windows" { return crate::workspace_visibility::shown(crate::workspace_layout::VISIBILITY); }
     if item.label==crate::collaboration::LABEL {return s.collaborating || crate::workspace_visibility::shown(crate::collaboration::VISIBLE);}
     if menu == HELP_MENU && item.label == crate::change_log::LABEL {

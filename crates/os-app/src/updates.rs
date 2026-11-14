@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 #[path = "update_retention.rs"]
-mod retention;
+pub(crate) mod retention;
 
-pub const VERSION: u64 = 2026111303;
+pub const VERSION: u64 = 2026111402;
 #[cfg(windows)]
 pub const FEED: &str = "https://michaellanemusic.de/lemon-studio/updates/stable.json";
 #[cfg(windows)]
@@ -233,7 +233,13 @@ pub fn on_exit(restart: bool, project: Option<&Path>) -> Result<()> {
     }
     #[cfg(target_os="macos")]
     writable_bundle(&exe)?;
-    #[cfg(not(target_os="macos"))]
+    #[cfg(windows)]
+    let needs_permission = match check_install_writable(root) {
+        Ok(()) => false,
+        Err(error) if restart && error.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) => true,
+        Err(error) => return Err(format!("ML Studio cannot write to its installation folder ({error}). Save your project and use Update > Restart to request Windows permission.").into()),
+    };
+    #[cfg(not(any(windows, target_os="macos")))]
     check_install_writable(root).map_err(|e| format!("ML Studio cannot write to its installation folder ({e}). Use the installer or choose a writable installation folder."))?;
 
     let helper = stage.join(if cfg!(windows) { "lemon-update-helper.exe" } else { "lemon-update-helper" });
@@ -246,20 +252,98 @@ pub fn on_exit(restart: bool, project: Option<&Path>) -> Result<()> {
     }
     let mut cmd=std::process::Command::new(helper);
     cmd.arg("--apply-update").arg(std::process::id().to_string()).arg(&exe).arg(&stage).arg(if restart{"restart"}else{"close"});
-    if let Some(path)=project {cmd.arg(path);}
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos();
+    let handoff = stage.join(format!("handoff-{stamp}"));
+    fs::create_dir(&handoff)?;
+    cmd.arg(project.unwrap_or(Path::new(""))).arg(&handoff);
     #[cfg(windows)] {use std::os::windows::process::CommandExt;cmd.creation_flags(0x08000000);}
-    for name in ["helper-ready", "result.txt"] {
-        match fs::remove_file(stage.join(name)) {
-            Ok(()) => {},
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
-            Err(e) => return Err(format!("Could not reset the updater state ({e})").into()),
-        }
+    #[cfg(windows)]
+    let child = if needs_permission {
+        HelperChild::Shell(windows_launch::elevate(&cmd)?)
+    } else {
+        spawn_helper(&mut cmd, restart)?
+    };
+    #[cfg(not(windows))]
+    let child = spawn_helper(&mut cmd, restart)?;
+    #[cfg(windows)]
+    let elevated_pid = match &child { HelperChild::Shell(child) => Some(child.id()), _ => None };
+    wait_for_helper(child, &handoff, Duration::from_secs(10))?;
+    #[cfg(windows)]
+    if let Some(pid) = elevated_pid {
+        let result = (|| {
+            use std::os::windows::process::CommandExt;
+            let watcher = stage.join("lemon-relaunch.exe");
+            fs::copy(&exe, &watcher)?;
+            let watcher_handoff = handoff.join("relaunch");
+            fs::create_dir(&watcher_handoff)?;
+            let child = std::process::Command::new(&watcher)
+                .arg("--relaunch-update").arg(std::process::id().to_string()).arg(pid.to_string())
+                .arg(&exe).arg(&watcher_handoff).arg(project.unwrap_or(Path::new("")))
+                .creation_flags(0x08000000).spawn()?;
+            wait_for_helper(child, &watcher_handoff, Duration::from_secs(10))
+        })();
+        if result.is_err() { fs::write(handoff.join("helper-cancelled"), b"cancelled")?; }
+        result?;
     }
-    let child = cmd.spawn().map_err(|e| format!("Could not start the update helper ({e})"))?;
-    wait_for_helper(child, &stage, Duration::from_secs(10))
+    Ok(())
 }
 
-fn wait_for_helper(mut child: std::process::Child, stage: &Path, timeout: Duration) -> Result<()> {
+#[cfg(windows)]
+pub fn relaunch(args: &[String]) -> i32 {
+    match windows_launch::relaunch(args) {
+        Ok(()) => 0,
+        Err(error) => {
+            if let Some(folder) = args.get(3) { let _ = fs::write(Path::new(folder).join("result.txt"), error.to_string()); }
+            1
+        }
+    }
+}
+
+enum HelperChild {
+    Direct(std::process::Child),
+    #[cfg(windows)]
+    Shell(windows_launch::ShellChild),
+}
+
+impl From<std::process::Child> for HelperChild {
+    fn from(child: std::process::Child) -> Self { Self::Direct(child) }
+}
+
+impl HelperChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self {
+            Self::Direct(child) => child.try_wait(),
+            #[cfg(windows)]
+            Self::Shell(child) => child.try_wait(),
+        }
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Direct(child) => child.kill(),
+            #[cfg(windows)]
+            Self::Shell(child) => child.kill(),
+        }
+    }
+}
+
+fn spawn_helper(cmd: &mut std::process::Command, interactive: bool) -> Result<HelperChild> {
+    match cmd.spawn() {
+        Ok(child) => Ok(child.into()),
+        #[cfg(windows)]
+        Err(error) if error.raw_os_error() == Some(740) && interactive => windows_launch::elevate(cmd).map(HelperChild::Shell),
+        Err(error) => {
+            let _ = interactive;
+            Err(format!("Could not start the update helper ({error}). Save your project and use Update > Restart to retry. Windows may ask for permission.").into())
+        }
+    }
+}
+
+#[cfg(windows)]
+#[path = "updates_windows.rs"]
+mod windows_launch;
+
+fn wait_for_helper(child: impl Into<HelperChild>, stage: &Path, timeout: Duration) -> Result<()> {
+    let mut child = child.into();
     let until = Instant::now() + timeout;
     loop {
         if let Some(status) = child.try_wait()? {
@@ -271,9 +355,10 @@ fn wait_for_helper(mut child: std::process::Child, stage: &Path, timeout: Durati
             return Ok(());
         }
         if Instant::now() >= until {
+            // An elevated process may reject TerminateProcess. It must still refuse a later install.
+            fs::write(stage.join("helper-cancelled"), b"cancelled")?;
             // This is the child we just launched. It must not apply later after a failed handoff.
-            child.kill()?;
-            child.wait()?;
+            let _ = child.kill();
             return Err("The update helper did not respond in time. Try Restart again or use the installer.".into());
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -367,13 +452,19 @@ fn wait_parent(pid:u32,stage:&Path)->Result<()> {
 
 #[cfg(windows)]
 fn wait_parent(pid: u32, stage: &Path) -> Result<()> {
-    use windows_sys::Win32::{Foundation::{CloseHandle,WAIT_OBJECT_0},System::Threading::{OpenProcess,WaitForSingleObject,PROCESS_SYNCHRONIZE}};
+    use windows_sys::Win32::{Foundation::{CloseHandle,WAIT_OBJECT_0,WAIT_TIMEOUT},System::Threading::{OpenProcess,WaitForSingleObject,PROCESS_SYNCHRONIZE}};
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
     if handle.is_null() {
         return Err(format!("Cannot wait for ML Studio to close ({})", std::io::Error::last_os_error()).into());
     }
     let result = fs::write(stage.join("helper-ready"), b"ready")
-        .map(|_| unsafe { WaitForSingleObject(handle, 120000) });
+        .map(|_| {
+            let until = Instant::now() + Duration::from_secs(120);
+            loop {
+                let state = unsafe { WaitForSingleObject(handle, 100) };
+                if state != WAIT_TIMEOUT || Instant::now() >= until || stage.join("helper-cancelled").exists() { break state; }
+            }
+        });
     unsafe { CloseHandle(handle); }
     if result? != WAIT_OBJECT_0 {
         return Err("ML Studio is still running. Open it again and retry the update after closing other sessions.".into());
@@ -384,7 +475,7 @@ fn wait_parent(pid: u32, stage: &Path) -> Result<()> {
 fn restart_app(target: &Path, project: Option<&Path>) -> Result<()> {
     let mut cmd = std::process::Command::new(target);
     cmd.current_dir(target.parent().ok_or("No installation directory")?);
-    if let Some(project) = project { cmd.arg(project); }
+    if let Some(project) = project.filter(|p| !p.as_os_str().is_empty()) { cmd.arg(project); }
     cmd.spawn()?;
     Ok(())
 }
@@ -396,7 +487,15 @@ pub fn helper(args: &[String]) -> i32 {
         if args.len()<4 {return Err("Missing updater arguments".into())}
         let stage=PathBuf::from(&args[2]); let target=PathBuf::from(&args[1]);
         let manifest=verify(&fs::read(stage.join("signed.json"))?)?;
-        wait_parent(args[0].parse()?, &stage)?;
+        for file in &manifest.files { checked_file(&stage.join(&file.name), file)?; }
+        #[cfg(not(target_os="macos"))]
+        check_install_writable(target.parent().ok_or("No installation directory")?)?;
+        let handoff = args.get(5).map(Path::new).unwrap_or(&stage);
+        if handoff != stage && handoff.parent() != Some(stage.as_path()) { return Err("Invalid updater handoff folder".into()); }
+        wait_parent(args[0].parse()?, handoff)?;
+        if handoff.join("helper-cancelled").exists() {
+            return Err("Update handoff was cancelled; retry Update from ML Studio".into());
+        }
         parent_closed=true;
         install(&stage,&target,&manifest)?;
         installed=true;
@@ -415,6 +514,9 @@ pub fn helper(args: &[String]) -> i32 {
         report_error(&message);
         report_result(&message);
         if let Some(dir) = args.get(2) {
+            let _ = fs::write(Path::new(dir).join("result.txt"), &message);
+        }
+        if let Some(dir) = args.get(5).filter(|dir| Path::new(dir).parent() == args.get(2).map(Path::new)) {
             let _ = fs::write(Path::new(dir).join("result.txt"), &message);
         }
         // Write the error before the original app starts and looks for the result.
@@ -457,6 +559,22 @@ pub fn diagnostic(args: &[String]) -> i32 {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer,SigningKey};
+    #[cfg(windows)]
+    #[test]
+    fn updater_cancelled_handoff_stops_while_parent_stays_open() {
+        let root = std::env::temp_dir().join(format!("lemon-cancel-check-{}", std::process::id()));
+        let old = root.join("handoff-1");
+        let retry = root.join("handoff-2");
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir(&retry).unwrap();
+        fs::write(old.join("helper-cancelled"), b"cancelled").unwrap();
+        let start = Instant::now();
+        assert!(wait_parent(std::process::id(), &old).is_err());
+        assert!(start.elapsed() < Duration::from_secs(5));
+        assert!(!retry.join("helper-ready").exists());
+        assert!(old.join("helper-cancelled").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn updater_button_and_cancel_preserve_session() {
         use crate::{app::{App,Action},dialog::{self,Then,Next,Reply,Answer}};
@@ -537,6 +655,8 @@ mod tests {
         };
         let error = wait_for_helper(waiting.spawn().unwrap(), &stage, Duration::ZERO).unwrap_err();
         assert!(error.to_string().contains("did not respond in time"));
+        assert!(stage.join("helper-cancelled").is_file());
+        fs::remove_file(stage.join("helper-cancelled")).unwrap();
         fs::remove_file(stage.join("result.txt")).unwrap();
         fs::remove_dir(stage).unwrap();
     }

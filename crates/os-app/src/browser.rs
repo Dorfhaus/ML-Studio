@@ -192,6 +192,15 @@ impl App {
                 s.playlist.popup = None;
             }
             BCmd::StarterPack => crate::starter_pack::act(self,1),
+            BCmd::LoadSample => {
+                let start=s.browser_folders.last().cloned();
+                let dlg=crate::filedlg::FileDlg::new(crate::filedlg::Mode::Open,"Load sample in new channel","audio",crate::dialog::Then::BrowserSample)
+                    .filter("Audio", &["wav","mp3","flac","ogg","aif","aiff","wv"]).start(start.as_deref());
+                self.file_dialog(dlg);
+            },
+            BCmd::OpenFiles => {
+                if let Some(dir)=s.browser_folders.last().cloned().or_else(os_paths::user_dir) { open_folder(&dir); }
+            },
             BCmd::AddFolder => {let row=s.browser_folders.len();self.search_folder_pick(row);}
             BCmd::ConfigureFolders => self.open_settings(crate::views::settings::FILE),
             BCmd::Find(dir) => return find(s, dir),
@@ -481,6 +490,17 @@ impl App {
                 return;
             }
         }
+        if let Some(row)=crate::playlist_tracks::drops::header_at(self) {
+            match &item {
+                Item::Sample(path) => { crate::playlist_tracks::drops::sample(self,path.clone(),row);return; }
+                Item::File(path) if view::file_icon(path)==crate::icons::Icon::FileAudio => { crate::playlist_tracks::drops::sample(self,path.clone(),row);return; }
+                Item::Generator(index) => {
+                    self.state.message=crate::playlist_tracks::drops::instrument(self,*index,row,self.state.playlist.pos,None);return;
+                }
+                Item::Samples(paths) => {crate::playlist_tracks::drops::samples(self,paths.clone(),row);return;}
+                _=>{}
+            }
+        }
         let (x, y) = self.mouse;
         let win = self.top_hit(x, y).and_then(|h| h.win);
         let grid = self.pl_grid().filter(|g| g.contains(x, y) && win == Some(Win::Playlist));
@@ -662,6 +682,12 @@ impl App {
         select(s, &key);
         reveal(s);
         s.message = Some(format!("Browser: added {}", path.display()));
+        self.invalidate();
+    }
+
+    pub(crate) fn browser_empty_menu(&mut self,x:f32,y:f32) {
+        if !crate::workspace_visibility::shown(EMPTY_ACTIONS) { return; }
+        self.state.playlist.popup=Some(Popup {x,y,items:empty_menu(),sub:None,scroll:[0;2],cascade:Vec::new()});
         self.invalidate();
     }
 
@@ -986,6 +1012,8 @@ impl Jump {
 /// Options-menu commands (spec §4).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BCmd {
+    LoadSample,
+    OpenFiles,
     CatalogFilter(usize),
     /// Find previous (-1) / next (1).
     AddFolder,
@@ -1569,4 +1597,14 @@ fn sample_selection(s:&crate::app::State,row:&view::Row,ctrl:bool,shift:bool)->(
         if !selected.contains(&row.key){selected.clear();selected.insert(row.key.clone());}
         (selected,Some(row.key.clone()))
     }
+}
+
+/// Extra entry points only; hiding these never removes folders or project data.
+pub const EMPTY_ACTIONS: &str = "visible_browser-file-actions";
+pub(crate) fn empty_menu() -> Vec<PItem> {
+    vec![PItem::new("Load sample in new channel...",Cmd::Browser(BCmd::LoadSample)),
+        PItem::new("Add sample folder...",Cmd::Browser(BCmd::AddFolder)),
+        PItem::new("Open sample folder in file manager",Cmd::Browser(BCmd::OpenFiles)),
+        PItem::sep(),PItem::new("Configure folders...",Cmd::Browser(BCmd::ConfigureFolders)),
+        PItem::new("Refresh",Cmd::Browser(BCmd::Reread))]
 }

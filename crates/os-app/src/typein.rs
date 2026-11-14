@@ -171,11 +171,13 @@ fn set(s: &mut State, t: Target, v: f64) {
         Target::Knob(k) => {
             crate::history::knob(s, k, false);
             s.set_knob(k, v as f32);
+            s.params.record_edits.push(t);
         }
         Target::Fader(m) => {
             crate::history::fader(s, m, false);
             if let Some(t) = crate::mixer::track_mut(s, m) {
                 t.volume = Some(v.clamp(0.0, 1.0));
+                s.params.record_edits.push(Target::Fader(m));
                 s.piano.dirty = true;
             }
         }
@@ -183,6 +185,7 @@ fn set(s: &mut State, t: Target, v: f64) {
             let before = crate::params::param_value(s, key, index);
             if crate::params::set_param_value(s, key, index, v) {
                 crate::history::param(s, key, index, before, v);
+                s.params.record_edits.push(t);
             } else {
                 s.message = Some("The plugin did not take the value".into());
             }

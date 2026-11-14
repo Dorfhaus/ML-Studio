@@ -189,7 +189,7 @@ pub struct ChannelInfo {
     /// The highest insert the TRACK box goes to.
     pub max_track: u16,
     /// The channel's Misc tab values (`None`: no channel behind the window, e.g. mixer effects: no Misc tab, and the
-    /// strip's ON / PAN / VOL do nothing).
+    /// strip's PAN / VOL do nothing; ON bypasses the slot).
     pub misc: Option<crate::misc_page::MiscVals>,
 }
 
@@ -522,7 +522,9 @@ enum Part {
 }
 
 impl State {
-    /// The window belongs to a channel (not a mixer effect): ON, PAN and VOL act on it.
+    /// The window belongs to a channel (not a mixer effect): PAN and VOL act on it; ON also works for effects.
+    fn on_visible(&self) -> bool { self.channel() || crate::workspace_visibility::shown("visible_plugin-effect-bypass") }
+
     fn channel(&self) -> bool {
         self.info.misc.is_some()
     }
@@ -550,13 +552,12 @@ fn lemon_look() -> bool {
     os_ui::kit::lemon::on(&os_theme::current())
 }
 
-/// Strip controls that do nothing, with their rects: in an effect's window (there is no channel) ON, PAN, VOL, PITCH,
+/// Strip controls that do nothing, with their rects: in an effect's window (there is no channel) PAN, VOL, PITCH,
 /// RANGE and TRACK.
 fn strip_off(st: &State, w: f32) -> Vec<(Rect, &'static str)> {
     let dx = w - STRIP_RIGHT;
     let mut v = Vec::new();
     if !st.channel() {
-        v.push((Rect::new(340.0 + dx, 38.0, 18.0, 18.0), "Effect on / off"));
         v.push((Rect::new(383.0 + dx - 14.0, 33.0, 28.0, 28.0), "Panning"));
         v.push((Rect::new(417.0 + dx - 14.0, 33.0, 28.0, 28.0), "Volume"));
         v.push((Rect::new(455.0 + dx - 14.0, 33.0, 28.0, 28.0), "Channel pitch"));
@@ -601,8 +602,8 @@ fn parts(st: &State) -> Vec<(Rect, Part)> {
             v.push((tab_rect(i), Part::Tab(i)));
         }
         v.extend(strip_off(st, w).into_iter().map(|(r, name)| (r, Part::Off(name))));
+        if st.on_visible() { v.push((Rect::new(340.0 + dx, 38.0, 18.0, 18.0), Part::On)); }
         if st.channel() {
-            v.push((Rect::new(340.0 + dx, 38.0, 18.0, 18.0), Part::On));
             for (i, x) in [383.0, 417.0, 455.0].into_iter().enumerate() {
                 v.push((Rect::new(x + dx - 14.0, 33.0, 28.0, 28.0), Part::Knob(i as u8)));
             }
@@ -854,8 +855,10 @@ fn strip(c: &mut Canvas, st: &State, w: f32) {
     }
     // ON LED.
     let (lx, ly) = (349.0 + dx, 43.0 + dy);
-    os_ui::kit::led(c, &os_theme::current(), lx, ly, 7.5, os_ui::kit::State::NORMAL.with_on(st.info.enabled));
-    caption(c, lx, "ON");
+    if st.on_visible() {
+        os_ui::kit::led(c, &os_theme::current(), lx, ly, 7.5, os_ui::kit::State::NORMAL.with_on(st.info.enabled));
+        caption(c, lx, "ON");
+    }
     let at = |r: Rect| Rect::new(r.x, r.y - 35.0 + 32.0 + dy, r.w, r.h);
     value_box(c, at(range_box(dx)), &st.info.range.to_string());
     for (k, x, cap) in [(Knob::Pan, 383.0, "PAN"), (Knob::Vol, 417.0, "VOL"), (Knob::Pitch, 455.0, "PITCH")] {
@@ -870,9 +873,9 @@ fn strip(c: &mut Canvas, st: &State, w: f32) {
     let track = if track == 0 { "---".to_string() } else { track.to_string() };
     value_box(c, at(track_rect(dx)), &track);
     caption(c, if lemon { track_rect(dx).cx() } else { 537.0 + dx }, "TRACK");
-    // Greyed out (`strip_off`): from ON on in an effect's window.
+    // Greyed out (`strip_off`): PAN and the remaining channel controls in an effect window.
     if !st.channel() {
-        c.fill_rect(Rect::span(334.0 + dx, 561.0 + dx, TITLE_H + 2.0, TITLE_H + STRIP_H - 1.0), c_strip().with_alpha(crate::app::OFF_VEIL));
+        c.fill_rect(Rect::span(365.0 + dx, 561.0 + dx, TITLE_H + 2.0, TITLE_H + STRIP_H - 1.0), c_strip().with_alpha(crate::app::OFF_VEIL));
     }
 }
 
@@ -1731,7 +1734,7 @@ mod tests {
         os_theme::set_current(&os_theme::Palette::default());
     }
 
-    /// Strip controls that do nothing yet are greyed out: RANGE / TRACK, and ON / PAN / VOL / PITCH of an effect.
+    /// Strip controls that do nothing yet are greyed out: RANGE / TRACK, and PAN / VOL / PITCH of an effect.
     #[test]
     fn dead_strip_controls_are_off() {
         let st = state(true, "Master");
@@ -1746,9 +1749,16 @@ mod tests {
         let mut fx = state(true, "Master");
         fx.info.misc = None;
         assert_eq!(part_at(&fx, 383.0 + dx, 47.0), Some(Part::Off("Panning")));
-        assert_eq!(part_at(&fx, 349.0 + dx, 47.0), Some(Part::Off("Effect on / off")));
+        assert_eq!(part_at(&fx, 349.0 + dx, 47.0), Some(Part::On));
         assert_eq!(part_at(&fx, 485.0 + dx, 47.0), Some(Part::Off("Pitch range")));
         assert_eq!(part_at(&fx, 537.0 + dx, 47.0), Some(Part::Off("Mixer track number")));
+        let on=fx.info.enabled;
+        fx.left_down(349.0+dx,47.0,false,&|x,y|(x as i32,y as i32));
+        assert_eq!(fx.info.enabled,!on);assert_eq!(fx.events.last(),Some(&FrameEvent::ToggleOn));
+        crate::workspace_visibility::toggle("visible_plugin-effect-bypass");
+        assert_ne!(part_at(&fx,349.0+dx,47.0),Some(Part::On));
+        assert_eq!(part_at(&st,349.0+dx,47.0),Some(Part::On));
+        crate::workspace_visibility::toggle("visible_plugin-effect-bypass");
     }
 
     /// RANGE and TRACK: a held drag steps one per 10 px (up = higher) within their limits, the wheel one per notch,

@@ -675,6 +675,24 @@ pub fn snapshot(s: &mut State) {
     snapshot_as(s, "Piano roll edit");
 }
 
+/// Alt+wheel edits the hovered note, or its selected group in this channel.
+pub(crate) fn wheel_velocity(s: &mut State, i: usize, delta: f32) {
+    if !delta.is_finite() || delta == 0.0 { return; }
+    let Some(n) = notes(s).get(i).copied().filter(|n| Some(n.channel) == channel(s)) else { return; };
+    let selection = s.piano.selection(s.pattern, Some(n.channel));
+    let targets = if selection.contains(&i) { selection } else { vec![i] };
+    let step = if delta > 0.0 { 1 } else { -1 };
+    let changes: Vec<_> = targets.into_iter().filter_map(|i| {
+        let n = notes(s).get(i)?;
+        let velocity = (i32::from(n.velocity) + step).clamp(0, 128) as u8;
+        (n.channel == channel(s)? && velocity != n.velocity).then_some((i, velocity))
+    }).collect();
+    if changes.is_empty() { return; }
+    snapshot_as(s, "Note velocity");
+    for (i, velocity) in changes { pattern_mut(s).notes[i].velocity = velocity; }
+    s.piano.last_controls = notes(s).get(i).copied();
+}
+
 /// `snapshot`, the step named `name` (as the browser's History lists it; spec: ui/settings-choices.md "Undo history:
 /// the four checks (2026-10-16)").
 pub fn snapshot_as(s: &mut State, name: &'static str) {

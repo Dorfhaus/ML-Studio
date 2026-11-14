@@ -12,6 +12,8 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Time display", "visible_time"),
         ("Output monitor", "visible_monitor"),
         ("Recording options", "visible_recording"),
+        ("Automation recording mode", crate::smart_recording::MODE_VISIBILITY),
+        ("Automation clip recording option", crate::smart_recording::CLIPS_VISIBILITY),
         ("Mode buttons", "visible_modes"),
         ("Utility buttons", "visible_utilities"),
         ("Main volume", "visible_volume"),
@@ -22,6 +24,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Toolbar logo", "visible_logo"),
     ]),
     ("Toolbar window shortcuts", &[
+        ("Open-window highlights", crate::views::toolbar::OPEN_HIGHLIGHTS),
         ("Playlist shortcut", "visible_win-playlist"),
         ("Piano Roll shortcut", "visible_win-piano"),
         ("Channel Rack shortcut", "visible_win-rack"),
@@ -69,6 +72,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Report a Bug button", "visible_feedback"),
     ]),
     ("Browser", &[
+        ("Empty-space file actions", crate::browser::EMPTY_ACTIONS),
         ("Plugin Downloads tab", "visible_browser-downloads"),
         ("Plugin Downloads filters and favorites", crate::plugin_downloads::DISCOVERY_VISIBILITY),
         ("Favorites tab", "visible_browser-favorites"),
@@ -77,6 +81,9 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ]),
     ("Attached mixer inspector", crate::attached_mixer::INSPECTOR_VISIBILITY),
     ("Playlist", &[
+        ("Instrument keyboard and note activity", crate::playlist_tracks::INSTRUMENT_FEEDBACK),
+        ("Sample drop choices", "visible_playlist-header-drop-options"),
+        ("Track drag destination", "visible_playlist-track-destination"),
         (crate::theme_adjust::PLAYLIST_BRIGHTNESS, crate::theme_adjust::PLAYLIST_BRIGHTNESS_VISIBILITY),
         ("Vocal tuning button", "visible_playlist-vocal-tuning"),
         ("Audio warp editor", "visible_playlist-warp"),
@@ -107,6 +114,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Vocal Align review markers", "visible_playlist-vocal-align-review"),
     ]),
     ("Piano Roll", &[
+        ("Keyboard width menu", "visible_piano-keyboard-width"),
         ("Vertical zoom control", "visible_piano-row-zoom"),
         ("Zoom shortcut setting", "visible_piano-zoom-keys"),
         ("Note mini-map", "visible_piano-map"),
@@ -125,6 +133,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ]),
     #[cfg(plugin_windows)]
     ("Plugin windows", &[
+        ("Effect bypass button", "visible_plugin-effect-bypass"),
         ("Detach button", crate::plugin_window::DETACH_VISIBILITY),
         ("Sampler note effects", crate::misc_page::NOTE_EFFECTS_VISIBILITY),
         ("Sampler Mixer track menu", crate::plugin_window::SAMPLER_TRACK_MENU_VISIBILITY),
@@ -157,6 +166,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         (crate::prefs::HOVER_MENUS.label, "visible_hover-main-menus"),
         ("Advanced Export tab", crate::export_form::ADVANCED_VISIBILITY),
         ("User Guide menu item", crate::help::VISIBILITY),
+        ("ML Studio Helper companion", crate::studio_helper::VISIBILITY),
         ("User Guide: Detach button", crate::help::DETACH_VISIBILITY),
         (crate::change_log::LABEL, crate::change_log::VISIBILITY),
         ("User Guide: Show me where", crate::help::SPOTLIGHT_VISIBILITY),

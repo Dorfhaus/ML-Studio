@@ -25,12 +25,14 @@ pub fn paint(ui: &mut Ui, s: &State, m: &Modal, f: &Form) {
 
 /// A label at (x, y).
 pub(super) fn label(ui: &mut Ui, x: f32, y: f32, text: &str, enabled: bool) {
+    let text=crate::prefs::language::Language::current().text(text);
     let t = ui.t;
     ui.c.text(Font::new(13), x, y, if enabled { t.text } else { t.text_faint }, text);
 }
 
 /// A check at left edge `x`, centred on `cy`: a small box, ticked when `on`, and its label; greyed when not `enabled`.
 pub(super) fn check(ui: &mut Ui, x: f32, cy: f32, text: &str, on: bool, enabled: bool, h: FHit, hint: &'static str) {
+    let text=crate::prefs::language::Language::current().text(text);
     let t = ui.t;
     let f = Font::new(13);
     let w = 20.0 + ui.c.text_width(f, text);

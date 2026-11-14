@@ -184,8 +184,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     if pick_w>0. {
         let pane=Rect::new(r.x+4.,client.y+2.,pick_w-6.,(r.bottom()-client.y-4.).max(0.));
         ui.c.fill_rect(pane,t.track_header);
-        // One inset frame; content cannot paint over its edges.
-        ui.c.stroke_rrect(pane.inset(0.5),0.,1.,t.text_dim.with_alpha(130));
+        super::panel_outline(ui.c,pane,t.track_header.mix(t.text_dim,130./255.));
         if crate::workspace_visibility::shown(crate::clip_picker::RESIZE_VISIBILITY) {
             let splitter = Rect::new(pane.right() - 1.0, pane.y, 6.0, pane.h);
             let hot = ui.hit(splitter, Action::PlPickResize, "Drag to resize the Clip Picker");
@@ -275,7 +274,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         ui.c.pop_clip();
     }
     if crate::attached_mixer::width(s)>0. {super::mixer::attached_inspector(ui,s,Rect::new(r.x+pick_w+2.,client.y+2.,crate::attached_mixer::width(s),(r.bottom()-client.y-4.).max(0.)),f.active_knob);}
-    let strip = Rect::new(r.x + pick_w + crate::attached_mixer::width(s) + 2.0, client.y + 1.0, header_width(s)+10., 38.0);
+    let extra = header_left_extension(s, r);
+    let strip = Rect::new(r.x + pick_w + crate::attached_mixer::width(s) + 2.0 - extra, client.y + 1.0, header_width(s)+10.+extra, 38.0);
     if super::lemon(ui) {
         ui.c.fill_rrect(strip, lk::r_btn(t), t.track_header);
     } else {
@@ -284,8 +284,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     clip_controls(ui, s, strip);
 
     // Arrangement geometry.
-    let head_x = r.x + pick_w + crate::attached_mixer::width(s) + 7.0;
-    let head_w = header_width(s);
+    let head_x = r.x + pick_w + crate::attached_mixer::width(s) + 7.0 - extra;
+    let head_w = header_width(s) + extra;
     let grid = grid_rect(s, r, client);
     debug_assert_eq!(grid, cover);
     let (grid_x, grid_y, grid_w) = (grid.x, grid.y, grid.w);
@@ -472,7 +472,9 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
             ui.c.stroke_rrect(m, 0.0, 2.0, Color::rgb(0x2096f3));
         }
         Some(Overlay::TrackInsertion(y)) => {
-            ui.c.fill_rect(Rect::new(grid.x, y.clamp(grid.y, grid.bottom() - 2.0), grid.w, 2.0), t.accent);
+            if crate::workspace_visibility::shown("visible_playlist-track-destination") {
+                ui.c.fill_rect(Rect::new(grid.x, y.clamp(grid.y, grid.bottom() - 2.0), grid.w, 2.0), t.accent);
+            }
         }
         Some(Overlay::Slice { tick, t0, t1 }) => {
             let x = g.x_of(tick as f32);
@@ -510,9 +512,26 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     });
     ui.c.push_clip(heads);
     for &row in &visible {
-        header(ui, s, &g, row, head_x, head_w);
+        header(ui, s, f, &g, row, head_x, head_w);
+    }
+    if crate::workspace_visibility::shown("visible_playlist-track-destination") {
+        if let Some(Overlay::TrackInsertion(y)) = s.playlist.overlay {
+            let y = y.clamp(heads.y + 2., heads.bottom() - 3.);
+            ui.c.fill_rect(Rect::new(heads.x, y - 1., heads.w, 3.), t.accent);
+            ui.c.fill_polygon(&[(heads.x,y-5.),(heads.x+7.,y),(heads.x,y+5.)], t.accent);
+        }
+        if let Some(row) = s.playlist.drop_folder {
+            ui.c.stroke_rrect(Rect::new(heads.x+1.,g.y_of(row)+1.,heads.w-2.,g.rows.height(row)-4.),3.,2.,t.accent);
+        }
     }
     ui.c.pop_clip();
+    // Paint the inspector rim after adjacent header chrome: at fractional DPI its
+    // antialiased corner must not soften or overwrite the panel's final edge.
+    let inspector_w=crate::attached_mixer::width(s);
+    if inspector_w>0. {
+        let panel=Rect::new(r.x+pick_w+2.,client.y+2.,inspector_w,(r.bottom()-client.y-4.).max(0.));
+        super::panel_outline(ui.c,panel,t.inspector_panel.mix(t.text_dim,130./255.));
+    }
     resize_zones(ui, s, Win::Playlist, outer);
 }
 
@@ -555,20 +574,31 @@ pub struct ScrollParts {
 
 pub fn scroll_parts(s: &State, grid: Rect) -> ScrollParts {
     let overview = overview_rect(s, grid);
+    let (r, _) = super::frame_rects(s, Win::Playlist, s.win_rect(Win::Playlist));
+    let width = header_width(s) + header_left_extension(s, r);
     ScrollParts {
         grid,
         ruler: ruler_rect(s, grid),
         lane: (!pl::markers(s).is_empty()).then(|| Rect::new(grid.x, overview.y + 41.0, grid.w, MARKER_H)),
-        heads: Rect::new(grid.x-header_width(s)-7.,grid.y,header_width(s),grid.h),
+        heads: Rect::new(grid.x-width-5.,grid.y,width,grid.h),
         vbar: Rect::new(grid.right(), overview.y, 4.0 + bar_sizes().1, grid.bottom() - overview.y),
         overview,
     }
 }
 
-/// The arrangement grid in a window laid out at `r` with client rect `client` (see `super::frame_rects`).
+// Removing the inset well exposes the floating frame padding. Expand cards
+// into that unused space, keeping the timeline and the five-pixel right gap fixed.
+fn header_left_extension(s: &State, r: Rect) -> f32 {
+    if s.vintage_2005 || crate::attached_mixer::width(s) > 0. { return 0.; }
+    if crate::clip_picker::width(s, r) > 0. { return 4.; }
+    let outer = s.win_rect(Win::Playlist);
+    if r.x > outer.x { 8. } else { 2. }
+}
+
 fn header_width(s:&State)->f32{if crate::attached_mixer::active(s)||crate::playlist_tracks::enabled(){144.}else{98.}}
 pub(crate) fn grid_rect(s: &State, r: Rect, client: Rect) -> Rect {
-    let grid_x = r.x + crate::clip_picker::width(s,r) + crate::attached_mixer::width(s) + 2.0 + header_width(s) + 12.0;
+    // Keep the timeline anchored when reclaiming the old left frame padding.
+    let grid_x = r.x + crate::clip_picker::width(s,r) + crate::attached_mixer::width(s) + 2.0 + header_width(s) + 10.0;
     let grid_w = (r.right() - grid_x - 4.0 - bar_sizes().1).max(1.0);
     let grid_y = client.y + 42.0 + if pl::markers(s).is_empty() { 0.0 } else { MARKER_H };
     Rect::new(grid_x, grid_y, grid_w, (r.bottom() - grid_y).max(0.0))
@@ -1452,10 +1482,62 @@ pub(crate) fn draw_padlock(c: &mut os_ui::Canvas, x: f32, y: f32, scale: f32, in
     }
 }
 
-/// A track header (§6, §6a): a box in the track's colour with the name, "…" and the mute LED. A group is one block
-/// in its group track's colour: the group track spans the width with a collapse arrow, its members are indented;
-/// a collapsed group's members are bare strips.
-fn header(ui: &mut Ui, s: &State, g: &PGeom, row: u16, x: f32, w: f32) {
+/// A compact octave with stable pixel-width lines and pitch-specific activity.
+pub(crate) fn mini_keyboard(c:&mut os_ui::Canvas,t:&os_theme::Palette,badge:Rect,notes:u16){
+    // Layout in device pixels, not fractional logical key heights. The frame and
+    // separators remain exactly one pixel, independently of track height and DPI.
+    let scale=c.scale;
+    let (x0,y0,x1,y1)=((badge.x*scale).round() as i32,(badge.y*scale).round() as i32,
+        (badge.right()*scale).round() as i32,(badge.bottom()*scale).round() as i32);
+    let rect=|x:i32,y:i32,w:i32,h:i32|Rect::new(x as f32/scale,y as f32/scale,w as f32/scale,h as f32/scale);
+    let (x,y,w,h)=(x0+1,y0+1,x1-x0-2,y1-y0-2);
+    if w<1||h<1{return;}
+    let frame=t.playlist_key_frame;
+    let white=t.playlist_key_white;
+    let separator=t.playlist_key_separator;
+    let ink=t.playlist_key_black;
+    c.fill_rrect_matched(rect(x0,y0,x1-x0,y1-y0),2./scale,frame);
+    let keys=rect(x,y,w,h);
+    c.fill_cell(keys,white);
+    if h<14{
+        for i in 1..3{c.fill_cell(rect(x,y+h*i/3,(w*3/5).max(1),1),if notes!=0{t.playlist_key_black_active}else{ink});}
+        if notes!=0{c.fill_cell(rect(x+w-1,y,1,h),t.playlist_key_white_active);}
+        return;
+    }
+    let edge=|i:i32|y+(i*h+3)/7;
+    let white_notes=[11,9,7,5,4,2,0];
+    for (i,note) in white_notes.into_iter().enumerate(){
+        if notes&(1<<note)==0{continue;}
+        let top=edge(i as i32);let bottom=edge(i as i32+1);
+        // Opaque and uniform over the entire key, including its exposed edge.
+        c.fill_cell(rect(x,top,w,(bottom+1).min(y+h)-top),t.playlist_key_white_active);
+    }
+    for i in 1..7 {
+        if notes&((1<<white_notes[i-1])|(1<<white_notes[i]))==0 {
+            c.fill_cell(rect(x,edge(i as i32),w,1),separator);
+        }
+    }
+    let black_h=((h as f32*0.6/7.).round() as i32).max(1);
+    let black_w=((w as f32*0.62).round() as i32).max(1);
+    for (boundary,note) in [(1,10),(2,8),(3,6),(5,3),(6,1)]{
+        let top=edge(boundary)-black_h/2;
+        c.fill_cell(rect(x,top,black_w,black_h),if notes&(1<<note)!=0{t.playlist_key_black_active}else{ink});
+    }
+}
+
+/// Shared with the theme preview; strength is resolved once when loading a theme.
+pub(crate) fn activity_halo(c:&mut os_ui::Canvas,t:&os_theme::Palette,face:Rect,radius:f32) {
+    if t.appearance.playlist_halo_visible==Some(false){return;}
+    let strength=t.appearance.playlist_halo_strength.unwrap_or(1.);
+    let color=|a:f32|t.playlist_activity_halo.with_alpha((a*strength).round().clamp(0.,255.) as u8);
+    let scale=c.scale;
+    c.fill_rrect_matched(face,radius,color(15.));
+    c.stroke_rrect(face.inset(0.5/scale),radius,1./scale,color(115.));
+    c.stroke_rrect(face.inset(1.5/scale),(radius-1./scale).max(0.),2./scale,color(42.));
+}
+
+/// Track face, grouped corners and direct instrument/recording controls.
+fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w: f32) {
     const INDENT: f32 = 6.0;
     const RADIUS: f32 = 4.0;
     let t = ui.t;
@@ -1469,7 +1551,8 @@ fn header(ui: &mut Ui, s: &State, g: &PGeom, row: u16, x: f32, w: f32) {
     let on = pl::track_on(s, row);
     // A member takes its group track's colour, so the block reads as one.
     let colored = crate::attached_mixer::owner(s,row).and_then(|n|crate::mixer::track(s,n)).and_then(|m|m.color).or_else(||s.mixer.recording.live.iter().find(|l|l.row==row).and_then(|l|l.color).or_else(||pl::track_info(s, leader.unwrap_or(row)).and_then(|i| i.color))).map(rgb);
-    let base = colored.unwrap_or(t.track_header);
+    let neutral_card = colored.is_none() && !crate::attached_mixer::active(s) && !s.vintage_2005;
+    let base = colored.unwrap_or(if neutral_card {t.track_header.shade(-0.16)}else{t.track_header});
     let base = if s.playlist.header_selection.contains(&row) { base.shade(0.1) } else { base };
     let base = if on { base } else { base.mix(t.grid_gap, 0.4) };
     let (bx, bw) = if member { (x + INDENT, w - INDENT) } else { (x, w) };
@@ -1480,25 +1563,27 @@ fn header(ui: &mut Ui, s: &State, g: &PGeom, row: u16, x: f32, w: f32) {
         let guide = colored.unwrap_or(t.glyph).mix(t.grid_gap, 0.4);
         ui.c.fill_rect(Rect::new(x + 2.0, y, 2.0, h), guide);
     }
-    let (top, bottom) = if super::lemon(ui) { (base, base) } else { (base.shade(0.035), base.shade(-0.03)) };
+    // Flat faces: spacing and rounded corners separate tracks without a beveled rim.
+    let face = if t.style.vintage_2005 && colored.is_none() { Color::rgb(0x5f686d) } else { base };
     let k = if t.style.vintage_2005 { 0.0 } else if super::lemon(ui) { lk::r_btn(t) + 1.0 } else { RADIUS }.min(bh / 2.0);
-    ui.c.fill_rect_gradient(hr, top, bottom, k);
-    if t.style.vintage_2005 {
-        // FL4's pattern list is a single quiet panel; retain Lemon's mute and edit targets.
-        ui.c.fill_rect(hr,if colored.is_some(){base}else{Color::rgb(0x5f686d)});
-    } else {
-        // Uncoloured rows can match the pane behind them exactly. Give the face
-        // its own edge, including on nearly black custom themes.
-        let border = base.shade(if base.hsl().2 < 0.13 { 0.15 } else { -0.32 });
-        ui.c.stroke_rrect(hr, k, 1.0, border);
-    }
+    // Match the clip's device-pixel bounds. Fractional window positions and DPI
+    // scaling otherwise leave different coverage on the left and right edges.
+    let scale=ui.c.scale;
+    let pixel=|v:f32|(v*scale).round()/scale;
+    let face_rect=Rect::new(pixel(hr.x),pixel(hr.y),pixel(hr.right())-pixel(hr.x),pixel(hr.bottom())-pixel(hr.y));
+    // Reuse identical corner coverage on both sides, without cap/straight-edge seams.
+    if neutral_card {
+        // A flat, single-device-pixel rim makes uncolored cards legible without bevels.
+        ui.c.fill_rrect_matched(face_rect,k,face.shade(0.06));
+        ui.c.fill_rrect_matched(face_rect.inset(1./scale),(k-1./scale).max(0.),face);
+    } else {ui.c.fill_rrect_matched(face_rect, k, face);}
     // Square the corners that continue into the rows above / below.
     if member {
-        ui.c.fill_rect(Rect::new(hr.x, hr.y, hr.w, k), top);
+        ui.c.fill_rect(Rect::new(face_rect.x, face_rect.y, face_rect.w, k), face);
     }
     if joins_below {
-        let left = if lead { hr.x + k } else { hr.x };
-        ui.c.fill_rect(Rect::new(left, hr.bottom() - k, hr.right() - left, k), bottom);
+        let left = if lead { face_rect.x + k } else { face_rect.x };
+        ui.c.fill_rect(Rect::new(left, face_rect.bottom() - k, face_rect.right() - left, k), face);
     }
     let hint = if crate::attached_mixer::active(s) {
         "Drag to reorder the track. Click to select its mixer channel. Ctrl/Cmd+Shift-drag selects tracks and clips."
@@ -1508,10 +1593,48 @@ fn header(ui: &mut Ui, s: &State, g: &PGeom, row: u16, x: f32, w: f32) {
         "Drag to move a track; Shift-drag selects a range, Ctrl/Cmd toggles a track; right-click to create a folder"
     };
     ui.hit(hr, Action::PlHeader(row), hint);
-    if s.playlist.header_selection.contains(&row) || s.playlist.drop_folder==Some(row) || crate::attached_mixer::owner(s,row)==Some(s.selected_mixer){
+    if s.playlist.header_selection.contains(&row) || (s.playlist.drop_folder==Some(row) && crate::workspace_visibility::shown("visible_playlist-track-destination")) || crate::attached_mixer::owner(s,row)==Some(s.selected_mixer){
         ui.c.fill_rrect(Rect::new(hr.x+1.,hr.y+3.,3.,(hr.h-6.).max(1.)),1.5,t.accent);
     }
     if strip {return;}
+    // Reserve a narrow gutter so the loaded-instrument marker never covers the
+    // track name, record buttons, folder handle or existing Piano Roll shortcut.
+    let instrument=crate::workspace_visibility::shown(crate::playlist_tracks::INSTRUMENT_FEEDBACK)
+        .then(||crate::playlist_tracks::header_instrument(s,row)).flatten();
+    let hr=if let Some(ch)=instrument {
+        let id=s.project.channels[ch].index;
+        let lit=f.sounding.iter().any(|&(channel,_)|channel==id);
+        let height=(g.rows.base_height(row)-gap-8.).max(7.);
+        let width=(height*0.18).clamp(8.,22.);
+        let multiple=crate::playlist_tracks::instruments(s,row).len()>1;
+        let badge=Rect::new(hr.x+6.,hr.y+4.,width,(height-if multiple{10.}else{0.}).max(3.));
+        ui.hit(badge.outset(2.),Action::Mix(crate::mixer::MHit::PlaylistInstrument(row)),"Open track instrument; right-click to choose an instrument");
+        // Audio activity (including effect tails) lights the channel, not a note.
+        // Damage the entire header so both the halo and keys clear together.
+        ui.live(crate::app::Live::Sounding,hr);
+        if lit { activity_halo(ui.c,t,face_rect,k); }
+        let color=if lit {t.playlist_waveform_active}else{t.playlist_waveform};
+        if s.project.channels[ch].kind==os_model::ChannelKind::Sampler&&s.project.channels[ch].sample_path.as_ref().is_some_and(|p|!p.is_empty()){
+            // A lightweight waveform symbol, not sample decoding on the paint path.
+            let bars=[0.20,0.45,0.85,0.55,1.0,0.65,0.35,0.60,0.25];
+            let step=badge.h/bars.len() as f32;
+            ui.c.fill_rect(Rect::new(badge.cx()-0.5,badge.y,1.,badge.h),color);
+            for (i,level) in bars.into_iter().enumerate(){
+                let w=badge.w*level;
+                ui.c.fill_rrect(Rect::new(badge.cx()-w/2.,badge.y+i as f32*step,w,(step*0.55).max(0.6)),0.6,color);
+            }
+        }else{
+            let notes=f.sounding.iter().filter(|&&(channel,key)|channel==id&&key!=u16::MAX)
+                .fold(0u16,|mask,&(_,key)|mask|(1u16<<(key%12)));
+            mini_keyboard(ui.c,t,badge,notes);
+        }
+        if multiple{
+            let choose=Rect::new(badge.x-2.,badge.bottom()+1.,badge.w+4.,10.);
+            ui.hit(choose,Action::Mix(crate::mixer::MHit::PlaylistInstruments(row)),"Choose track instrument");
+            icons::draw(ui.c,Icon::ArrowDown,choose,t.text);
+        }
+        Rect::new(hr.x+width+8.,hr.y,(hr.w-width-8.).max(1.),hr.h)
+    }else{hr};
     let editing = matches!(s.playlist.edit.as_ref().map(|e| e.target), Some(pl::EditTarget::TrackName(r)) if r == row);
     let text = if colored.is_some() { t.tx(0xdce8f0) } else { t.text };
     let text = if on || crate::comping::parent(s, row).is_some() { text } else { text.mix(t.grid_gap, 0.32) };
@@ -1702,13 +1825,14 @@ fn any_enabled(items: &[pl::PItem]) -> bool {
 /// the window").
 #[allow(clippy::too_many_arguments)]
 fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f32), open: Option<usize>, depth: usize, scroll: usize, occupied: &[Rect], top: f32) -> (Rect, Vec<Rect>) {
+    let language=crate::prefs::language::Language::current();
     let t = ui.t;
     let font = os_ui::kit::menu::app_font(t, 12);
     let key_font = os_ui::kit::menu::app_shortcut_font(t, font);
     let mut lw: f32 = 80.0;
     let mut kw: f32 = 0.0;
     for it in items {
-        lw = lw.max(ui.c.text_width(font, &it.label));
+        lw = lw.max(ui.c.text_width(font, it.display_label(language)));
         if !it.key.is_empty() {
             kw = kw.max(ui.c.text_width(key_font, it.key));
         }
@@ -1777,14 +1901,14 @@ fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f3
             } else {
                 ui.c.fill_rect(rr, t.menu_pop_head);
             }
-            ui.c.text(os_ui::kit::menu::app_font(t, 10), rr.x + 4.0, rr.y + 1.0 + (rr.h - os_ui::kit::menu::HEAD) / 2.0, t.menu_pop_head_text, &it.label);
+            ui.c.text(os_ui::kit::menu::app_font(t, 10), rr.x + 4.0, rr.y + 1.0 + (rr.h - os_ui::kit::menu::HEAD) / 2.0, t.menu_pop_head_text, it.display_label(language));
             continue;
         }
         // Greyed out: a disabled entry, or a submenu with nothing available in it (it still opens, to show what is
         // planned). Disabled entries never light up.
         let live = it.enabled && (it.children.is_empty() || any_enabled(&it.children));
         if it.enabled {
-            let lit = ui.hit(rr, action, it.label.to_string()) || open == Some(i);
+            let lit = ui.hit(rr, action, it.display_label(language).to_string()) || open == Some(i);
             ui.menu_row(menu);
             if lit && lemon {
                 os_ui::kit::row_highlight(ui.c, t, rr);
@@ -1796,10 +1920,10 @@ fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f3
                 }
             }
         } else if matches!(it.cmd, pl::Cmd::NotYet(_)) {
-            ui.hit(rr, action, crate::app::off_text(&it.label));
+            ui.hit(rr, action, crate::app::off_text(it.display_label(language)));
         } else {
             // Disabled here and now (nothing to merge, the last arrangement), not missing.
-            ui.hit(rr, action, it.label.to_string());
+            ui.hit(rr, action, it.display_label(language).to_string());
         }
         // A working entry drawn dim: a Manage messages entry that is off (spec: ui/settings-choices.md "Hints and
         // warnings: Manage messages and Project data size warning (2026-10-16)").
@@ -1829,7 +1953,7 @@ fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f3
         }
         let color=if let pl::Cmd::Piano(crate::piano_tools::NCmd::NoteColor(n))=it.cmd{crate::piano_note_mode::color(t,n)}else{color};
         let label_y = os_ui::kit::menu::app_row_text_y(ui.c, t, rr, font, 2.0);
-        ui.c.text_clip(font, rr.x + 20.0, label_y, lw + 4.0, color, &it.label);
+        ui.c.text_clip(font, rr.x + 20.0, label_y, lw + 4.0, color, it.display_label(language));
         let right = rr.right() - if it.children.is_empty() { 8.0 } else { 16.0 };
         if !it.key.is_empty() {
             let sc = if live { t.menu_pop_shortcut } else { t.menu_pop_dim.mix(t.menu_pop, 0.35) };

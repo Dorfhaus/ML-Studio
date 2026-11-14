@@ -24,6 +24,7 @@ pub enum NCmd {
     Tool(piano::Tool),
     View(&'static str),
     KeyboardStyle(bool),
+    KeyboardWidth(u16),
     Zoom(f32),
     PlacePattern,
     Lane(usize),
@@ -143,7 +144,7 @@ pub(crate) fn default_options_menu(s:&State,x:f32,y:f32)->Popup {
         item("Slide / glide notes",NCmd::DrawSlide).mark(Mark::Check(s.piano.draw_slide)),
         item("Portamento notes",NCmd::DrawPorta).mark(Mark::Check(s.piano.draw_porta)),
         PItem::sub("Draw mode",[(piano::Tool::Draw,"Pencil","P"),(piano::Tool::Paint,"Brush","B"),(piano::Tool::Slice,"Slice","C"),(piano::Tool::Select,"Select","E"),(piano::Tool::Stretch,"Stretch",""),(piano::Tool::Delete,"Delete",if view_on("piano_d_duplicate",true){""}else{"D"}),(piano::Tool::Mute,"Mute","T"),(piano::Tool::Zoom,"Zoom","Z"),(piano::Tool::Playback,"Playback","Y")].into_iter().map(|(tool,label,key)|item(label,NCmd::Tool(tool)).key(key).mark(if tool==piano::Tool::Stretch {Mark::Check(s.piano.stretch)}else{Mark::Radio(s.piano.tool==tool)})).collect()),
-        PItem::sub("View",vec![PItem::sub("Keyboard style",vec![item("FL 11 style",NCmd::KeyboardStyle(true)).mark(Mark::Radio(classic_keyboard())),item("Piano-shaped",NCmd::KeyboardStyle(false)).mark(Mark::Radio(!classic_keyboard()))]),item("Zoom in",NCmd::Zoom(1.)).key(zoom_shortcut(true)),item("Zoom out",NCmd::Zoom(-1.)).key(zoom_shortcut(false)),check("Mini piano roll preview","piano_mini_preview",true),PItem::sub("Control lane",piano::Lane::ALL.iter().enumerate().map(|(i,l)|item(l.menu_name(),NCmd::Lane(i)).mark(Mark::Radio(s.piano.lane==*l))).collect())]),
+        PItem::sub("View",vec![keyboard_width_menu(),PItem::sub("Keyboard style",vec![item("FL 11 style",NCmd::KeyboardStyle(true)).mark(Mark::Radio(classic_keyboard())),item("Piano-shaped",NCmd::KeyboardStyle(false)).mark(Mark::Radio(!classic_keyboard()))]),item("Zoom in",NCmd::Zoom(1.)).key(zoom_shortcut(true)),item("Zoom out",NCmd::Zoom(-1.)).key(zoom_shortcut(false)),check("Mini piano roll preview","piano_mini_preview",true),PItem::sub("Control lane",piano::Lane::ALL.iter().enumerate().map(|(i,l)|item(l.menu_name(),NCmd::Lane(i)).mark(Mark::Radio(s.piano.lane==*l))).collect())]),
         PItem::sub("Helpers",helpers),
         PItem::sub("Time markers",vec![item("Add time marker",NCmd::AddMarker).key("Alt+T")]),
         PItem::sub("MIDI parts",if let Some(session)=s.piano.clip_session.as_ref().filter(|_|piano::active_clip(s).is_some()){
@@ -173,6 +174,11 @@ pub(crate) fn default_options_menu(s:&State,x:f32,y:f32)->Popup {
         PItem::sub("Target channel",target_menu(s,x,y).items),
     ];
     Popup{x,y,items,sub:None,scroll:[0;2],cascade:Vec::new()}
+}
+pub fn keyboard_width() -> u16 { crate::prefs::text("piano_keyboard_width").and_then(|v|v.parse::<u16>().ok()).unwrap_or(71).clamp(71,180) }
+fn keyboard_width_menu() -> PItem {
+    if !crate::workspace_visibility::shown("visible_piano-keyboard-width") { return PItem::sep(); }
+    PItem::sub("Keyboard width",[(71,"Standard"),(100,"Wide"),(140,"Wider"),(180,"Maximum")].into_iter().map(|(w,label)|item(label,NCmd::KeyboardWidth(w)).mark(Mark::Radio(keyboard_width()==w))).collect())
 }
 pub fn classic_keyboard()->bool {crate::prefs::text("piano_keyboard_style").as_deref()!=Some("piano")}
 pub fn view_on(key:&str,default:bool)->bool {crate::prefs::text(key).map_or(default,|v|v=="1")}
@@ -524,6 +530,7 @@ pub fn run(app: &mut App, cmd: NCmd) -> Option<String> {
         NCmd::ChannelSolo=>{let row=s.selected_channel;crate::rack::solo(s,row);return None;},
         NCmd::Transfer(row,copy)=>return Some(transfer(s,row,copy)),
         NCmd::Tool(tool)=>{s.piano.choose_tool(tool);return None;},
+        NCmd::KeyboardWidth(width)=>{crate::prefs::set_text("piano_keyboard_width", &width.clamp(71,180).to_string());app.invalidate();return None;},
         NCmd::KeyboardStyle(classic)=>{crate::prefs::set_text("piano_keyboard_style",if classic{"classic"}else{"piano"});app.invalidate();return None;},
         NCmd::View(key)=>{crate::prefs::set_text(key,if view_on(key,true){"0"}else{"1"});return None;},
         NCmd::Zoom(n)=>{zoom_key(app,n);return None;},

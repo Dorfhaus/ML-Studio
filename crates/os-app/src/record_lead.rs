@@ -45,11 +45,11 @@ mod tests{
         use crate::step_edit::Src;
         let src=Src::Midi(60);
         a.record_down_with(src,60,100,crate::record::Extra::default());a.record_up_with(src,None);a.record_knob(crate::knobs::KnobId::ChanVol(0));
-        assert!(crate::piano::notes(&a.state).is_empty());assert!(a.state.project.pattern(1).unwrap().controls.is_empty());
+        assert!(crate::piano::notes(&a.state).is_empty());assert!(a.state.project.pattern(1).unwrap().controls.is_empty());assert!(!a.smart_pending());
         a.transport.pretend_at(1536.,false);a.record_tick();assert!(a.state.rec.preroll.is_none());
         a.record_down_with(src,60,100,crate::record::Extra::default());a.transport.pretend_at(1584.,false);a.record_up_with(src,None);a.record_knob(crate::knobs::KnobId::ChanVol(0));
-        assert_eq!(crate::piano::notes(&a.state).len(),1);assert_eq!(crate::piano::notes(&a.state)[0].position,1536);assert!(!a.state.project.pattern(1).unwrap().controls.is_empty());
-        a.act(Action::Stop);a.record_tick();assert!(a.state.rec.preroll.is_none());
+        assert_eq!(crate::piano::notes(&a.state).len(),1);assert_eq!(crate::piano::notes(&a.state)[0].position,1536);assert!(a.smart_pending());
+        a.act(Action::Stop);a.record_tick();assert!(a.state.rec.preroll.is_none());assert_eq!(a.state.project.automations.len(),1);
         a.state.rec.armed=false;assert_eq!(begin(&mut a.state,1536.),1536.);assert!(a.state.rec.preroll.is_none());
         set_mode(false,true);a.state.rec.armed=true;a.play_counted_if_armed();assert!(a.state.rec.count.is_some());assert!(a.state.rec.preroll.is_none());a.act(Action::Stop);
         assert!(menu().iter().any(|p|p.cmd==Cmd::Rec(RecCmd::PrerollBars(8))));

@@ -1,42 +1,62 @@
 {
-  "tag": "v2026.11.13.3",
-  "title": "ML Studio 2026.11.13.3",
-  "notes": "- Customize the wet/dry knobs in the Traditional Mixer, including the Full Mixer knob style and separate color, width and visibility for the value ring and outer circle.\n- Adjust hue, saturation, brightness and contrast across 14 interface areas. The Theme Editor groups styles with their colors and adds more controls for shared dials.\n- Plugin Downloads offers direct, checksum-verified packages for 51 additional free or open source plugins and six suites. Available packages vary by operating system and architecture.\n- Channel Strip view can dock the separately installed SSL 360 Link VST3 on Windows and macOS. Use Link's own controls and maps for compatible third-party VST3 effects. The strip menu opens the setup guide or a separate plugin window.\n- With Open main menus on hover enabled, click a menu once and then move across the menu bar to switch dropdowns. Submenus also open on hover while a main menu is active.\n- ML Sampler has an optional right-click setting to drag up or down on TRACK and change its Mixer route. A click still opens the chooser and the mouse wheel still steps through tracks.\n- Settings keeps section and scroll state separate for each page and refreshes audio devices or theme previews only when opening the corresponding tab. Search Workspace Visibility using words from both the group and the control name.\n- Fixed Open main menus on hover and Double-click resets faders and knobs hiding their own Settings controls when clicked.\n- Removed the dotted shortcut marks under Yes, No and Cancel in the unsaved-project confirmation. Keyboard shortcuts still work.\n- Updated the detachable User Guide with the new menu navigation, Sampler routing, theme controls, plugin downloads and SSL 360 Link setup.\n\nhttps://michaellanemusic.de/ml-studio/",
+  "tag": "v2026.11.14.2",
+  "title": "ML Studio 2026.11.14.2",
+  "notes": "- Added Help > ML Studio Helper (Melli), an optional animated offline companion with a speech bubble, conversational personality and guide-backed answers. Download and install its model and runtime from inside the app; no separate Python setup or account is required. Packages cover Windows x64, Linux x64 and both Mac architectures (Helper requires macOS 14+).\n- Melli uses a compact 492 MB conversational model downloaded directly from Hugging Face. Installation shows a download bar, percentage and transferred MB, with cancellation and a background option. The separate runtime download size is shown before installation.\n- Melli can remember useful details across sessions in an editable file capped at 16 KiB and 24 notes. View, edit, disable or forget memory in the companion menu. Chat transcripts remain in bounded session memory; closing Melli unloads the model. Optional files can be removed and downloaded again.\n- Expanded the illustrated User Guide to 444 articles, including Mixer multi-selection, routing and sidechains, shortcuts, settings prerequisites, channel strips, Sampler controls and detailed editor workflows. Helper instructions quote selected guide passages instead of inventing extra steps.\n- Added Touch and Latch automation recording with editable Playlist takes. Controls follow recorded automation, and recording reuses a parameter automation clip by default with an option for separate clips.\n- Playlist track dragging shows destination feedback. Header sample drops create Sampler tracks by default, with improved instrument/source selection and sample-drop handling.\n- Playlist instrument headers show miniature keyboard or waveform activity, with an optional channel halo. Theme controls customize keyboard colors, waveform colors and halo strength or visibility.\n- Polished Playlist header spacing, rounded cards, inspector borders and Mixer selection outlines. Toolbar shortcuts highlight open windows, and detached Mixer restoration waits for project loading.\n- Improved menu hover behavior and live Sampler arp/echo control changes. Added effect-window bypass and further Piano Roll workflow controls.\n- Improved translated interface text, file-dialog editing and Browser access.\n- Windows update handoff now handles elevation prompts while preserving a normal-user restart.\n- Bounded Melli package/log storage and future managed Master Assistant/Plasma engine caches. Cleanup preserves active engines, unknown files and personal projects; existing updater rollback retention remains in place.\n\nhttps://michaellanemusic.de/ml-studio/",
   "assets": [
     {
-      "name": "ML-Studio-Windows-Setup-2026.11.13.3.exe",
-      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111303/ML-Studio-Windows-Setup-2026.11.13.3.exe",
-      "sha256": "f449d211e511f9c3b49c32c0f12addcf3585bef0fcb80e25a518d4024a3f664a"
+      "name": "ML-Studio-Windows-Setup-2026.11.14.2.exe",
+      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111402/ML-Studio-Windows-Setup-2026.11.14.2.exe",
+      "sha256": "83b11cca29cb31636f40e8f4e974546ceb1e24c327d596debdcaf5f56834dc4b"
     },
     {
-      "name": "ML-Studio-Source-2026111303.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111303/Lemon%20Studio%20Source.zip",
-      "sha256": "e8b00f89e15fee7001966494a1590849009b428349c47cdbe46753920252981b"
+      "name": "ML-Studio-Source-2026111402.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111402/Lemon%20Studio%20Source.zip",
+      "sha256": "96f0152531fc632787d7fbaaf326e3adacf4b4aea5a5713a991657a6b173f9af"
     },
     {
-      "name": "ML-Studio-Linux-x86_64-2026111303.tar.gz",
-      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111303/ML-Studio-Linux-x86_64-2026111303.tar.gz",
-      "sha256": "aae54425b5bb36f49dbe10301df45f4d098b293b0960cd1cd4f938a23e2096b9"
+      "name": "ML-Studio-Linux-x86_64-2026111402.tar.gz",
+      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111402/ML-Studio-Linux-x86_64-2026111402.tar.gz",
+      "sha256": "b908323cbf0fce2c5809c8bf747203713b0340db680c42221029c05c8ccb66ae"
     },
     {
-      "name": "ML-Studio-Mac-arm64-2026111303.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111303/ML-Studio-Mac-arm64-2026111303.dmg",
-      "sha256": "5073a600d48a8cc6fcc6d3430d3b8bcaa5c57bb98970586e7678c5252fbdc8f6"
+      "name": "ML-Studio-Mac-arm64-2026111402.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111402/ML-Studio-Mac-arm64-2026111402.dmg",
+      "sha256": "227e85034d3ee52c2d4c314f619b80d1fcd4b8902ee986eb2819f21a487d4c99"
     },
     {
-      "name": "ML-Studio-Source-Mac-arm64-2026111303.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111303/ML-Studio-Source-Mac-arm64-2026111303.zip",
-      "sha256": "8cc0f6d87f5b2a58813ebfc94d92254c059e998384e4f2126da0c7b8c04c0de1"
+      "name": "ML-Studio-Source-Mac-arm64-2026111402.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111402/ML-Studio-Source-Mac-arm64-2026111402.zip",
+      "sha256": "ab78fbc2290c9a0931f96335d35be34a6dd2e89a68995bc956efeeb205f460ec"
     },
     {
-      "name": "ML-Studio-Mac-x86_64-2026111303.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111303/ML-Studio-Mac-x86_64-2026111303.dmg",
-      "sha256": "b56c6b79d3d5b5bc0131f6d0b7d3643df73fb80a9950e99ef773f3a3501efa5a"
+      "name": "ML-Studio-Mac-x86_64-2026111402.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111402/ML-Studio-Mac-x86_64-2026111402.dmg",
+      "sha256": "a1bc4120675455b8cfcab790a3db56739fecfa7bccfce681e34bc136f6593a86"
     },
     {
-      "name": "ML-Studio-Source-Mac-x86_64-2026111303.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111303/ML-Studio-Source-Mac-x86_64-2026111303.zip",
-      "sha256": "3aa7157244d8834a0a909a96b456eee39cd2ea206a4b72187e703cbe372c84d7"
+      "name": "ML-Studio-Source-Mac-x86_64-2026111402.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111402/ML-Studio-Source-Mac-x86_64-2026111402.zip",
+      "sha256": "7b69b10dbf286574dd02ed47c680f680a2afd8b5629e0b87a38364207c59e6af"
+    },
+    {
+      "name": "melli-linux-v2.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/2/melli-linux-v2.zip",
+      "sha256": "6fc7dc795d4c3643e2cc982543346af744e16bb40d4a7a54f36d63a78c283f9a"
+    },
+    {
+      "name": "melli-mac-arm64-v2.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/2/melli-mac-arm64-v2.zip",
+      "sha256": "000814d42fa9ee19e5a80e7b10b9d74edbd1623c1fa78e609c395f7dc41b6535"
+    },
+    {
+      "name": "melli-mac-x86_64-v2.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/2/melli-mac-x86_64-v2.zip",
+      "sha256": "cba2cd64a1e2683f32fe2a9b614796e48fd9364f05a19abaf5b569875ed52edc"
+    },
+    {
+      "name": "melli-windows-v2.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/2/melli-windows-v2.zip",
+      "sha256": "fa535cb57718bd4c49422070d527b0f6f06377431b81d7691fa68e2a347ee266"
     }
   ]
 }

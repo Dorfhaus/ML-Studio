@@ -40,7 +40,7 @@ pub const INFO_FIELDS: [&str; 4] = ["Title", "Author", "Web link", "Genre"];
 pub const TIME: &str = "Time settings";
 /// The time settings' boxes, by their places after the Move combo (`FHit::Combo(1..=3)`): the Project page's.
 pub const TIME_LABELS: [&str; 3] = [crate::views::settings::TIMEBASE, crate::views::settings::NUMERATOR, crate::views::settings::DENOMINATOR];
-pub const SKIP: &str = "Skip";
+pub const SKIP: &str = "Browse...";
 pub const SAVE: &str = "Save";
 pub const CREATE: &str = "Create";
 /// The folder button's picker.
@@ -334,6 +334,7 @@ impl App {
     /// Keys while the form is on top; `Some` closes it with that answer. Esc closes an open list first, then the form
     /// (as Cancel); Enter is the main button; Tab goes to the next field (the Information fields while unfolded).
     pub(crate) fn save_form_key(&mut self, key: &Key, ctrl: bool, alt: bool) -> Option<Reply> {
+        let shift = self.shift;
         let f = top(self)?;
         if f.list.is_some() {
             if matches!(key, Key::Named(NamedKey::Escape)) {
@@ -346,11 +347,11 @@ impl App {
             Key::Named(NamedKey::Escape) => return Some(Reply::Button(Answer::Cancel)),
             Key::Named(NamedKey::Enter) => return self.save_form_accept(),
             Key::Named(NamedKey::Tab) => {
-                f.focus = if f.info_open { (f.focus + 1) % 5 } else { 0 };
+                f.focus = if f.info_open { (f.focus + if shift { 4 } else { 1 }) % 5 } else { 0 };
                 f.field_mut().select_all();
             }
             _ => {
-                f.field_mut().key(key, ctrl, alt);
+                f.field_mut().key_mod(key, ctrl, alt, shift);
             }
         }
         self.invalidate();

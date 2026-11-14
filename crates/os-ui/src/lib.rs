@@ -810,6 +810,37 @@ impl Canvas {
         }
     }
 
+    /// Pixel-aligned flat faces with identical antialiasing at mirrored corners.
+    /// Opt-in for adjacent track headers; other rounded controls retain their styling.
+    pub fn fill_rrect_matched(&mut self, r: Rect, radius: f32, c: Color) {
+        let Some(bounds)=tiny_skia::Rect::from_xywh(r.x,r.y,r.w,r.h)else{return;};
+        if self.outside(bounds,1.) {return;}
+        let k=self.scale;
+        let (x0,y0,x1,y1)=((r.x*k).round() as i32,(r.y*k).round() as i32,(r.right()*k).round() as i32,(r.bottom()*k).round() as i32);
+        let (w,h)=(x1-x0,y1-y0);
+        if w<=0||h<=0{return;}
+        let rad=(radius*k).max(0.).min(w as f32/2.).min(h as f32/2.);
+        if rad==0. {self.fill_px((x0,x1),(y0,y1),c,c);return;}
+        if i64::from(w)*i64::from(h)>BIG_SHAPE {self.fill_rect_gradient(r,c,c,radius);return;}
+        let mut hs=Fx::default();hs.f32(k);hs.write_u8(3);hs.write_i32(w);hs.write_i32(h);hs.f32(rad);
+        let key=hs.finish();
+        let cov=if let Some(cov)=self.shapes.get(key){cov.clone()}else{
+            let Some(path)=rrect_path(Rect::new(0.,0.,w as f32,h as f32),rad)else{return;};
+            let Some(mut pm)=Pixmap::new(w as u32,h as u32)else{return;};
+            pm.fill_path(&path,&paint(Color::rgb(0xffffff)),FillRule::Winding,Transform::identity(),None);
+            // A scan converter can give opposite curve directions slightly different
+            // coverage. Reuse the top-left quadrant for all four corners, once per
+            // size/radius in the existing bounded shape cache, independent of damage.
+            let mut a=vec![0;(w*h) as usize];
+            for y in 0..(h+1)/2 {for x in 0..(w+1)/2 {
+                let alpha=pm.pixels()[(y*w+x) as usize].alpha();
+                for (xx,yy) in [(x,y),(w-1-x,y),(x,h-1-y),(w-1-x,h-1-y)]{a[(yy*w+xx) as usize]=alpha;}
+            }}
+            let cov=Rc::new(Coverage{w,h,a});self.shapes.insert(key,cov.clone(),cov.a.len()+64);cov
+        };
+        self.blend(&Placed{x0,y0,cov},c,None);
+    }
+
     pub fn stroke_rrect(&mut self, r: Rect, radius: f32, width: f32, c: Color) {
         if radius <= 0.0 && c.a == 255 && (r.w > 40.0 || r.h > 40.0) {
             // Square-cornered outline from four native rects.

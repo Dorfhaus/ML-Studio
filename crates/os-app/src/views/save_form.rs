@@ -13,6 +13,7 @@ use os_ui::{Font, Rect};
 
 use super::dialog::{button, field, frame, hit, panel, place, section, tool, BTN_H, BTN_W};
 use super::lemon;
+use crate::prefs::language::Language;
 use super::project_forms::{check, label};
 use crate::app::{Action, State, Ui};
 use crate::dialog::{DHit, Modal};
@@ -83,7 +84,7 @@ pub fn paint(ui: &mut Ui, s: &State, m: &Modal, f: &SaveForm) {
     let files = Rect::new(lx, g.y + 166.0, 136.0, 22.0);
     combo(ui, f, files, 0, sf::FILES_HINT, &mut boxes);
     let fx = files.right() + 8.0;
-    ui.c.text_clip(font, fx, (files.cy() - lh / 2.0).round(), g.right() - 8.0 - fx, t.text, sf::FILES_TEXT);
+    ui.c.text_clip(font, fx, (files.cy() - lh / 2.0).round(), g.right() - 8.0 - fx, t.text, Language::current().text(sf::FILES_TEXT));
     // Time settings (New project).
     if f.new {
         let g = Rect::new(r.x + 8.0, r.y + TOP + PLACE_H + GAP, r.w - 16.0, TIME_H);
@@ -114,7 +115,7 @@ fn info(ui: &mut Ui, r: Rect, f: &SaveForm) {
     let hov = hit(ui, head, DHit::Form(FHit::Fold), hint);
     let dir = if f.info_open { kit::Dir::Down } else { kit::Dir::Right };
     kit::triangle(ui.c, g.x + 16.0, head.cy(), 4.0, dir, if hov { t.glyph } else { t.text_dim });
-    ui.c.text(font.bold(), g.x + 28.0, (head.cy() - lh / 2.0).round(), if hov { t.glyph } else { t.text }, sf::INFO);
+    ui.c.text(font.bold(), g.x + 28.0, (head.cy() - lh / 2.0).round(), if hov { t.glyph } else { t.text }, Language::current().text(sf::INFO));
     if !f.info_open {
         return;
     }
@@ -131,7 +132,7 @@ fn bottom(ui: &mut Ui, r: Rect, f: &SaveForm) {
     let font = Font::new(13);
     let by = r.bottom() - 12.0 - BTN_H;
     check(ui, r.x + 16.0, by + BTN_H / 2.0, sf::CHECKS[2], f.dont_show, true, FHit::Check(2), sf::CHECK_HINTS[2]);
-    let width = |ui: &mut Ui, s: &str| (ui.c.text_width(font, s) + 28.0).max(BTN_W).round();
+    let width = |ui: &mut Ui, s: &str| (ui.c.text_width(font, Language::current().text(s)) + 28.0).max(BTN_W).round();
     let mut parts = vec![("Cancel", DHit::Cancel, false, "Close without saving (Esc)"), (f.main(), DHit::Form(FHit::Main), true, sf::MAIN_HINT)];
     if !f.new {
         parts.push((sf::SKIP, DHit::Form(FHit::Skip), false, sf::SKIP_HINT));
@@ -153,7 +154,7 @@ fn bottom(ui: &mut Ui, r: Rect, f: &SaveForm) {
 fn combo(ui: &mut Ui, f: &SaveForm, b: Rect, k: u8, hint: &'static str, boxes: &mut Vec<(u8, Rect)>) {
     let t = ui.t;
     let hov = hit(ui, b, DHit::Form(FHit::Combo(k)), hint);
-    kit::combo(ui.c, t, b, &f.combo_text(k), Font::new(13), kit::State::new(hov, f.list == Some(k), false));
+    kit::combo(ui.c, t, b, Language::current().text(&f.combo_text(k)), Font::new(13), kit::State::new(hov, f.list == Some(k), false));
     boxes.push((k, b));
 }
 
@@ -181,7 +182,8 @@ fn list(ui: &mut Ui, s: &State, f: &SaveForm, k: u8, b: Rect) {
     hit(ui, Rect::new(0.0, 0.0, s.screen.0, s.screen.1), DHit::Form(FHit::Shut), "");
     let (items, now) = f.list_items(k);
     let h = items.len() as f32 * ITEM_H + 6.0;
-    let below = Rect::new(b.x, b.bottom() + 2.0, b.w.max(64.0), h);
+    let width=items.iter().map(|text|ui.c.text_width(Font::new(13),Language::current().text(text))+24.).fold(b.w.max(64.),f32::max);
+    let below = Rect::new(b.x.min((s.screen.0-width-4.).max(0.)), b.bottom() + 2.0, width, h);
     let p = if below.bottom() > s.screen.1 - 4.0 { Rect::new(below.x, (b.y - 2.0 - h).max(0.0), below.w, h) } else { below };
     let lemon = lemon(ui);
     if lemon {
@@ -203,6 +205,6 @@ fn list(ui: &mut Ui, s: &State, f: &SaveForm, k: u8, b: Rect) {
             }
         }
         let col = if i == now { if lemon { t.brand_sel(brand::MAIN) } else { t.glyph } } else { t.text };
-        ui.c.text_clip(font, row.x + 10.0, (row.cy() - lh / 2.0).round(), row.w - 16.0, col, text);
+        ui.c.text_clip(font, row.x + 10.0, (row.cy() - lh / 2.0).round(), row.w - 16.0, col, Language::current().text(text));
     }
 }

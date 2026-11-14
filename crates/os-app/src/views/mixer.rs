@@ -241,9 +241,6 @@ fn channel_lock(ui: &mut Ui, s: &State, track: u16, rect: Rect) {
     };
     let hot = ui.hit(rect, Action::Mix(MHit::Lock(track)), hint);
     let t = ui.t;
-    if hot || locked {
-        ui.c.fill_rrect(rect, 2., if t.style.vintage_2005 { t.sunken } else { t.button_hi });
-    }
     // These are status colours, so theme accents cannot make the two locks look the same.
     let ink = if group_locked { Color::rgb(0xff5656) }
         else if channel_locked { Color::rgb(0x2096f3) } else if hot { t.text } else { t.text_dim };
@@ -886,7 +883,7 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
             }
         }
     } else if !console { fader_marks(ui, mx, track_y1, ly); }
-    let v = track.and_then(|m| m.volume).unwrap_or(0.8) as f32;
+    let v = s.displayed_volume(n) as f32;
     // max/min, not clamp: a very short window gives track_y1 < top.
     let position = |value: f32| if attached {
         top + 10. + (1.-value.clamp(0.,1.))*attached_travel
@@ -1032,7 +1029,14 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
     let border = if selected || also {
         if full && t.style.vintage_2005 { Color::rgb(0x92a2a7) } else { ui.t.accent }
     } else { ui.t.s(0x464f54) };
-    ui.c.stroke_rrect(Rect::new(left + 0.75, top + 0.75, width - 1.5, height - 1.5), 0.0, 1.0, border);
+    let outline = Rect::new(left + 0.75, top + 0.75, width - 1.5, height - 1.5);
+    if t.style.vintage_2005 {
+        ui.c.stroke_rrect(outline, 0.0, 1.0, border);
+    } else {
+        // Round all four edges together: independent stroke spans left projecting
+        // horizontal caps at fractional display scales and window positions.
+        super::panel_outline(ui.c, outline, border);
+    }
     if s.vintage_2005 && mx::has_separator(s, n) {
         if vintage_full { crate::vintage::mixer_divider(ui.c, Rect::new(left, top, SEPARATOR_WIDTH, height)); }
         else if console { console_skin::separator(ui, Rect::new(left, top, SEPARATOR_WIDTH, height)); }
@@ -1237,7 +1241,6 @@ pub(crate) fn attached_inspector(ui: &mut Ui, s: &State, outer: Rect, active: Op
     ui.c.push_clip(outer);
     ui.clip_live_controls(outer, |ui| attached_inspector_body(ui, s, outer, active, parts, spare, input, strip, header_height));
     ui.c.pop_clip();
-    ui.c.stroke_rrect(outer.inset(0.5), 0., 1., ui.t.text_dim.with_alpha(130));
 }
 
 fn inspector_grip(ui: &mut Ui, rect: Rect, section: InspectorSection, height: u16, limit: u16) {
@@ -1295,7 +1298,7 @@ fn attached_effects(ui: &mut Ui, s: &State, r: Rect, open: bool) {
         chevron(ui, row.x + 7., row.cy(), true, t.text_dim);
         paint_slot_label(ui, name, mx::slot_name(s,n,k).as_deref(), first+v+1, 11, 2.);
         ui.hit(Rect::new(row.right()-20., row.y, 20., row.h), Action::Mix(MHit::SlotLed(k)), "Enable / bypass effect");
-        led(ui, row.right()-10., row.cy(), mx::track(s,n).is_none_or(|m|m.slot_on[k as usize]));
+        led(ui, row.right()-10., row.cy(), s.displayed_slot_on(n,k));
     }
     super::scrollbar(ui, Rect::new(list.right()+2., list.y, 8., list.h), true, first as f32, visible as f32, count as f32, Scroll::AttachedEffects);
 }
@@ -1445,7 +1448,7 @@ fn attached_traditional(ui: &mut Ui, s: &State, n: u16, strip: Rect) {
     mixer_knob(ui, knob.cx(), knob.cy(), 10., 13., s.knob(pan), Some(true));
 
     let fader = Rect::new(strip.x+47., strip.y+43., 24., strip.h-73.);
-    let value = track.and_then(|m|m.volume).unwrap_or(0.8);
+    let value = s.displayed_volume(n);
     let hot = ui.hit(fader.outset(5.), Action::Fader(n), mx::level_text("Volume",value));
     ui.live(Live::AttachedFader(n), fader);
     let rail = Rect::new(fader.cx()-3., fader.y-3., 6., fader.h+6.);
@@ -1601,7 +1604,7 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
             ui.c.stroke_circle(row.right() - 33.0, row.cy(), 11.8 * q, 1.5, ui.t.s(0x55595c));
         } else { insert_knob(ui, mix, row.right() - 33.0, row.cy(), if ui.t.appearance.insert_custom { kp } else { q }, s.knob(mix)); }
         ui.hit(Rect::new(row.right() - 18.0, row.y, 18.0, row.h), Action::Mix(MHit::SlotLed(k)), "Mute / solo  (ctrl)0..9");
-        led(ui, row.right() - 10.0, row.cy(), track.is_none_or(|m| m.slot_on[k as usize]));
+        led(ui, row.right() - 10.0, row.cy(), s.displayed_slot_on(n,k));
     }
     let mut add=Rect::new(r.x+4.,r.y+61.+300.*kp,r.w-8.,28.*kp);
     if crate::workspace_visibility::shown(mx::DELETE_EXTRA_SLOT_VISIBILITY) && mx::has_extra_slot(s, n) {

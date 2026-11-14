@@ -353,6 +353,15 @@ tokens! {
     note_sel_bottom = 0xd37373, "Selected note body, bottom.";
     note_sel_rim = 0x714243, "Selected note rim.";
     note_sel_text = 0xfbe9e9, "Selected note label.";
+    playlist_key_white = 0xced2d8, "Playlist keyboard & activity: Idle white keys.";
+    playlist_key_black = 0x333436, "Playlist keyboard & activity: Idle black keys.";
+    playlist_key_white_active = 0xa8e44a, "Playlist keyboard & activity: Solid played white keys.";
+    playlist_key_black_active = 0xa8e44a, "Playlist keyboard & activity: Solid played black keys.";
+    playlist_key_frame = 0x282a2c, "Playlist keyboard & activity: Keyboard frame.";
+    playlist_key_separator = 0xabaeb3, "Playlist keyboard & activity: Idle key separators.";
+    playlist_activity_halo = 0xa8e44a, "Playlist keyboard & activity: Channel activity halo.";
+    playlist_waveform = 0x7e8386, "Playlist keyboard & activity: Idle sample waveform.";
+    playlist_waveform_active = 0xa8e44a, "Playlist keyboard & activity: Active sample waveform.";
     key_white = 0xe5e9f0, "Piano keyboard: white keys (right end of the gradient).";
     key_white_left = 0xbfc3ca, "Piano keyboard: white keys (left end).";
     key_black = 0x4d4e50, "Piano keyboard: black keys (right end).";

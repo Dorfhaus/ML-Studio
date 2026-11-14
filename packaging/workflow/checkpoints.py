@@ -52,6 +52,8 @@ class Journal:
     def __init__(self,path,identity):
         self.path=Path(path);self.lock=threading.RLock()
         self.data=json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else {'identity':identity,'steps':{}}
+        if self.data.get('superseded'):
+            raise RuntimeError('This release was superseded; its artifacts must not be published. '+str(self.data['superseded']))
         if self.data['identity']!=identity:raise RuntimeError('Release identity changed; resume its original revision or start a new version.')
         self.save()
 

@@ -16,6 +16,7 @@ pub const OPEN: &str = "Open Theme Editor...";
 pub const INSERT_OPEN: &str = "Customize insert knobs...";
 pub const AREA_VISIBILITY: &str = "visible_theme-area-adjustments";
 pub const INSERT_VISIBILITY: &str = "visible_theme-insert-knobs";
+pub const KEYBOARD_SECTION: &str = "Playlist keyboard & activity";
 pub const INSERT_SECTION: &str = "Traditional FL-style mixer view";
 pub const APPLY: &str = "Apply theme";
 pub const CANCEL: &str = "Cancel edits";
@@ -138,6 +139,7 @@ pub enum Row {
     Search,
     Preview,
     InsertPreview,
+    KeyboardPreview,
     Color(&'static str),
     Style(usize),
     Reset(&'static str),
@@ -150,6 +152,7 @@ impl Row {
         match self {
             Self::Preview => 76.0,
             Self::InsertPreview => 64.0,
+            Self::KeyboardPreview => 100.0,
             Self::Mixer(MixerRow::Preview) => 128.0,
             Self::Mixer(_) => 34.0,
             Self::Identity(IdentityRow::Preview) => 170.0,
@@ -330,6 +333,8 @@ const STYLES: &[StyleField] = &[
     StyleField { key: "tone-inserts-saturation", label: "Saturation (100 = unchanged)", values: Values::Number(200.0) },
     StyleField { key: "tone-inserts-brightness", label: "Brightness (100 = unchanged)", values: Values::Number(200.0) },
     StyleField { key: "tone-inserts-contrast", label: "Contrast (100 = unchanged)", values: Values::Number(200.0) },
+    StyleField { key: "playlist-halo-visible", label: "Channel activity halo", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
+    StyleField { key: "playlist-halo-strength", label: "Halo strength % (100 = default)", values: Values::Number(200.0) },
 ];
 
 use os_theme::regions::{SECTIONS, section};
@@ -343,13 +348,25 @@ fn matches(query: &str, label: &str, hint: &str, group: &str) -> bool {
     }
 }
 
+fn color_section(key: &str) -> &'static str {
+    if key.starts_with("playlist_key_") || key.starts_with("playlist_activity_") || key.starts_with("playlist_waveform") { KEYBOARD_SECTION } else { section(key) }
+}
+
 fn color_label(key: &str) -> String {
+    if let Some(label)=match key {
+        "playlist_key_white"=>Some("White keys"), "playlist_key_black"=>Some("Black keys"),
+        "playlist_key_white_active"=>Some("Played white keys"), "playlist_key_black_active"=>Some("Played black keys"),
+        "playlist_key_frame"=>Some("Keyboard frame"), "playlist_key_separator"=>Some("Key separators"),
+        "playlist_activity_halo"=>Some("Halo color"), "playlist_waveform"=>Some("Idle sample waveform"),
+        "playlist_waveform_active"=>Some("Active sample waveform"), _=>None,
+    } {return label.into();}
     let mut label = key.replace('_', " ");
     label[..1].make_ascii_uppercase();
     label
 }
 
 fn style_section(key: &str) -> &'static str {
+    if key.starts_with("playlist-halo-") { return KEYBOARD_SECTION; }
     if let Some(area) = key.strip_prefix("tone-") {
         return SECTIONS.iter().find(|(id, _, _)| area.starts_with(&format!("{id}-"))).map(|(_, title, _)| *title).unwrap_or("Shape & finish");
     }
@@ -367,16 +384,17 @@ fn style_section(key: &str) -> &'static str {
 pub fn groups(query: &str) -> Vec<(&'static str, Vec<Row>)> {
     let query = query.trim().to_ascii_lowercase();
     let mut result = Vec::new();
-    for title in std::iter::once("Shape & finish").chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
+    for title in ["Shape & finish", KEYBOARD_SECTION].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
         if title == INSERT_SECTION && !crate::workspace_visibility::shown(INSERT_VISIBILITY) { continue; }
         let mut rows = STYLES.iter().enumerate()
             .filter(|(_, def)| (!def.key.starts_with("tone-") || crate::workspace_visibility::shown(AREA_VISIBILITY)) && style_section(def.key) == title && matches(&query, def.label, def.key, title))
             .map(|(i, _)| Row::Style(i)).collect::<Vec<_>>();
         rows.extend(Palette::NAMES.iter().copied()
-            .filter(|key| section(key) == title && matches(&query, key, Palette::description(key), title))
+            .filter(|key| color_section(key) == title && matches(&query, key, Palette::description(key), title))
             .map(Row::Color));
         if !rows.is_empty() {
             if title == INSERT_SECTION { rows.insert(0, Row::InsertPreview); }
+            if title == KEYBOARD_SECTION { rows.insert(0, Row::KeyboardPreview); }
             rows.push(Row::Reset(title));
             result.push((title, rows));
         }
@@ -483,6 +501,15 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
             text,
         ),
         Row::Preview => preview(ui, r),
+        Row::KeyboardPreview => {
+            for (i,notes) in [0, (1<<0)|(1<<4)|(1<<7)|(1<<10)].into_iter().enumerate() {
+                let face=Rect::new(r.x+i as f32*185.,r.y+4.,170.,88.);
+                ui.c.fill_rrect_matched(face,4.,t.track_header);
+                if notes!=0 { crate::views::playlist::activity_halo(ui.c,t,face,4.); }
+                crate::views::playlist::mini_keyboard(ui.c,t,Rect::new(face.x+6.,face.y+4.,16.,80.),notes);
+                ui.c.text(Font::new(12),face.x+30.,face.y+34.,t.text,if notes==0 {"Idle"}else{"Playing chord"});
+            }
+        },
         Row::InsertPreview => {
             ui.c.text(Font::new(12), r.x, r.y + 3.0, ui.t.text_dim, "Plugin insert mix — 0%, 50%, 100%. Full Mixer follows Mixer finish / Skin Designer.");
             let chrome = ui.t;
@@ -573,7 +600,7 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
         Row::Reset(group) => {
             if Palette::NAMES
                 .iter()
-                .any(|key| section(key) == group && fl::get_key(text, &color_key(key)).is_some())
+                .any(|key| color_section(key) == group && fl::get_key(text, &color_key(key)).is_some())
                 || STYLES.iter().enumerate().any(|(i, def)| style_section(def.key) == group && fl::get_key(text, &style_key(i)).is_some())
             {
                 button(
@@ -1173,7 +1200,7 @@ impl App {
             Hit::ResetColor(token) => fl::remove_key(&text, &color_key(token)),
             Hit::Mixer(_) | Hit::Identity(_) => unreachable!("Designer hits dispatched above"),
             Hit::ResetGroup(group) => {
-                let text = Palette::NAMES.iter().filter(|key| section(key) == group)
+                let text = Palette::NAMES.iter().filter(|key| color_section(key) == group)
                     .fold(text, |text, token| fl::remove_key(&text, &color_key(token)));
                 STYLES.iter().enumerate().filter(|(_, def)| style_section(def.key) == group)
                     .fold(text, |text, (i, _)| fl::remove_key(&text, &style_key(i)))

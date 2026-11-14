@@ -112,12 +112,29 @@ fn report(app:&mut App,n:u16,result:Result<String,String>)->Option<String>{
         }
     }
 }
+fn copy_all(app: &mut App, n: u16) -> Result<String,String> {
+    let k = slot(&app.state,n).ok_or("Choose a channel strip on this insert first.")?;
+    // View changes can retire editor/host entries. Restore the project's effect before
+    // looking up its descriptor or settings, just as reopening an ordinary FX slot does.
+    app.sync_effects();
+    app.sync_wrapped();
+    let key = crate::plugins::fx_key(n,k);
+    let d = app.plugins.descriptor(key).ok_or("The source strip could not load. Open its effect slot and retry.")?;
+    let i = app.plugins.effects.iter().position(|a|a.desc.id==d.id && a.desc.format==d.format)
+        .ok_or("The source strip is missing from the plugin list. Rescan it and retry.")?;
+    if let Some(h)=app.plugins.hosted.get(&key) {
+        let mut plugin=h.plugin.lock().map_err(|_|"The source strip is unavailable. Reload it and retry.")?;
+        plugin.idle();
+    }
+    let state=app.plugins.state(key).ok_or("The source strip could not save its settings. No channels changed.")?;
+    choose(app,n,i,true,Some(state))
+}
 pub fn run(app:&mut App,c:Command)->Option<String>{
     let target = match c {
         Command::Choose(t, ..) | Command::Existing(t, _) | Command::Remove(t) | Command::Retry(t) | Command::Open(t) => Some(t),
         _ => None,
     };
-    if target.is_some_and(|t| mixer::locked(&app.state, t)) { return Some(mixer::LOCK_MESSAGE.into()); }
+    if let Some(t) = target.filter(|t| mixer::locked(&app.state, *t)) { return report(app,t,Err(mixer::LOCK_MESSAGE.into())); }
     if c==Command::LinkHelp{crate::help::open_topic(app,LINK_GUIDE);return None;}
     if let Command::Open(n)=c{if let Some(k)=slot(&app.state,n){app.open_fx(n,k);}app.invalidate();return None;}
     if let Command::Menu(n)=c {app.state.playlist.popup=Some(Popup{x:app.mouse.0,y:app.mouse.1,items:menu(&app.state,n),sub:None,scroll:[0;2],cascade:vec![]});app.invalidate();return None;}
@@ -126,7 +143,7 @@ pub fn run(app:&mut App,c:Command)->Option<String>{
     let out=match c {
         Command::Page(..)=>None,
         Command::Choose(n,i,all)=>{let result=choose(app,n,i,all,None);report(app,n,result)},
-        Command::CopyAll(n)=>{let k=slot(&app.state,n)?;let key=crate::plugins::fx_key(n,k);let d=app.plugins.descriptor(key)?;let i=app.plugins.effects.iter().position(|a|a.desc.id==d.id&&a.desc.format==d.format)?;if let Some(h)=app.plugins.hosted.get(&key){if let Ok(mut p)=h.plugin.lock(){p.idle();}}let Some(state)=app.plugins.state(key)else{return Some("The rack could not save its settings; nothing was copied.".into())};let result=choose(app,n,i,true,Some(state));report(app,n,result)},
+        Command::CopyAll(n)=>{let result=copy_all(app,n);report(app,n,result)},
         Command::Existing(n,k)=>{if k==10{return None;}app.sync_effects();app.sync_wrapped();if !app.plugins.hosted.contains_key(&crate::plugins::fx_key(n,k)){return Some("Wait for that effect to load first.".into());}let old=match save(app,&[n]){Ok(v)=>v,Err(e)=>return Some(e)};if !eligible_slot(&app.state,n,k){return Some("Choose a single vertical channel strip.".into());}#[cfg(any(windows,target_os="macos"))] if let Err(e)=validate(app,n,k){return Some(e);}record(app,old);#[cfg(plugin_windows)] app.plugins.close_window(crate::plugins::fx_key(n,k));bind(&mut app.state,n,k);mixer::set_layout(&mut app.state,VIEW);None},
         Command::Remove(n)=>{let k=slot(&app.state,n)?;let old=match save(app,&[n]){Ok(v)=>v,Err(e)=>return Some(e)};record(app,old);detach(&mut app.state,n,k);None},
         Command::Retry(n)=>{#[cfg(any(windows,target_os="macos"))]if let Some(k)=slot(&app.state,n){app.plugins.close_window(crate::plugins::fx_key(n,k));}None},
@@ -291,6 +308,26 @@ mod tests {
         let target=app.hits.iter().find(|h|h.action==Action::PlPopupDeep(2,0)).expect("Deep plugin menu entry must be clickable").rect;
         app.mouse_move(target.cx(),target.cy());app.mouse_down();app.mouse_up();
         assert_eq!(slot(&app.state,1),Some(0),"Actual menu click must assign the plugin");
+    }
+    #[test]fn rack_mixer_fill_after_view_switches_and_missing_source_reports_error(){
+        let (mut app,index)=setup();
+        let d=&app.plugins.effects[index].desc;
+        app.state.plugdb.lists.fx.push(crate::plugin_db::Entry{builtin:false,index,name:d.name.clone(),label:d.name.clone(),uid:d.uid(),vendor:d.vendor.clone(),format:d.format,category:"Effect",favorite:false});
+        app.state.startup_layout_pending=false;app.state.show_browser=false;app.state.z=vec![Win::Mixer];
+        let mut canvas=os_ui::Canvas::new(1280,900,1.).unwrap();
+        for layout in [VIEW,mixer::WIDE,mixer::TRADITIONAL,VIEW] {mixer::set_layout(&mut app.state,layout);app.paint(&mut canvas,None);}
+        let items=menu(&app.state,1);
+        app.state.playlist.popup=Some(Popup{x:200.,y:180.,items,sub:Some(2),scroll:[0;2],cascade:vec![(0,0)]});
+        app.paint(&mut canvas,None);
+        let target=app.hits.iter().find(|h|h.action==Action::PlPopupDeep(2,0)).unwrap().rect;
+        app.mouse_move(target.cx(),target.cy());app.mouse_down();app.mouse_up();
+        assert!(slot(&app.state,1).is_some() && slot(&app.state,2).is_some());
+        assert!(app.state.message.as_deref().unwrap().contains("2 independent"));
+        crate::history::undo(&mut app.state);
+        assert!(slot(&app.state,1).is_none() && slot(&app.state,2).is_none());
+        let message=run(&mut app,Command::CopyAll(1)).unwrap();
+        assert!(message.contains("Choose a channel strip"));
+        assert!(!app.state.dialogs.is_empty());
     }
     #[test]fn rack_mixer_filter_rejects_unrelated_effects_and_invalid_sizes(){
         let (mut app,index)=setup();let mut d=app.plugins.effects[index].desc.clone();

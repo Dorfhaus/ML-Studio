@@ -1237,6 +1237,8 @@ pub struct Engine {
     /// Automation clips of the playlist and their curves (song mode).
     autos: Vec<AutoClip>,
     curves: Vec<os_model::Automation>,
+    /// Controls currently owned by a Touch/Latch recording gesture.
+    automation_writing: Vec<(os_model::target::Target, f64)>,
     /// The value last handed on per automation target (a value is passed on only when it differs), and the tick from
     /// which values are set in place rather than smoothed (playback's first tick after a start, seek or loop).
     auto_last: Vec<(os_model::target::Target, i64)>,
@@ -1710,6 +1712,7 @@ impl Engine {
             rng: layers::Mt19937::for_playback(),
             autos,
             curves,
+            automation_writing: Vec::new(),
             auto_last: Vec::new(),
             auto_from: 0,
             init,
@@ -2507,7 +2510,7 @@ impl Engine {
     /// Applies the control points due on the tick starting now, smoothing volume and pan.
     fn run_peak_links(&mut self,len:usize){
         for i in 0..self.peak_links.len(){let(l,env)=self.peak_links[i];let value=if l.inverted{l.base*(1.-l.depth*env)}else{(if l.base>0.{l.base}else{1.})*(1.-l.depth+l.depth*env)};
-            let target=os_model::target::decode(l.target);let value=value.clamp(0.,1.);
+            let target=os_model::target::decode(l.target);if self.automation_writing.iter().any(|w|w.0==target){continue;}let value=value.clamp(0.,1.);
             let dest=match target {os_model::target::Target::ChannelParam(c,k)=>Some((param_auto::Dest::Channel(c as usize),k)),os_model::target::Target::SlotParam(t,s,k)=>Some((param_auto::Dest::Slot(t as usize,s as usize),k)),_=>None};
             if let Some((dest,index))=dest {
                 self.params.ticks.retain(|e|!(e.dest==dest&&e.index==index as u32));self.params.events.retain(|e|!(e.dest==dest&&e.index==index as u32));
@@ -2521,6 +2524,8 @@ impl Engine {
                 break;
             }
             self.next_ctl += 1;
+            let target=os_model::target::decode(os_model::target::channel(e.channel as u16,e.param));
+            if self.automation_writing.iter().any(|w|w.0==target){continue;}
             if let Some(ch) = self.channels.get_mut(e.channel) {
                 ch.apply(e.param, e.value, self.rate);
             }
@@ -2855,6 +2860,29 @@ impl Engine {
         self.sounding.iter().map(|&(c, k, _)| (c, k))
     }
 
+    /// Last applied normalized automation values for paced display feedback.
+    pub fn automation_values(&self,out:&mut Vec<(os_model::target::Target,f64)>) {
+        out.clear();
+        out.extend(self.auto_last.iter().map(|&(target,value)|(target,value as f64/1_073_741_824.)));
+        self.params.values(out);
+    }
+    /// Live recording overrides are published by the feeder, never the device callback.
+    pub fn set_automation_writing(&mut self, writing: &[(os_model::target::Target,f64)]) {
+        if self.automation_writing == writing {return;}
+        // Pattern events also yield while touched. Resume their most recent value on release.
+        for &(target,_) in &self.automation_writing {
+            if writing.iter().any(|w|w.0==target){continue;}
+            if let Some(event)=self.controls[..self.next_ctl].iter().rev().find(|e|
+                os_model::target::decode(os_model::target::channel(e.channel as u16,e.param))==target)
+                && let Some(ch)=self.channels.get_mut(event.channel) {ch.apply(event.param,event.value,self.rate);}
+        }
+        for &(target,_) in self.automation_writing.iter().chain(writing) {
+            self.auto_last.retain(|v|v.0!=target);
+            self.params.forget_target(target);
+        }
+        self.pdc.waiting.retain(|v|!writing.iter().any(|w|w.0==v.1));
+        self.automation_writing.clear();self.automation_writing.extend_from_slice(writing);
+    }
     /// Applies every automation clip that covers the tick starting now to its target: the curve's value one tick ahead,
     /// passed on only when it differs from the one last passed on (spec: audio/automation.md "When a clip acts").
     /// Volumes and pans glide over the tick (set in place on playback's first tick), the mixer ramps its matrix.
@@ -2862,6 +2890,10 @@ impl Engine {
     fn run_automation(&mut self, len: usize) {
         use os_model::target::Target;
         self.params.ticks.clear();
+        for i in 0..self.automation_writing.len() {
+            let (target,value)=self.automation_writing[i];
+            self.auto_value(target,handed_on(value as f32),len as u32);
+        }
         if self.autos.is_empty() {
             return;
         }
@@ -2902,7 +2934,7 @@ impl Engine {
             a.walk = Some((walk, taken));
             let n = handed_on(walk.value(pts));
             for &t in &a.targets {
-                if !values.iter().any(|v| v.0 == t) {
+                if !self.automation_writing.iter().any(|w|w.0==t) && !values.iter().any(|v| v.0 == t) {
                     values.push((t, n, now == a.start));
                 }
             }
@@ -4110,6 +4142,12 @@ impl Engine {
         for settings in &project.channels {
             let Some(ch) = self.channels.get_mut(usize::from(settings.index)) else {continue};
             let id = settings.index;
+            if settings.kind.is_sampler() {
+                ch.sampler_notes = sampler_notes::Settings::of(&settings.misc);
+                if !(1..=5).contains(&settings.misc.arp.direction) {
+                    self.sampler_arps.remove(&usize::from(id));
+                }
+            }
             let v = (ch.init_v != settings.volume && !owned(Target::ChannelVolume(id))).then_some(settings.volume);
             let p = (ch.init.1 != settings.pan && !owned(Target::ChannelPan(id))).then_some(settings.pan);
             ch.init_v = settings.volume;
@@ -4999,7 +5037,7 @@ fn pattern_plays(project: &Project, clips: &[os_model::Clip]) -> Vec<PatternPlay
 
 /// Channel control points as (tick, channel, parameter, value): a pattern's own, or those of every
 /// pattern clip of the playlist (spec: audio/pattern-controls.md, audio/song-structure.md "Control points").
-fn schedule_controls(project: &Project, mode: PlayMode) -> Vec<(u64, usize, u16, i32)> {
+pub fn schedule_controls(project: &Project, mode: PlayMode) -> Vec<(u64, usize, u16, i32)> {
     let points = |n: u16| project.patterns.iter().find(|p| p.number == n).map(|p| p.controls.as_slice()).unwrap_or(&[]);
     let place = |out: &mut Vec<_>, n: u16| {
         for c in points(n) {
@@ -5662,6 +5700,37 @@ mod tests {
         let (gl, _) = laws::channel_pan(0.0);
         let g = (laws::channel_gain(p.channels[0].volume) * gl) as f32;
         assert!(frames.chunks_exact(2).all(|f| f[0] == 0.0 || (f[0] - g).abs() < 1e-6));
+    }
+
+    #[test]
+    fn sampler_live_arp_echo_edits_preserve_clock_voices_and_pending_taps() {
+        let mut p=project(vec![long_note(0,384,0)],vec![]);
+        p.channels[0].misc.arp.direction=1;
+        p.channels[0].misc.arp.time=0.5;
+        p.channels[0].misc.echo.echoes=3;
+        p.channels[0].misc.echo.feed=0.8;
+        p.channels[0].misc.echo.time=0.5;
+        let mut e=Engine::new(&p,&mut SampleLibrary::default(),48000,PlayMode::Pattern(1));
+        let probe=Arc::new(Mutex::new(Probe{log:vec![],held:vec![],at:0}));
+        e.set_instrument(0,probe);
+        let mut out=vec![0.;256];
+        e.process(&mut out);
+        assert!(e.sampler_echo_count>0);
+        for step in 1..100 {
+            let before=(e.frame,e.sampler_clock,e.sampler_echo_count,e.sampler_releases.len());
+            p.channels[0].misc.echo.feed=step as f32/100.;
+            p.channels[0].misc.arp.gate=step as f32/100.;
+            e.set_live_project_controls(&p);
+            assert_eq!((e.frame,e.sampler_clock,e.sampler_echo_count,e.sampler_releases.len()),before);
+            assert_eq!(e.channels[0].sampler_notes.unwrap().echo.feed,p.channels[0].misc.echo.feed);
+            e.process(&mut out);
+            assert!(out.iter().all(|v|v.is_finite()));
+            assert_eq!(e.take_missed(),0);
+        }
+        p.channels[0].misc.arp.direction=0;
+        e.set_live_project_controls(&p);
+        assert!(e.sampler_arps.is_empty());
+        e.process(&mut out);
     }
 
     /// A slow-decaying tail: follows the loudest input and lets it fall away (a reverb's tail, for the test).
@@ -7888,6 +7957,31 @@ mod tests {
     }
 
     // spec: audio/automation.md "When a clip acts", "Walking the curve"; audio/voice-levels.md "Values from automation"
+    #[test]
+    fn touch_override_releases_back_to_legacy_pattern_events() {
+        use os_model::{ControlPoint,target::Target};
+        let p=project(vec![long_note(0,384,0)],vec![ControlPoint::new(0,0,ControlPoint::VOLUME,2560),ControlPoint::new(24,0,ControlPoint::VOLUME,5120)]);
+        let mut lib=SampleLibrary::new(None);let mut e=Engine::new(&p,&mut lib,48000,PlayMode::Pattern(1));
+        for _ in 0..10{e.next_tick();}assert!((e.channels[0].vol_v-0.2).abs()<1e-6);
+        e.set_automation_writing(&[(Target::ChannelVolume(0),0.8)]);
+        for _ in 0..20{e.next_tick();}assert!((e.channels[0].vol_v-0.8).abs()<1e-6);
+        e.set_automation_writing(&[]);for _ in 0..10{e.next_tick();}assert!((e.channels[0].vol_v-0.4).abs()<1e-6);
+    }
+    #[test]
+    fn touch_override_resumes_a_flat_curve_and_survives_seek() {
+        use os_model::{AutoPoint,Automation,ChannelKind,Clip,ClipSource,target};
+        let mut p=song(vec![long_note(0,768,0)],vec![Clip::new(0,768,0,ClipSource::Pattern(1))]);
+        let mut ch=channel();ch.index=1;ch.kind=ChannelKind::Automation;p.channels.push(ch);
+        p.automations.push(Automation{channel:1,targets:vec![target::channel(0,target::CHANNEL_VOLUME)],
+            points:vec![AutoPoint::new(0.,0.2),AutoPoint::new(8.,0.2)],header:vec![0;21],tail:vec![]});
+        p.arrangements[0].clips.push(Clip::new(0,768,1,ClipSource::Channel(1)));
+        let mut lib=SampleLibrary::new(None);let mut e=Engine::new(&p,&mut lib,48000,PlayMode::Song);
+        e.next_tick();assert!((e.channels[0].vol_v-0.2).abs()<1e-6);
+        e.set_automation_writing(&[(target::Target::ChannelVolume(0),0.8)]);e.next_tick();
+        assert!((e.channels[0].vol_v-0.8).abs()<1e-6);
+        e.seek_tick(0);e.next_tick();assert!((e.channels[0].vol_v-0.8).abs()<1e-6);
+        e.set_automation_writing(&[]);e.next_tick();assert!((e.channels[0].vol_v-0.2).abs()<1e-6);
+    }
     #[test]
     fn automation_values_are_one_tick_ahead_and_passed_on_when_changed() {
         use os_model::{AutoMode, AutoPoint, Automation, ChannelKind, Clip, ClipSource, target};

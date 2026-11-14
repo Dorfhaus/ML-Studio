@@ -88,6 +88,7 @@ pub enum Snap {
     SourceColor(os_model::ClipSource, Option<os_model::Rgb>, Option<os_model::Rgb>),
     CutGroups(u16,u32,u32),
     Effects(u16, bool, bool),
+    SlotEnabled(u16, u8, bool),
     AllEffects(bool),
     StripProfile(u16,u16),
     StripBypass(u16,bool),
@@ -438,6 +439,7 @@ impl Snap {
             Snap::StripBypass(t,_) => crate::mixer::track(s,*t).map_or_else(||self.clone(),|m|Snap::StripBypass(*t,m.strip_bypassed)),
             Snap::StripProfile(t,_) => crate::mixer::track(s,*t).map_or_else(||self.clone(),|m|Snap::StripProfile(*t,m.strip[5])),
             Snap::AllEffects(_) => Snap::AllEffects(s.mixer.all_fx_bypassed),
+            Snap::SlotEnabled(t, k, _) => crate::mixer::track(s, *t).and_then(|m| m.slot_on.get(usize::from(*k))).map_or_else(|| self.clone(), |v| Snap::SlotEnabled(*t, *k, *v)),
             Snap::Effects(t, _, _) => crate::mixer::track(s, *t).map_or_else(|| self.clone(), |m| Snap::Effects(*t, m.slots_enabled, s.mixer.all_fx_bypassed)),
             Snap::ChannelEnabled(row,_) => s.project.channels.get(*row).map_or_else(||self.clone(),|c|Snap::ChannelEnabled(*row,c.enabled)),
             Snap::RackOrder(order, _) => Snap::RackOrder(crate::rack::inverse_order(order), s.collaborating.then(|| s.project.channels.clone())),
@@ -549,6 +551,7 @@ impl Snap {
             | Snap::DriveType(..)
             | Snap::AllEffects(..)
             | Snap::Effects(..)
+            | Snap::SlotEnabled(..)
             | Snap::ChannelEnabled(..)
             | Snap::RackOrder(..)
             | Snap::PitchFollow(..)
@@ -675,6 +678,9 @@ impl Snap {
             Snap::StripBypass(t,b) => {if let Some(m)=s.project.mixer.iter_mut().find(|m|m.index==t){m.strip_bypassed=b;}},
             Snap::StripProfile(t,p) => {if let Some(m)=s.project.mixer.iter_mut().find(|m|m.index==t){m.strip[5]=p;}},
             Snap::AllEffects(bypassed) => s.mixer.all_fx_bypassed = bypassed,
+            Snap::SlotEnabled(t, k, enabled) => {
+                if let Some(v) = crate::mixer::track_mut(s, t).and_then(|m| m.slot_on.get_mut(usize::from(k))) { *v = enabled; }
+            }
             Snap::Effects(t, enabled, global) => {
                 s.mixer.all_fx_bypassed = global;
                 if let Some(m) = crate::mixer::track_mut(s, t) { m.slots_enabled = enabled; }

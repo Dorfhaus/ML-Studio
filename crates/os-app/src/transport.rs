@@ -76,6 +76,7 @@ const PREFILL_FRAMES: usize = 1024;
 /// State the UI reads every frame.
 #[derive(Default)]
 pub struct Shared {
+    automation_writing: Mutex<Vec<(os_model::target::Target,f64)>>,
     preview_active: AtomicBool,
     preview_ms: AtomicU64,
     eq_scope_track: AtomicU32,
@@ -267,6 +268,7 @@ impl Tap {
 /// sound is heard rather than a block at a time (issue #160). Other streams' peaks (live notes) are read at once.
 #[derive(Default)]
 struct TrackPeaks {
+    automation: AutomationFeedback,
     tune_learning: Vec<(u16,u32,Option<(u8,u8)>)>,
     now: Vec<[f32; 2]>,
     vu: Vec<[f32; 2]>,
@@ -276,6 +278,33 @@ struct TrackPeaks {
     ticks: std::collections::VecDeque<(u64, Vec<[f32; 2]>)>,
     /// Emptied vectors to use again, so rendering does not allocate once it runs.
     spare: Vec<Vec<[f32; 2]>>,
+}
+
+/// A small, recycled visual feed, paced to heard output rather than the render-ahead engine.
+#[derive(Default)]
+struct AutomationFeedback {
+    generation:u64,
+    next:u64,
+    ticks:std::collections::VecDeque<(u64,Vec<(os_model::target::Target,f64)>)>,
+    spare:Vec<Vec<(os_model::target::Target,f64)>>,
+    current:Vec<(os_model::target::Target,f64)>,
+}
+impl AutomationFeedback {
+    fn record(&mut self,generation:u64,frame:u64,rate:u32,engine:&Engine) {
+        if self.generation!=generation {*self=Self{generation,..Default::default()};}
+        if frame<self.next {return;}
+        self.next=frame+u64::from((rate/120).max(1));
+        let mut values=self.spare.pop().unwrap_or_default();engine.automation_values(&mut values);
+        self.ticks.push_back((frame,values));
+        while self.ticks.len()>256 {if let Some((_,v))=self.ticks.pop_front(){self.spare.push(v);}}
+    }
+    fn heard(&mut self,frame:u64)->&[(os_model::target::Target,f64)] {
+        while self.ticks.front().is_some_and(|t|t.0<=frame) {
+            let (_,mut values)=self.ticks.pop_front().unwrap();
+            std::mem::swap(&mut self.current,&mut values);self.spare.push(values);
+        }
+        &self.current
+    }
 }
 
 /// Ticks of peaks `TrackPeaks` keeps waiting (some seconds of the fastest ticks); older ones are read at once.
@@ -596,6 +625,17 @@ impl Transport {
         let _ = self.tx.send(Cmd::Preset(key, plugin));
     }
 
+    /// Automation display follows the same audible clock as the meters, without project writes.
+    pub(crate) fn automation_values(&self)->Option<Vec<(os_model::target::Target,f64)>> {
+        if !self.playing(){return Some(Vec::new());}
+        let generation=self.shared.generation.load(Ordering::Acquire);
+        let heard=self.paced().map(|p|p.played(Instant::now()));
+        let mut tracks=self.shared.tracks.try_lock().ok()?;
+        let feed=&mut tracks.automation;
+        if feed.generation!=generation{return Some(Vec::new());}
+        if let Some(frame)=heard {Some(feed.heard(frame).to_vec())}
+        else if self.paused(){Some(feed.current.clone())}else{Some(Vec::new())}
+    }
     /// Peak per mixer track (L, R) heard since the last call (the mixer meters' feed); resets them.
     pub fn take_track_peaks(&self) -> Vec<[f32; 2]> {
         let heard = self.paced().map(|p| p.played(Instant::now()));
@@ -712,6 +752,13 @@ impl Transport {
         self.update_owned(project.clone(), warp);
     }
 
+    pub(crate) fn write_automation(&self, encoded:u32, value:Option<f64>) {
+        if let Ok(mut writing)=self.shared.automation_writing.lock() {
+            let target=os_model::target::decode(encoded);
+            writing.retain(|v|v.0!=target);
+            if let Some(value)=value.filter(|v|v.is_finite()){writing.push((target,value.clamp(0.,1.)));}
+        }
+    }
     pub(crate) fn update_owned(&self, mut project: Project, warp: WarpBuffer) {
         // Playback consumes rendered sources. Persistent editor histories stay with the UI.
         project.audio_edits.clear();
@@ -821,6 +868,7 @@ impl Transport {
     /// Stop everything: playback rewinds, hosted instruments fall silent, live notes and previews end. Also works
     /// when already stopped (it silences notes still ringing from the typing keyboard or a preview).
     pub fn stop(&self) {
+        if let Ok(mut writing)=self.shared.automation_writing.lock(){writing.clear();}
         self.shared.generation.fetch_add(1, Ordering::AcqRel);
         self.shared.marker_hold.store(0, Ordering::Relaxed);
         self.shared.marker_resumed.store(0, Ordering::Relaxed);
@@ -1163,6 +1211,7 @@ impl Queue {
 
 /// Renders a stream's engine into its queue, ahead of the device (on its own thread; tests call `fill` directly).
 struct Feeder {
+    generation:u64,
     engine: Arc<Mutex<Engine>>,
     queue: Arc<Queue>,
     shared: Arc<Shared>,
@@ -1200,6 +1249,7 @@ impl Feeder {
         let Ok(mut e) = self.engine.lock() else { return };
         // Song playback loops over the loop points as they are now.
         if self.ctl.report.load(Ordering::Relaxed) {
+            if let Ok(writing)=self.shared.automation_writing.try_lock(){e.set_automation_writing(&writing);}
             let r = self.shared.loop_range.load(Ordering::Relaxed);
             e.set_loop_range((r != 0).then(|| (r >> 32, r & 0xffff_ffff)));
         }
@@ -1238,6 +1288,9 @@ impl Feeder {
                     if self.meters && self.ctl.report.load(Ordering::Relaxed) {
                         if let Ok(mut t) = self.shared.tracks.try_lock() {
                             t.tick(at, &mut e);
+                            if self.generation==self.shared.generation.load(Ordering::Acquire){
+                                t.automation.record(self.generation,at,self.rate,&e);
+                            }
                         }
                     }
                     self.queue.ended.store(e.finished(), Ordering::Release);
@@ -1569,9 +1622,14 @@ fn mixer_live_edits(previous: &mut Project, next: &mut Project) -> Option<Vec<us
         // Stretched audio pitch can require regenerated sample data.
         if old.pitch_cents != new.pitch_cents && (old.sound.stretch != [0; 4] || old.kind == os_model::ChannelKind::AudioClip) { return None; }
         let saved = (old.volume, old.pan, old.pitch_cents);
+        let sampler = (old.misc.arp, old.misc.echo, old.misc.tracking);
+        if old.kind.is_sampler() && new.kind.is_sampler() {
+            (old.misc.arp, old.misc.echo, old.misc.tracking) = (new.misc.arp, new.misc.echo, new.misc.tracking);
+        }
         (old.volume, old.pan, old.pitch_cents) = (new.volume, new.pan, new.pitch_cents);
         let same = old == new;
         (old.volume, old.pan, old.pitch_cents) = saved;
+        (old.misc.arp, old.misc.echo, old.misc.tracking) = sampler;
         if !same { return None; }
     }
     // An identical snapshot is a successful no-op, not a reason to rebuild playback.
@@ -2445,6 +2503,7 @@ impl Session {
         // The queue gets a first block before the stream starts; then the feeder keeps it filled.
         let queue = Arc::new(Queue::with_outputs(extra_channels));
         let mut feeder = Feeder::new(engine.clone(), queue.clone(), shared.clone(), ctl.clone(), rate);
+        feeder.generation=generation;
         feeder.meters = !preview;
         feeder.live=kind==Kind::Live;
         feeder.fill(fixed.map(|b|b as usize).unwrap_or(PREFILL_FRAMES));
@@ -2466,7 +2525,7 @@ impl Feeder {
             v.retain(|w| w.strong_count() > 0);
             v.push(Arc::downgrade(&voices));
         }
-        Feeder { engine, queue, shared, ctl, meters: true, live:false, rate, busy: Duration::ZERO, rendered: 0, voices }
+        Feeder { generation:shared.generation.load(Ordering::Acquire),engine, queue, shared, ctl, meters: true, live:false, rate, busy: Duration::ZERO, rendered: 0, voices }
     }
 }
 
@@ -2635,6 +2694,24 @@ impl Source for Renderer {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn automation_feedback_waits_for_heard_frames_and_discards_old_sessions() {
+        use os_model::target::Target;
+        let mut feed=super::AutomationFeedback::default();
+        feed.ticks.push_back((100,vec![(Target::MixerVolume(1),0.2)]));
+        feed.ticks.push_back((500,vec![(Target::MixerVolume(1),0.8)]));
+        assert!(feed.heard(99).is_empty());
+        assert_eq!(feed.heard(100),&[(Target::MixerVolume(1),0.2)]);
+        assert_eq!(feed.heard(499),&[(Target::MixerVolume(1),0.2)]);
+        assert_eq!(feed.heard(500),&[(Target::MixerVolume(1),0.8)]);
+        let engine=super::Engine::new(&crate::app::test_project(),&mut super::SampleLibrary::default(),48000,super::PlayMode::Song);
+        feed.record(2,0,48000,&engine);
+        assert_eq!(feed.generation,2);assert!(feed.current.is_empty());
+        for frame in (400..400*1000).step_by(400){feed.record(2,frame,48000,&engine);}
+        assert!(feed.ticks.len()<=256);assert!(feed.spare.len()<=257);
+        let transport=super::Transport::new(None);
+        assert_eq!(transport.automation_values(),Some(Vec::new()),"stopped playback clears visual feedback");
+    }
     use super::*;
 
     #[test]
@@ -2989,6 +3066,22 @@ mod tests {
             let mut old=base.clone();let mut new=base.clone();edit(&mut new);
             assert!(mixer_live_edits(&mut old,&mut new).is_none());
         }
+    }
+
+    #[test]
+    fn sampler_note_controls_use_live_updates_and_preserve_snapshots() {
+        let mut base=crate::app::test_project();
+        base.channels[0].kind=os_model::ChannelKind::Sampler;
+        for control in crate::misc_page::M::ALL {
+            let mut old=base.clone();let mut next=base.clone();
+            crate::misc::put(&mut next.channels[0].misc,control,crate::misc_page::range_of(control).1);
+            if next.channels[0].misc.arp==base.channels[0].misc.arp && next.channels[0].misc.echo==base.channels[0].misc.echo && next.channels[0].misc.tracking==base.channels[0].misc.tracking {continue;}
+            let expected=next.clone();
+            assert!(mixer_live_edits(&mut old,&mut next).is_some(),"{control:?}");
+            assert_eq!(old,base);assert_eq!(next,expected);
+        }
+        let mut old=base.clone();let mut next=base.clone();next.channels[0].misc.root=20;
+        assert!(mixer_live_edits(&mut old,&mut next).is_none());
     }
 
     #[test]

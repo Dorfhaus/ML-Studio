@@ -10,14 +10,18 @@ struct Manifest { os: String, arch: String, files: Vec<Entry> }
 struct Entry { path: String, sha256: String, size: u64 }
 pub fn is_bundled() -> bool { !BYTES.is_empty() }
 pub fn bundle_path() -> Option<PathBuf> {
-    static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    static PATH: OnceLock<Option<(PathBuf,fs::File)>> = OnceLock::new();
     PATH.get_or_init(|| {
         let root = os_paths::user_dir()?.join("Builtin Plugins");
+        fs::create_dir_all(&root).ok()?;
+        let hash=format!("{:x}",Sha256::digest(BYTES));
+        let lease=fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(root.join(format!("{hash}.lock"))).ok()?;
+        lease.lock_shared().ok()?;
         match unpack(BYTES, &root) {
-            Ok(p) => Some(p),
+            Ok(p) => {prune(&root,&hash);Some((p,lease))},
             Err(e) => { eprintln!("Master Assistant embedded engine: {e}"); None }
         }
-    }).clone()
+    }).as_ref().map(|(path,_)|path.clone())
 }
 fn safe_path(name: &str) -> Result<&Path, String> {
     let p = Path::new(name);
@@ -58,7 +62,10 @@ fn unpack(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     // Each process writes its own staging directory. A complete validated directory is renamed atomically.
     let stage = root.join(format!("{hash}-{}.tmp", std::process::id()));
+    if stage.exists(){let mut names:Vec<_>=manifest.files.iter().map(|e|e.path.clone()).collect();names.push("cache-files.json".into());crate::updates::retention::remove_owned(&stage,root,&names).map_err(|e|e.to_string())?;}
     fs::create_dir(&stage).map_err(|e| e.to_string())?;
+    let inventory:Vec<_>=manifest.files.iter().map(|e|e.path.clone()).collect();
+    fs::write(stage.join("cache-files.json"),serde_json::to_vec(&inventory).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
     for e in &manifest.files {
         if e.size > 256 * 1024 * 1024 { return Err("Engine file exceeds size limit".into()) }
         let mut f = zip.by_name(&e.path).map_err(|e| e.to_string())?;
@@ -83,9 +90,55 @@ fn unpack(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
     }
     Ok(dest.join(bundle))
 }
+// Keep current plus one inactive, managed engine version. Legacy/unknown folders
+// are preserved; active engines hold shared leases, so cleanup cannot remove them.
+fn prune(root:&Path,current:&str){
+    let Ok(entries)=fs::read_dir(root) else{return};let mut managed=Vec::new();
+    for entry in entries.flatten(){
+        let path=entry.path();let name=entry.file_name().to_string_lossy().into_owned();
+        let hash=name.split('-').next().unwrap_or("");
+        if hash.len()!=64 || !hash.bytes().all(|c|c.is_ascii_hexdigit()) || name==current{continue}
+        let meta=match fs::symlink_metadata(&path){Ok(m) if m.is_dir()&&!m.file_type().is_symlink()=>m,_=>continue};
+        let temporary=name.strip_suffix(".tmp").and_then(|s|s.rsplit_once('-')).and_then(|(_,p)|p.parse::<u128>().ok());
+        if name!=hash && temporary.is_none(){continue}
+        if temporary.is_some_and(crate::updates::retention::process_alive){continue}
+        let marker=path.join("cache-files.json");if !fs::metadata(&marker).is_ok_and(|m|m.len()<65536){continue}
+        let Ok(mut names)=fs::read(marker).ok().and_then(|b|serde_json::from_slice::<Vec<String>>(&b).ok()).ok_or(()) else{continue};
+        if names.is_empty() || names.len()>100 || names.iter().any(|n|safe_path(n).is_err()){continue}
+        names.push("cache-files.json".into());
+        managed.push((temporary.is_some(),meta.modified().ok(),path,hash.to_string(),names));
+    }
+    managed.sort_by(|a,b|b.1.cmp(&a.1));let mut kept=false;
+    for (temporary,_,path,hash,names) in managed{
+        if temporary{let _=crate::updates::retention::remove_owned(&path,root,&names);continue}
+        if !temporary && !kept{kept=true;continue}
+        let lock=root.join(format!("{hash}.lock"));
+        let Ok(lease)=fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&lock) else{continue};
+        if lease.try_lock().is_err(){continue}
+        let removed=crate::updates::retention::remove_owned(&path,root,&names).is_ok();drop(lease);
+        if removed{let _=fs::remove_file(lock);}
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn engine_cache_retention_preserves_active_and_unknown(){
+        let root=std::env::temp_dir().join(format!("engine-retention-{}",std::process::id()));fs::create_dir_all(&root).unwrap();
+        let current="a".repeat(64);let active="b".repeat(64);
+        for (i,c) in ['a','b','c','d','e'].into_iter().enumerate(){
+            let dir=root.join(c.to_string().repeat(64));let file=format!("{}/Contents/test.bin",super::super::FILE);
+            fs::create_dir_all(dir.join(&file).parent().unwrap()).unwrap();fs::write(dir.join(file.clone()),b"engine").unwrap();
+            fs::write(dir.join("cache-files.json"),serde_json::to_vec(&vec![file]).unwrap()).unwrap();
+            fs::File::open(&dir).ok().and_then(|f|f.set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH+std::time::Duration::from_secs(i as u64+1))).ok());
+        }
+        let lease=fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(root.join(format!("{active}.lock"))).unwrap();lease.lock_shared().unwrap();
+        fs::create_dir(root.join("personal-presets")).unwrap();prune(&root,&current);
+        assert!(root.join(&current).is_dir());assert!(root.join(&active).is_dir());assert!(root.join("personal-presets").is_dir());
+        drop(lease);prune(&root,&current);
+        assert_eq!(fs::read_dir(&root).unwrap().flatten().filter(|e|e.file_name().len()==64&&e.path().is_dir()).count(),2);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn engine_paths_reject_escape() {
         for p in ["../outside", "/absolute", "Lemon Master Assistant.vst3/../outside", "Lemon Master Assistant.vst3/C:evil"] {

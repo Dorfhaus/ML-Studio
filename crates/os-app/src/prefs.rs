@@ -572,7 +572,7 @@ pub const MUTING_CHANNEL: Number = Number { key: "midi_muting_channel", label: "
 
 /// The declared checks.
 pub const DOUBLE_CLICK_RESET: Check = Check { key: "double_click_reset", label: "Double-click resets faders and knobs", default: false };
-pub const HOVER_MENUS: Check = Check { key: "hover_main_menus", label: "Open main menus on hover", default: false };
+pub const HOVER_MENUS: Check = Check { key: "hover_main_menus", label: "Open menus on hover", default: false };
 
 pub const CHECKS: &[&Check] = &[
     &DOUBLE_CLICK_RESET,
@@ -827,7 +827,7 @@ impl App {
         for (i, &ch) in c.choices.iter().enumerate() {
             items.extend(headings(c).iter().filter(|h| h.0 == i).map(|h| PItem::head(h.1)));
             let label = if c.key == INTERFACE_LANGUAGE.key { ch } else { language::Language::current().text(ch) };
-            items.push(PItem::new(label, Cmd::Pref(c, i)).mark(Mark::Radio(i == now)));
+            items.push(PItem::new(label.to_owned(), Cmd::Pref(c, i)).mark(Mark::Radio(i == now)));
         }
         self.state.playlist.popup = Some(Popup { x, y: y + 1.0, items, sub: None, scroll: [0; 2], cascade: Vec::new() });
         self.invalidate();
@@ -1028,6 +1028,8 @@ main_gui_scaling = 200%
         let french = hit_rect(&app, &Action::PlPopup(1));
         click(&mut app, &mut canvas, french);
         assert_eq!(choice(&INTERFACE_LANGUAGE), "Français");
+        let literal=crate::playlist::PItem::new("English".to_owned(),crate::playlist::Cmd::Nothing);
+        assert_eq!(literal.display_label(language::Language::current()),"English");
         assert_eq!(read(|s| index_in(s, &INTERFACE_LANGUAGE)), 1);
         assert_eq!(language::Language::current().text("Open..."), "Ouvrir...");
         assert_eq!(language::Language::current().text("Untranslated"), "Untranslated");

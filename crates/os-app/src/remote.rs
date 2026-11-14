@@ -564,18 +564,21 @@ impl App {
         match t {
             Target::SampleTempo(_) => return,
             Target::Knob(k) => {
+                self.smart_begin_host(&crate::app::Action::Knob(k));
                 crate::history::knob(&mut self.state, k, true);
                 self.state.set_knob(k, v);
                 self.record_knob(k);
             }
             Target::Fader(m) => {
+                self.smart_begin_host(&crate::app::Action::Fader(m));
                 if let Some(tr) = crate::mixer::track_mut(&mut self.state, m) {
                     tr.volume = Some(f64::from(v));
                     self.state.piano.dirty = true;
                 }
+                self.smart_record_host(&crate::app::Action::Fader(m));
             }
             Target::Param(key, index) => {
-                crate::params::set_param_value(&self.state, key, index, f64::from(v));
+                if crate::params::set_param_value(&self.state, key, index, f64::from(v)){self.record_plugin_parameter(key,index,f64::from(v));}
             }
         }
         self.invalidate();

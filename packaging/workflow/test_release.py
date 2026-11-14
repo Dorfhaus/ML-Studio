@@ -64,6 +64,9 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'rejected the login'):r.login_connection(ftp,'user','fixture-only','/')
             ftp.close.assert_called_once()
     def test_scope_rejects_cross_platform_and_traversal(self):
+        self.assertTrue(r.permitted('helper/1/melli-mac-arm64-v1.zip','helper'))
+        for path in ['helper/1/../../private','helper/stable.json','updates/stable.json','helper/1/anything.zip']:
+            self.assertFalse(r.permitted(path,'helper'))
         self.assertTrue(r.permitted('mac/123/file.dmg','mac-arm64'))
         for p in ('updates/stable.json','platforms/windows.json','platforms/mac-x86_64.json','mac/../index.html','/mac/123/a','mac\\123\\a'):
             self.assertFalse(r.permitted(p,'mac-arm64'))

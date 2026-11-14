@@ -42,7 +42,8 @@ impl Filter {
 
     /// The type combo's text: "FLP project (*.flp)".
     pub fn label(&self) -> String {
-        if self.exts.is_empty() { self.name.clone() } else { format!("{} (*.{})", self.name, self.exts.join(", *.")) }
+        let name=crate::prefs::language::Language::current().text(&self.name);
+        if self.exts.is_empty() { name.to_owned() } else { format!("{} (*.{})", name, self.exts.join(", *.")) }
     }
 
     fn matches(&self, name: &str) -> bool {
@@ -539,7 +540,7 @@ impl FileDlg {
         }
         let dirs = self.entries.iter().filter(|e| e.dir).count();
         let files = self.entries.len() - dirs;
-        let n = |k: usize, one: &str, many: &str| format!("{k} {}", if k == 1 { one } else { many });
+        let n = |k: usize, one: &str, many: &str| format!("{k} {}", crate::prefs::language::Language::current().text(if k == 1 { one } else { many }));
         if self.mode == Mode::Folder { n(dirs, "folder", "folders") } else { format!("{}, {}", n(dirs, "folder", "folders"), n(files, "file", "files")) }
     }
 

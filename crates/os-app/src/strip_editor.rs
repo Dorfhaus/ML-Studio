@@ -101,14 +101,20 @@ impl crate::plugins::Plugins {
         // A plugin owns one editor. Leave an explicitly opened floating editor alone.
         if h.window.is_some()||h.rack_error.is_some(){return;}
         if h.rack_editor.is_none(){
+            // Drawing must not wait for the audio/worker thread to release an instance.
+            // Retry on the next frame, without marking a busy plugin as broken.
+            let Ok(mut p)=h.plugin.try_lock() else{return};
             let result=(||{
                 let mut e=Editor::new(owner,scale)?;e.rect=r;
                 unsafe{SetPropW(e.hwnd,wide("LemonStripTrack").as_ptr(),(crate::plugins::fx_of(key).unwrap().0 as usize+1) as _);}
-                let mut p=h.plugin.lock().map_err(|_|"Plugin busy".to_string())?;
                 let d=p.desc().clone();e.profile=profile(&d);e.open_height=r[3]-r[1];
                 let fit=prepare(&d,scale,r,|scale|{let result=p.open_editor(e.area(),scale);p.close_editor();result})?;
                 let size=match p.open_editor(e.area(),fit){Ok(size)=>size,Err(error)=>{p.close_editor();return Err(error);}};
-                if !e.accept_size(size){p.close_editor();return Err("This plugin reported an invalid editor size.".into());}
+                if !crate::rack_mixer::vertical_shape(size){p.close_editor();return Err("This plugin reported an invalid editor size.".into());}
+                // Native positioning can dispatch window messages; never do it under
+                // the same lock the processing thread needs (as in Plugins::idle).
+                drop(p);
+                e.accept_size(size);
                 e.page=page.min(e.pages.len()-1);e.data.x=e.pages[e.page].left;e.data.page_width=e.pages[e.page].width();
                 e.rect=[0;4];Ok::<_,String>(e)
             })();
@@ -139,6 +145,19 @@ fn prepare(d:&os_host::Descriptor,scale:f32,r:[i32;4],mut probe:impl FnMut(f32)-
     Ok(fit)
 }
 #[cfg(test)]mod tests{
+    #[test]fn busy_rack_creation_defers_without_native_windows_or_error(){
+        let mut plugins=crate::plugins::Plugins::default();
+        plugins.effects=crate::plugins::builtin_effects();plugins.scale=1.;plugins.set_rate(48000);
+        let index=plugins.effect_index(crate::plugins::LEMON_EQ).unwrap();
+        plugins.create_effect(1,0,index,None).unwrap();
+        let key=crate::plugins::fx_key(1,0);
+        let shared=plugins.hosted[&key].plugin.clone();
+        let held=shared.lock().unwrap();
+        plugins.show_rack(key,0,1.,[0,0,128,400],[0,0,128,400],&[]);
+        assert!(plugins.hosted[&key].rack_editor.is_none());
+        assert!(plugins.hosted[&key].rack_error.is_none());
+        drop(held);
+    }
     #[test]fn ssl_link_keeps_non_scaling_editor_and_full_dynamic_pages(){
         let mut d=desc();d.format=os_host::Format::Vst3;d.name="SSL 360 Link".into();d.vendor="Solid State Logic".into();d.id="ssl-link-fit-test".into();
         for size in [(1000,600),(600,1000)]{

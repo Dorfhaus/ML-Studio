@@ -159,6 +159,13 @@ pub fn pan_text(p: f32) -> String {
 
 impl State {
     pub fn knob(&self, id: KnobId) -> f32 {
+        if let Some(target)=crate::automation_feedback::knob_target(self,id) && let Some(&v)=self.params.playback.get(&target) {
+            let v=if let KnobId::ChanPitch(row)=id {
+                let range=self.project.channels.get(row).map_or(2,|c|c.misc.pitch_range.max(1));
+                0.5+(v-0.5)*48./f64::from(range)
+            }else{v};
+            return v.clamp(0.,1.) as f32;
+        }
         match id {
             KnobId::MixPan(t) => {
                 let pan = self.project.mixer.iter().find(|m| m.index == t).and_then(|m| m.pan).unwrap_or(0.0);
@@ -191,6 +198,7 @@ impl State {
     }
 
     pub fn set_knob(&mut self, id: KnobId, v: f32) {
+        if let Some(t)=crate::automation_feedback::knob_target(self,id){self.params.playback.remove(&t);}
         let mut v = v.clamp(0.0, 1.0);
         if id == KnobId::MasterPitch {
             // Smooth, but pulled onto a whole semitone (+-12 range, 100 cents each) when within SNAP of it.

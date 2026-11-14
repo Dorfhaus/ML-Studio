@@ -165,6 +165,7 @@ impl App {
 
     /// A key while a form is on top; `Some` closes it with that answer.
     pub(crate) fn form_key(&mut self, key: &Key, ctrl: bool, alt: bool) -> Option<Reply> {
+        let shift = self.shift;
         if matches!(top(self), Some(Form::Save(_))) {
             return self.save_form_key(key, ctrl, alt);
         }
@@ -188,7 +189,7 @@ impl App {
             }
             _ => {
                 let fl = if f.focus == 0 { &mut f.name } else { &mut f.folder };
-                fl.key(key, ctrl, alt);
+                fl.key_mod(key, ctrl, alt, shift);
             }
         }
         self.invalidate();

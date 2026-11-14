@@ -110,7 +110,7 @@ fn guide() -> &'static Guide {
                         .expect("bundled guide menu")
                 });
                 topic.blocks.push(Block::MenuReference(index));
-            } else {
+            } else if !line.starts_with("<!--") {
                 topic.blocks.push(Block::Paragraph(line));
             }
         }
@@ -143,6 +143,27 @@ fn guide() -> &'static Guide {
         }
         guide
     })
+}
+
+/// Materialize the same build's menu reference for the offline Helper. The
+/// reader draws these registries dynamically; raw Markdown alone omits them.
+pub(crate) fn helper_text() -> String {
+    let mut result = String::new();
+    for line in include_str!("../../../../docs/user-guide.md").lines() {
+        if let Some(menu) = line.trim().strip_prefix("<!-- menu-reference").and_then(|v| v.strip_suffix("-->")) {
+            for (_, title, items) in menu_groups().filter(|(_, title, _)| menu.trim().is_empty() || menu.trim() == *title) {
+                for item in items {
+                    result.push_str(&format!("- {title} > {}", item.label));
+                    if !item.shortcut.is_empty() { result.push_str(&format!(" (default shortcut: {})", item.shortcut)); }
+                    result.push('\n');
+                }
+            }
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
 }
 
 pub(super) fn menu_groups() -> impl Iterator<

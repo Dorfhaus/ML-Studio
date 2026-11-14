@@ -406,13 +406,16 @@ impl crate::plugins::Plugins {
         let Some(h)=self.hosted.get_mut(&key)else{return};
         if h.window.is_some()||h.rack_error.is_some(){return;}
         if h.rack_editor.is_none(){
+            let Ok(mut p)=h.plugin.try_lock() else{return};
             let result=(||{
                 let mut e=Editor::new(owner,scale)?;e.rect=r;
                 let track=crate::plugins::fx_of(key).map(|(t,_)|t);e.outer.ivars().track.set(track);e.document.ivars().track.set(track);
-                let mut p=h.plugin.lock().map_err(|_|"Plugin busy".to_string())?;e.profile=profile(p.desc());
+                e.profile=profile(p.desc());
                 let result=p.open_editor(e.area(),e.backing as f32);
                 let size=match result {Ok(size)=>size,Err(err)=>{p.close_editor();return Err(err);}};
-                if !e.accept_size(size){p.close_editor();return Err("This plugin reported an invalid editor size.".into());}
+                if !crate::rack_mixer::vertical_shape(size){p.close_editor();return Err("This plugin reported an invalid editor size.".into());}
+                drop(p);
+                e.accept_size(size);
                 e.page=page.min(e.pages.len()-1);e.page_left=e.pages[e.page].left;e.page_width=e.pages[e.page].width();
                 Ok(e)
             })();

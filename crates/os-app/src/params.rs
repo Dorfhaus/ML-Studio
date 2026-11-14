@@ -63,6 +63,9 @@ pub enum Tweak {
 /// What the app knows about plugin parameters.
 #[derive(Debug, Default)]
 pub struct ParamUi {
+    pub playback:std::collections::HashMap<os_model::target::Target,f64>,
+    pub record_edits:Vec<crate::typein::Target>,
+    pub record_values:Vec<(u32,String,f64)>,
     /// Fair starting point when the frame's controller-poll budget runs out.
     poll_after: Option<usize>,
     pub collaboration: std::cell::RefCell<BTreeMap<(usize,u32),f64>>,
@@ -154,10 +157,12 @@ pub fn clip_name(s: &State, key: usize, index: usize) -> String {
 
 /// Current normalized value of parameter `index` of instance `key`.
 fn value_of(s: &State, key: usize, index: usize) -> Option<f64> {
-    let id = s.params.lists.get(&key)?.params.get(index)?.id;
-    let p = s.params.plugin(key)?;
-    let v = p.lock().ok()?.param_value(id);
-    v
+    if let Some(t)=target_of(s,key,index) && let Some(&v)=s.params.playback.get(&target::decode(t)){return Some(v);}
+    raw_value_of(s,key,index)
+}
+fn raw_value_of(s:&State,key:usize,index:usize)->Option<f64> {
+    let id=s.params.lists.get(&key)?.params.get(index)?.id;
+    s.params.plugin(key)?.lock().ok()?.param_value(id)
 }
 
 /// Parameter `index` of instance `key`: its name, its normalized value, and setting it (the value box, spec:
@@ -356,6 +361,18 @@ impl App {
         true
     }
 
+    pub(crate) fn record_plugin_parameter(&mut self,key:usize,index:usize,value:f64) {
+        if crate::mixer::locked_effect(&self.state,key){return;}
+        let Some(plugin)=self.state.params.plugin(key) else {return;};
+        let eligible=match plugin.try_lock() {
+            Ok(p)=>p.param_info(index).is_some_and(|i|i.automatable&&!i.read_only&&!i.hidden),
+            Err(_)=>{self.state.params.record_edits.push(crate::typein::Target::Param(key,index));return;}
+        };
+        if eligible && let Some(target)=target_of(&self.state,key,index) {
+            let name=clip_name(&self.state,key,index);
+            if !self.capture_control(target,&name,value){self.smart_record_value(target,name,value);}
+        }
+    }
     pub(crate) fn params_tick(&mut self) {
         let ui = &mut self.state.params;
         ui.lists.retain(|k, _| self.plugins.hosted.contains_key(k));
@@ -414,6 +431,13 @@ impl App {
             if p.take_state_changed(){edited.push(key);if self.state.project.channels.get(key).is_some_and(crate::ara::is){ara_changes.push((key,p.save_state()));}}
             let pending=ui.capture_pending.remove(&key);
             for e in p.take_param_events() {
+                // Preserve gesture order even when Begin/Value/End arrive in one poll.
+                let id=match e {os_host::ParamEvent::Begin(id)|os_host::ParamEvent::End(id)|os_host::ParamEvent::Value(id,_)=>Some(id),_=>None};
+                if let Some(id)=id && let Some(l)=ui.lists.get(&key)
+                    && let Some(index)=l.params.iter().position(|x|x.id==id) {
+                    let eligible=p.param_info(index).is_some_and(|i|i.automatable&&!i.read_only&&!i.hidden);
+                    recorded.push((key,index,e,l.values.borrow().get(&id).copied(),!pending,eligible));
+                }
                 if let Some(l)=ui.lists.get_mut(&key) {
                     match e {
                         os_host::ParamEvent::Sync(id,v) if v.is_finite()=>{
@@ -442,7 +466,6 @@ impl App {
                 edited.push(key);
                 if let Some(index) = ui.lists.get(&key).and_then(|l| l.params.iter().position(|x| x.id == id)) {
                     moved = Some(Tweak::Plugin { key, index });
-                    if let os_host::ParamEvent::Value(_,v)=e {recorded.push((key,index,v,!pending && p.param_info(index).is_some_and(|i|i.automatable && !i.read_only && !i.hidden)));}
                 }
             }
             // A VST3 controller can read hundreds of values here. Prepare its
@@ -522,14 +545,33 @@ impl App {
             self.state.message = self.params_automate(key, index);
             self.invalidate();
         }
-        for (key,index,v,fresh) in recorded {
-            if self.state.collaborating {if let Some(id)=self.state.params.lists.get(&key).and_then(|l|l.params.get(index)).map(|p|p.id){self.state.params.collaboration.borrow_mut().insert((key,id),v);}}
+        for (key,index,event,before,fresh,eligible) in recorded {
+            if let os_host::ParamEvent::Value(_,v)=event && self.state.collaborating {
+                if let Some(id)=self.state.params.lists.get(&key).and_then(|l|l.params.get(index)).map(|p|p.id){self.state.params.collaboration.borrow_mut().insert((key,id),v);}
+            }
+            if !eligible {continue;}
             if let Some(target)=target_of(&self.state,key,index) {
-                let name=clip_name(&self.state,key,index);
-                if fresh && self.capture_control(target,&name,v) {continue;}
-                self.smart_record_value(target,name,v);
+                match event {
+                    os_host::ParamEvent::Begin(_)=>self.smart_begin_parameter(target,before.unwrap_or(0.5),true),
+                    os_host::ParamEvent::End(_)=>self.smart_end_parameter(target),
+                    os_host::ParamEvent::Value(_,v) if fresh=>{
+                        if let Some(before)=before {self.smart_begin_parameter(target,before,false);}
+                        let name=clip_name(&self.state,key,index);
+                        if !self.capture_control(target,&name,v){self.smart_record_value(target,name,v);}
+                    }
+                    _=>{}
+                }
             }
         }
+        for edit in std::mem::take(&mut self.state.params.record_edits) {
+            match edit {
+                crate::typein::Target::Knob(k)=>self.smart_record_host(&Action::Knob(k)),
+                crate::typein::Target::Fader(t)=>self.smart_record_host(&Action::Fader(t)),
+                crate::typein::Target::Param(k,i)=>if let Some(v)=raw_value_of(&self.state,k,i){self.record_plugin_parameter(k,i,v);},
+                _=>{}
+            }
+        }
+        for (target,name,value) in std::mem::take(&mut self.state.params.record_values){self.smart_record_value(target,name,value);}
     }
 
     /// A press on a host control: it becomes the last tweaked parameter when it has an automation target.
@@ -628,6 +670,7 @@ impl App {
         if ok {
             crate::history::param(&mut self.state, key, index, before, v);
             self.plugins.mark_edited(key);
+            self.record_plugin_parameter(key,index,v);
         }
         (!ok).then(|| "The plugin did not take the value".to_string())
     }
@@ -1128,6 +1171,29 @@ mod tests {
         assert_eq!(app.state.project.automation(ch), Some(&curve));
     }
     /// A stand-in instance for typing `Weak` (never upgraded).
+    #[test]
+    fn native_plugin_touch_gestures_record_in_order_and_ignore_host_sync() {
+        use os_host::ParamEvent::{Begin,Value,End,Sync};
+        let (mut a,key)=eq_app();let desc=a.plugins.hosted[&key].plugin.lock().unwrap().desc().clone();
+        let events=Arc::new(Mutex::new(Vec::new()));
+        let p:Arc<Mutex<dyn os_host::Plugin>>=Arc::new(Mutex::new(CapturePlugin{delay:std::time::Duration::ZERO,bank:1,desc,events:events.clone(),value:0.2,snapshot:None,reads:Default::default()}));
+        a.plugins.hosted.insert(key,crate::plugins::Hosted::new(p));a.params_tick();a.state.history.reset();
+        crate::settings_file::set_flag("rec_automation",true);a.state.rec.armed=true;a.transport.pretend_at(96.,true);
+        events.lock().unwrap().extend([Sync(7,0.1)]);a.params_tick();assert!(!a.smart_pending());
+        events.lock().unwrap().extend([Begin(7),Value(7,0.4)]);a.params_tick();
+        assert_eq!(a.state.rec.smart.active.len(),1);
+        a.transport.pretend_at(144.,true);events.lock().unwrap().extend([Value(7,0.8),End(7)]);a.params_tick();
+        assert!(a.state.rec.smart.active.is_empty());assert!(a.smart_pending());
+        a.transport.pretend_at(192.,true);events.lock().unwrap().extend([Begin(7),Value(7,0.6),End(7)]);a.params_tick();
+        a.smart_record_tick();a.transport.stop();a.smart_record_tick();
+        assert_eq!(a.state.project.automations.len(),1,"native editor gestures reuse one clip by default");
+        let clips=crate::playlist::clips(&a.state);assert_eq!(clips.last().unwrap().length,97);
+        let curve=a.state.project.automations.last().unwrap();
+        for (beat,want) in [(0.,0.4),(0.5,0.8),(0.75,0.8),(1.,0.6)] {
+            assert!((curve.value_at(beat).unwrap()-want).abs()<1e-6,"gesture or release gap at {beat}");
+        }
+        assert_eq!(a.state.project.automations.last().unwrap().targets,vec![target_of(&a.state,key,0).unwrap()]);
+    }
     #[test]
     fn forum_editor_gesture_undo_redo() {
         use os_host::ParamEvent::{Begin,Value,End};

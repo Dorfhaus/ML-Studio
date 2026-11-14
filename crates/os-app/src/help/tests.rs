@@ -5,6 +5,20 @@ use crate::views::menus::{self, HELP_GUIDE, HELP_MENU};
 use os_ui::Canvas;
 
 #[test]
+fn helper_guide_contains_live_menu_reference_and_mixer_selection() {
+    let text = content::helper_text();
+    assert!(!text.contains("<!-- menu-reference"));
+    for (_, title, items) in content::menu_groups() {
+        for item in items { assert!(text.contains(&format!("- {title} > {}", item.label))); }
+    }
+    assert!(text.contains("### Select multiple Mixer channels"));
+    assert!(text.contains("Ctrl-click"));
+    if let Some(path) = std::env::var_os("ML_HELPER_EXPORT_GUIDE") {
+        std::fs::write(path, text).unwrap();
+    }
+}
+
+#[test]
 fn ssl_link_setup_opens_article_and_respects_guide_visibility() {
     let mut app = App::new(None);
     crate::settings_file::set_flag(VISIBILITY, true);

@@ -141,6 +141,7 @@ def permitted(rel,scope):
     p=PurePosixPath(rel)
     if p.is_absolute() or '..' in p.parts or '\\' in rel: return False
     if scope=='website': return rel=='index.html'
+    if scope=='helper': return bool(re.fullmatch(r'helper/\d+/melli-(?:windows|linux|mac-arm64|mac-x86_64)-v\d+\.zip',rel))
     if scope=='windows-linux':
         return bool(re.fullmatch(r'(?:downloads|linux|updates)/\d+/[^/]+',rel) or re.fullmatch(r'updates/linux-x64/\d+/[^/]+',rel) or rel in ('platforms/windows.json','platforms/linux.json','updates/stable.json','updates/linux-x64/stable.json'))
     if scope in ('mac-arm64','mac-x86_64'):
@@ -284,7 +285,7 @@ def publish(plan_path):
     sys.path.insert(0,str(Path(__file__).parent))
     from checkpoints import exclusive
     plan=json.loads(Path(plan_path).read_text());scope=plan['scope']
-    if scope not in ('windows-linux','mac-arm64','mac-x86_64','website'):raise RuntimeError('Invalid publication scope')
+    if scope not in ('windows-linux','mac-arm64','mac-x86_64','website','helper'):raise RuntimeError('Invalid publication scope')
     with exclusive(PRIVATE/('publisher-'+scope+'.lock')):_publish(plan_path)
 
 def write_plan(site,out,scope):

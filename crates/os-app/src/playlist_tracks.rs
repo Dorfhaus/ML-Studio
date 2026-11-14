@@ -3,8 +3,68 @@
 //! never while drawing headers or opening a picker.
 use crate::{app::{Action,App,State},attached_mixer as attached,mixer,playlist as pl};
 use os_model::{ChannelKind,ClipSource};
+pub mod drops;
 
 pub const VISIBILITY:&str="visible_playlist-direct-record-instrument";
+pub(crate) const INSTRUMENT_FEEDBACK:&str="visible_playlist-instrument-feedback";
+
+/// Header feedback uses saved lane bindings/routing, never a scan through pattern notes.
+pub(crate) fn header_instrument(s:&State,row:u16)->Option<usize>{
+    if pl::track_info(s,row).is_some_and(|t|t.folder||t.mode==os_model::PlaylistTrackMode::Audio){return None;}
+    crate::playlist_links::instrument(s,row)
+        .or_else(||owner(s,row).and_then(|n|attached::instrument(s,n)))
+}
+/// Stable channel IDs are retained in the project; the last lane binding is active.
+pub(crate) fn instruments(s:&State,row:u16)->Vec<usize>{
+    let arr=s.project.arrangement().map(|a|a.number);
+    let output=owner(s,row);
+    let mut here=std::collections::BTreeSet::new();let mut elsewhere=std::collections::BTreeSet::new();
+    for v in s.project.instrument_lanes.iter().filter(|v|Some(v.1)==arr){
+        if v.2==row{here.insert(v.0);}else{elsewhere.insert(v.0);}
+    }
+    s.project.channels.iter().enumerate().filter_map(|(i,c)|{
+        (matches!(c.kind,ChannelKind::Plugin|ChannelKind::Sampler)&&
+            (here.contains(&c.index)||(output==Some(c.mixer_track)&&!elsewhere.contains(&c.index)))).then_some(i)
+    }).collect()
+}
+pub(crate) fn instrument_menu(app:&mut App,row:u16)->Option<String>{
+    let active=header_instrument(&app.state,row);
+    let mut items=vec![pl::PItem::head("Track instruments")];
+    items.extend(instruments(&app.state,row).into_iter().map(|ch|{
+        let c=&app.state.project.channels[ch];
+        pl::PItem::new(format!("{}  {}",usize::from(c.index)+1,c.name.as_deref().unwrap_or("Instrument")),
+            pl::Cmd::Mixer(mixer::MCmd::PlaylistInstrument(row,c.index)))
+            .mark(pl::Mark::Radio(active==Some(ch)))
+    }));
+    app.state.playlist.popup=Some(pl::Popup{x:app.mouse.0,y:app.mouse.1+10.,items,sub:None,scroll:[0;2],cascade:vec![]});
+    app.invalidate();None
+}
+pub(crate) fn choose_instrument(app:&mut App,row:u16,id:u16)->Option<String>{
+    if !writable(&app.state,row){return Some("Unlock or unfreeze this track before editing instruments".into());}
+    if app.state.rec.recording()||app.audio_rec.is_some(){return Some("Finish recording before changing track sources".into());}
+    let ch=instruments(&app.state,row).into_iter().find(|&ch|app.state.project.channels[ch].index==id)?;
+    if owner(&app.state,row).is_some_and(|n|mixer::locked(&app.state,n)){return Some(mixer::LOCK_MESSAGE.into());}
+    let s=&mut app.state;
+    let arr=pl::arr_mut(s).number;
+    let binding=s.project.instrument_lanes.iter().find(|v|v.0==id&&v.1==arr&&v.2==row).copied()
+        .unwrap_or((id,arr,row,s.pattern.max(1)));
+    if header_instrument(s,row)!=Some(ch){
+        pl::snapshot_as(s,"Choose track instrument");
+        s.project.instrument_lanes.retain(|v|v.0!=id||v.1!=arr);
+        s.project.instrument_lanes.push(binding);
+        pl::arr_mut(s).tracks[row as usize].mode=os_model::PlaylistTrackMode::Instrument;
+    }
+    s.playlist.track=row;s.rack.select_only(ch);s.selected_mixer=s.project.channels[ch].mixer_track;
+    if s.project.pattern(binding.3).is_some(){s.pattern=binding.3;s.playlist.source=Some(ClipSource::Pattern(binding.3));}
+    app.focus_channel(ch);app.invalidate();None
+}
+pub(crate) fn open_instrument(app:&mut App,row:u16)->Option<String>{
+    let ch=header_instrument(&app.state,row)?;
+    app.focus_channel(ch);app.state.rack.select_only(ch);app.state.playlist.track=row;
+    if app.state.hosted_rows.contains(&ch){app.state.pending_open=Some(ch);}
+    else {app.open_channel_window(ch);}
+    app.invalidate();None
+}
 pub(crate) const KEYBOARD_PICKER: crate::prefs::Check = crate::prefs::Check {
     key: "playlist_keyboard_right_click_picker",
     label: "Keyboard right-click opens Plugin Picker",
@@ -107,6 +167,7 @@ pub fn armed(s:&State,row:u16)->bool{
 }
 pub fn set_input(app:&mut App,row:u16,input:Option<crate::capture::Input>)->Option<String>{
     if !writable(&app.state,row){return Some("Unlock or unfreeze this track before recording".into());}
+    if owner(&app.state,row).is_some_and(|n|mixer::locked(&app.state,n)){return Some(mixer::LOCK_MESSAGE.into());}
     if app.audio_rec.is_some(){return Some("Stop the current take before changing its input".into());}
     let n=if let Some(n)=owner(&app.state,row){n}else{
         if input.is_none(){return None;}
@@ -117,5 +178,20 @@ pub fn set_input(app:&mut App,row:u16,input:Option<crate::capture::Input>)->Opti
         if let Some(m)=mixer::track_mut(s,n){m.name=Some(name);m.color=color;}
         s.history.wrap_attached_instrument(snapshot,n,selected);s.history.end_sequence_named(previous,"Create recording track");n
     };
-    app.state.playlist.track=row;app.set_mixer_input(n,input)
+    app.state.playlist.track=row;
+    let requested=input.clone();
+    let result=app.set_mixer_input(n,input);
+    // Monitoring can report an unavailable device after accepting the input. Reflect
+    // the accepted role, but do not change it when a lock/device conflict rejected it.
+    if app.state.mixer.recording.inputs.get(&n)==requested.as_ref(){
+        let mode=if requested.is_some(){os_model::PlaylistTrackMode::Audio}
+            else if !instruments(&app.state,row).is_empty(){os_model::PlaylistTrackMode::Instrument}
+            else {os_model::PlaylistTrackMode::Audio};
+        if pl::track_info(&app.state,row).is_none_or(|t|t.mode!=mode){
+            pl::snapshot_as(&mut app.state,"Set Playlist recording role");
+            pl::arr_mut(&mut app.state).tracks[row as usize].mode=mode;
+            attached::clear(&mut app.state);
+        }
+    }
+    app.invalidate();result
 }

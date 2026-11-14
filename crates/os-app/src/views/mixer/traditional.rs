@@ -205,10 +205,16 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
 
     // Inserts scroll; the master strip and the scale stay put.
     let area = Rect::new(r.x + 53.0+width, client.y, strips.w - 53.0-width, client.h);
-    ui.c.fill_rect(Rect::new(r.x + 44.0+width, client.y, 9.0, client.h), ui.t.s(0x1a1e20));
+    let master_gap = area.x - SEPARATOR_GUTTER;
+    ui.c.fill_cell(Rect::new(master_gap, client.y, SEPARATOR_GUTTER, client.h), ui.t.s(0x1a1e20));
+    let separator_top = ly.y(HEAD_Y0);
+    let separator_bottom = bottom - if lemon { 3.0 } else { 0.0 };
+    let separator_color = ui.t.mixer_bg.mix(ui.t.text_dim, 0.45);
+    let paint_separator = |canvas: &mut os_ui::Canvas, x, width| {
+        canvas.fill_cell(Rect::new(x, separator_top, width, separator_bottom - separator_top), separator_color);
+    };
     if bank.master_separator {
-        let top = ly.y(HEAD_Y0);
-        ui.c.fill_rect(Rect::new(r.x + 45.0 + width, top, SEPARATOR_WIDTH, bottom - top - 16.0), ui.t.text_dim);
+        paint_separator(ui.c, master_gap, SEPARATOR_GUTTER);
     } else {
         for k in 0..3 {
             ui.c.fill_rect(Rect::new(r.x + 48.0 + width, ly.y(497.0 + 3.0 * k as f32), 1.0, 1.0), ui.t.s(0x3a3e41));
@@ -218,8 +224,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let origin = area.x - s.mixer_scroll;
     for (n, slot) in bank.visible(s.mixer_scroll, area.w) {
         if slot.gutter > 0.0 {
-            let top = ly.y(HEAD_Y0);
-            ui.c.fill_rect(Rect::new(origin + slot.offset, top, SEPARATOR_WIDTH, bottom - top - 16.0), ui.t.text_dim);
+            paint_separator(ui.c, origin + slot.offset, slot.gutter);
         }
         strip(ui, s, n, origin + slot.left(), bottom, f, &ly);
     }
@@ -341,23 +346,25 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     let tint=track.and_then(|m|m.color).map(crate::views::rgb);
     let body=tint.map_or(body,|c|body.mix(c,0.22));
     let lemon = crate::views::lemon(ui);
+    let header_top = ly.y(HEAD_Y0);
+    let body_top = ly.y(HEAD_Y1) + 1.0;
+    let body_rect = Rect::new(left, body_top, width, bottom - body_top);
+    let card_face = Rect::new(body_rect.x + 1.5, body_rect.y + 1.0, body_rect.w - 3.0, body_rect.h - 4.0);
+    let card_radius = lk::r_panel(t);
     if t.style.vintage_2005 {
-        let strip = Rect::new(left, ly.y(HEAD_Y1) + 1.0, width, bottom - ly.y(HEAD_Y1) - 1.0);
         let steel = t.mixer_strip.mix(body, 0.35);
-        os_ui::kit::styled_surface(ui.c, t, strip, 0.0, t.window_border, steel, steel.shade(-0.03),
+        os_ui::kit::styled_surface(ui.c, t, body_rect, 0.0, t.window_border, steel, steel.shade(-0.03),
             os_theme::appearance::Finish::Beveled);
     } else if lemon {
         // Lemon (spec: ui/lemon-design.md §8): each strip is a rounded card on the dark gap colour.
-        let card = Rect::new(left, ly.y(HEAD_Y1) + 1.0, width, bottom - ly.y(HEAD_Y1) - 1.0);
-        ui.c.fill_rect(card, ui.t.s(0x131517));
-        ui.c.fill_rrect(Rect::new(card.x + 1.5, card.y + 1.0, card.w - 3.0, card.h - 4.0), lk::r_panel(t), body);
+        ui.c.fill_rect(body_rect, ui.t.s(0x131517));
+        ui.c.fill_rrect(card_face, card_radius, body);
     } else {
-        ui.c.fill_rect(Rect::new(left, ly.y(HEAD_Y1) + 1.0, width, bottom - ly.y(HEAD_Y1) - 1.0), body);
-        ui.c.fill_rect(Rect::new(left + width - 1.0, ly.y(HEAD_Y1) + 1.0, 1.0, bottom - ly.y(HEAD_Y1) - 1.0), ui.t.s(0x1c1f21));
+        ui.c.fill_rect(body_rect, body);
+        ui.c.fill_rect(Rect::new(body_rect.right() - 1.0, body_rect.y, 1.0, body_rect.h), ui.t.s(0x1c1f21));
     }
     // Select from the strip body. Below it, only explicit send controls and the footer take clicks.
-    let top = ly.y(HEAD_Y0);
-    ui.hit(Rect::new(left, top, width, (bottom - ROUTING_DECK_H - top).max(0.)), Action::Mix(MHit::Strip(n)), mx::name(s, n));
+    ui.hit(Rect::new(left, header_top, width, (bottom - ROUTING_DECK_H - header_top).max(0.)), Action::Mix(MHit::Strip(n)), mx::name(s, n));
     let hov = ui.hovering(Rect::new(left, ly.y(HEAD_Y0), width, ly.y(PANEL_Y1) - ly.y(HEAD_Y0)));
 
     // Header number (insert strips only; the master's "M" sits in the fixed header band).
@@ -395,7 +402,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     }
     ui.c.fill_rect(Rect::new(left + 1.0, ly.y(PANEL_Y0), width - 2.0, 12.0), if themed { t.mixer_strip_dark } else { t.s(0x1d1f21) });
 
-    // Meter slot with its tick marks; the selected strip gets a green frame.
+    // Meter slot with its tick marks.
     let alt=matches!(layout_index(s),2|6);
     let meter = Rect::new(mx - 7.5, ly.y(METER_Y0), 16.0, ly.y(METER_Y1) - ly.y(METER_Y0)-if alt {20.} else {0.});
     if lemon {
@@ -426,8 +433,8 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
             meter_bar(ui, meter.x + 2.0 + 6.0 * i as f32, 6.0, bot, m.db[i], m.hold[i], cfg, &ys);
         }
     }
-    if selected {
-        ui.c.stroke_rrect(Rect::new(meter.x - 1.0, meter.y - 2.0, meter.w + 2.0, meter.h + 4.0), if lemon { lk::r_btn(t) } else { 1.0 }, 2.0, t.accent);
+    if selected && t.style.vintage_2005 {
+        ui.c.stroke_rrect(Rect::new(meter.x - 1.0, meter.y - 2.0, meter.w + 2.0, meter.h + 4.0), 1.0, 2.0, t.accent);
     }
 
     // Name, rotated, reading upward from the bottom of the meter.
@@ -501,7 +508,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     } else {
         ui.c.fill_rect(Rect::new(mx - 1.5, ly.y(TRACK_Y0), 3.0, track_y1 - ly.y(TRACK_Y0)), ui.t.s(0x141618));
     }
-    let v = track.and_then(|m| m.volume).unwrap_or(0.8) as f32;
+    let v = s.displayed_volume(n) as f32;
     // max/min, not clamp: a very short window gives track_y1 < ly.y(TRACK_Y0) (clamp would panic).
     let position = |value: f32| track_y1 - value.clamp(0.0, 1.0) * (track_y1 - top).max(1.0);
     let hy = if t.style.vintage_2005 { position(v) }
@@ -580,10 +587,43 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
             ui.c.fill_polygon(&[(kx - 3.5, ay - 9.0), (kx, ay - 12.5), (kx + 3.5, ay - 9.0)], ui.t.h(0xf09a28));
         }
     }
-    if selected||also {ui.c.stroke_rrect(Rect::new(left+0.75,ly.y(HEAD_Y0)+0.75,width-1.5,bottom-ly.y(HEAD_Y0)-17.5),0.,1.,ui.t.accent);}
+    if selected || also {
+        if t.style.vintage_2005 {
+            ui.c.stroke_rrect(Rect::new(left + 0.75, header_top + 0.75, width - 1.5, bottom - header_top - 17.5), 0.0, 1.0, t.accent);
+        } else if lemon {
+            let outline = Rect::new(card_face.x, header_top, card_face.w, card_face.bottom() - header_top);
+            selection_outline(ui.c, outline, card_radius.min(card_face.w / 2.0).min(card_face.h / 2.0), t.accent);
+        } else {
+            let outline = Rect::new(left + 0.75, header_top + 0.75, width - 1.5, bottom - header_top - 1.5);
+            ui.c.stroke_rrect(outline, 0.0, 1.5, t.accent);
+        }
+    }
     if s.vintage_2005 && mx::has_separator(s, n) {
         let r = Rect::new(left, ly.y(HEAD_Y0), 4.0, bottom - ly.y(HEAD_Y0) - 16.0);
         crate::vintage::mixer_divider(ui.c, r);
+    }
+}
+
+/// The number header is square and the strip face rounds into the bottom edge.
+fn selection_outline(canvas: &mut os_ui::Canvas, bounds: Rect, radius: f32, color: Color) {
+    const STROKE: f32 = 1.5;
+    let edge = bounds.inset(STROKE / 2.0);
+    if edge.w <= 0.0 || edge.h <= 0.0 {
+        return;
+    }
+    let radius = (radius - STROKE / 2.0).max(0.0);
+    let tangent = radius * 0.552_284_8;
+    let (left, top, right, bottom) = (edge.x, edge.y, edge.right(), edge.bottom());
+    let mut path = tiny_skia::PathBuilder::new();
+    path.move_to(left, top);
+    path.line_to(right, top);
+    path.line_to(right, bottom - radius);
+    path.cubic_to(right, bottom - radius + tangent, right - radius + tangent, bottom, right - radius, bottom);
+    path.line_to(left + radius, bottom);
+    path.cubic_to(left + radius - tangent, bottom, left, bottom - radius + tangent, left, bottom - radius);
+    path.close();
+    if let Some(path) = path.finish() {
+        canvas.stroke(&path, STROKE, color);
     }
 }
 

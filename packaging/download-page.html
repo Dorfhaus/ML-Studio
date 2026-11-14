@@ -131,7 +131,21 @@
 <p>The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.</p>
 <label for="change-search">Search changes</label><input id="change-search" type="search" placeholder="Try Chop, mixer or recording">
 <p id="change-empty" hidden>No changes match your search.</p>
-<details class="change-entry" open><summary>2026-11-13</summary><ul>
+<details class="change-entry" open><summary>2026-11-14</summary><ul>
+<li>Added Help &gt; ML Studio Helper (Melli), an optional animated offline companion with a speech bubble, conversational personality and guide-backed answers. Download and install its model and runtime from inside the app; no separate Python setup or account is required. Packages cover Windows x64, Linux x64 and both Mac architectures (Helper requires macOS 14+).</li>
+<li>Melli uses a compact 492 MB conversational model downloaded directly from Hugging Face. Installation shows a download bar, percentage and transferred MB, with cancellation and a background option. The separate runtime download size is shown before installation.</li>
+<li>Melli can remember useful details across sessions in an editable file capped at 16 KiB and 24 notes. View, edit, disable or forget memory in the companion menu. Chat transcripts remain in bounded session memory; closing Melli unloads the model. Optional files can be removed and downloaded again.</li>
+<li>Expanded the illustrated User Guide to 444 articles, including Mixer multi-selection, routing and sidechains, shortcuts, settings prerequisites, channel strips, Sampler controls and detailed editor workflows. Helper instructions quote selected guide passages instead of inventing extra steps.</li>
+<li>Added Touch and Latch automation recording with editable Playlist takes. Controls follow recorded automation, and recording reuses a parameter automation clip by default with an option for separate clips.</li>
+<li>Playlist track dragging shows destination feedback. Header sample drops create Sampler tracks by default, with improved instrument/source selection and sample-drop handling.</li>
+<li>Playlist instrument headers show miniature keyboard or waveform activity, with an optional channel halo. Theme controls customize keyboard colors, waveform colors and halo strength or visibility.</li>
+<li>Polished Playlist header spacing, rounded cards, inspector borders and Mixer selection outlines. Toolbar shortcuts highlight open windows, and detached Mixer restoration waits for project loading.</li>
+<li>Improved menu hover behavior and live Sampler arp/echo control changes. Added effect-window bypass and further Piano Roll workflow controls.</li>
+<li>Improved translated interface text, file-dialog editing and Browser access.</li>
+<li>Windows update handoff now handles elevation prompts while preserving a normal-user restart.</li>
+<li>Bounded Melli package/log storage and future managed Master Assistant/Plasma engine caches. Cleanup preserves active engines, unknown files and personal projects; existing updater rollback retention remains in place.</li>
+</ul></details>
+<details class="change-entry"><summary>2026-11-13</summary><ul>
 <li>Customize the wet/dry knobs in the Traditional Mixer, including the Full Mixer knob style and separate color, width and visibility for the value ring and outer circle.</li>
 <li>Adjust hue, saturation, brightness and contrast across 14 interface areas. The Theme Editor groups styles with their colors and adds more controls for shared dials.</li>
 <li>Plugin Downloads offers direct, checksum-verified packages for 51 additional free or open source plugins and six suites. Available packages vary by operating system and architecture.</li>

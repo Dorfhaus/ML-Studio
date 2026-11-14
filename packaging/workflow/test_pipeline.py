@@ -7,6 +7,11 @@ import pipeline as p
 import builders as b
 
 class PipelineTests(unittest.TestCase):
+    def test_superseded_release_cannot_resume_publication(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'state.json'
+            c.atomic_json(path,{'identity':{'version':7},'steps':{},'superseded':'Model replaced before DAW publication; use build 8'})
+            with self.assertRaisesRegex(RuntimeError,'superseded'):c.Journal(path,{'version':7})
     def test_resume_skips_success_and_retries_only_failed_step(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);artifact=root/'app.exe';artifact.write_bytes(b'compiled');calls=[]
@@ -89,11 +94,14 @@ class PipelineTests(unittest.TestCase):
             with ExitStack() as stack:
                 changes=[(p.platform,'system',lambda:'Windows'),(p,'config',lambda:{'source_sync':'fixture','juce_source':'fixture'}),(p,'probe',lambda:None),(p,'remote',remote),(p,'prepare',lambda n:None),(p,'release_notes',lambda:{}),(p,'identity',lambda:{'version':7,'commit':'abc'}),(p,'output_root',lambda:out),(p,'shared_run',lambda:share),(p,'stage',stage),(p,'verify_live',verify),(p,'github_stage',lambda *a:({'commit':'abc','tag':'fixture'},[out/'github-release.json'])),(p,'github_verify',ghverify),(p.r,'ROOT',source),(p.r,'PRIVATE',root/'private'),(p.r,'git',lambda *a:'' if a[0]=='status' else 'abc'),(p.r,'run',lambda *a:None),(p.r,'shared_folder',lambda:share),(b,'windows',win),(b,'linux_compile',lin),(b,'linux_package',lambda cfg,binary,wp,folder,log:makeplan(folder,'linux-package')),(b,'merged_plan',lambda plans,folder:makeplan(folder/'combined','windows-linux')),(b,'command',backup),(p.r,'write_plan',lambda site,folder,scope:makeplan(folder,scope))]
                 for obj,name,value in changes:stack.enter_context(patch.object(obj,name,value))
+                stack.enter_context(patch.object(p,'helper_stage',lambda folder:stage(makeplan(folder/'helper','helper'),'helper')))
                 with self.assertRaisesRegex(RuntimeError,'lost connection'):p.coordinator()
                 p.coordinator()
             for name in ['windows','linux','arm64','x86_64']:self.assertEqual(calls.count(name),1,name)
             self.assertEqual(calls.count('publish-mac-arm64'),2)
             self.assertEqual(calls.count('publish-mac-x86_64'),1)
+            self.assertEqual(calls.count('publish-helper'),1)
+            self.assertLess(calls.index('publish-helper'),calls.index('publish-windows-linux'))
             self.assertEqual(json.loads((out/'state.json').read_text())['steps']['Back up source']['status'],'complete')
 
 if __name__=='__main__':unittest.main()

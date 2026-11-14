@@ -1,0 +1,4 @@
+Base model: Qwen/Qwen3.5-0.8B
+License source: https://huggingface.co/Qwen/Qwen3.5-0.8B/resolve/2fc06364715b967f1860aea9cf38778875588b17/LICENSE
+Quantization: unsloth/Qwen3.5-0.8B-GGUF revision 6ab461498e2023f6e3c1baea90a8f0fe38ab64d0
+Selected file: Qwen3.5-0.8B-UD-Q3_K_XL.gguf (492216576 bytes; separate opt-in download)

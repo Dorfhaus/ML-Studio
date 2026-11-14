@@ -65,19 +65,20 @@ pub fn layout(r: Rect, split: crate::piano_split::Split) -> Layout {
     use crate::piano_split::BAND;
     let (hbar, vcol) = if super::small_scrollbars() { (11.0, 12.0) } else { (22.0, 22.0) };
     let bottom = r.bottom();
-    let gx = r.x + 73.0;
+    let kw = f32::from(crate::piano_tools::keyboard_width()).min((r.w - 120.0).max(40.0));
+    let gx = r.x + kw + 2.0;
     let gr = r.right() - vcol - 1.0;
     let gy = r.y + 64.0;
     let split = gy + split.grid_h(bottom - gy - BAND);
     Layout {
-        tab: Rect::new(r.x, r.y + 23.0, 71.0, 41.0),
-        overview: Rect::new(r.x + 72.0, r.y + 23.0, gr - r.x - 72.0 + 2.0, hbar),
-        ruler: Rect::new(r.x + 72.0, r.y + 23.0 + hbar, gr - r.x - 72.0 + 2.0, 41.0 - hbar),
-        keys: Rect::new(r.x, gy, 71.0, split - gy),
+        tab: Rect::new(r.x, r.y + 23.0, kw, 41.0),
+        overview: Rect::new(r.x + kw + 1.0, r.y + 23.0, gr - r.x - kw + 1.0, hbar),
+        ruler: Rect::new(r.x + kw + 1.0, r.y + 23.0 + hbar, gr - r.x - kw + 1.0, 41.0 - hbar),
+        keys: Rect::new(r.x, gy, kw, split - gy),
         grid: Rect::new(gx, gy, gr - gx, split - gy),
         vscroll: Rect::new(gr + 1.0, r.y + 23.0, r.right() - gr - 1.0, split - r.y - 23.0),
         splitter: Rect::new(r.x, split, r.w, BAND),
-        label: Rect::new(r.x, split + BAND, 71.0, bottom - split - BAND),
+        label: Rect::new(r.x, split + BAND, kw, bottom - split - BAND),
         panel: Rect::new(gx, split + BAND, gr - gx, bottom - split - BAND),
     }
 }
@@ -172,7 +173,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     grid(ui, s, &l, timeline, range);
 
     // Notes: ghosts of the other channels first (when shown, Alt+V), then this channel's (§5).
-    ui.hit(l.grid, Action::PianoGrid, "Piano roll: click to add notes; Alt+wheel resizes rows; right-click empty space to deselect with Pencil or Brush");
+    ui.hit(l.grid, Action::PianoGrid, "Piano roll: click to add notes; Alt+wheel edits note velocity (empty space: row height); right-click empty space to deselect with Pencil or Brush");
     ui.c.push_clip(l.grid);
     let ghost = t.text_faint.with_alpha(110);
     let ghosts = s.piano.ghosts && crate::workspace_visibility::shown("visible_piano-ghost");
@@ -669,6 +670,7 @@ fn keyboard_shaped(ui: &mut Ui, l: &Layout, g: &Geom, lit: &[i32]) {
 
     let t = ui.t;
     let k = l.keys;
+    let stretch = k.w / 71.0;
     ui.hit(k, Action::PianoKeys, keyboard_hint());
     ui.c.push_clip(k);
     // White keys: a stepped horizontal gradient (§4), with a dark right edge. Lemon: flat keys.
@@ -707,8 +709,8 @@ fn keyboard_shaped(ui: &mut Ui, l: &Layout, g: &Geom, lit: &[i32]) {
                     ui.c.fill_rect(Rect::new(k.x, y - half, k.w - 1.0, row - 1.0 + half), t.key_c);
                 } else if !lit.contains(&key) {
                     let left = t.key_white_left.shade(-0.16);
-                    ui.c.fill_rect_gradient(Rect::new(k.x, y, 45.0, row - 1.0), left, left, 0.0);
-                    ui.c.fill_rect(Rect::new(k.x + 45.0, y - half, k.w - 46.0, row - 1.0 + half), t.key_c);
+                    ui.c.fill_rect_gradient(Rect::new(k.x, y, 45.0 * stretch, row - 1.0), left, left, 0.0);
+                    ui.c.fill_rect(Rect::new(k.x + 45.0 * stretch, y - half, k.w - 46.0 * stretch, row - 1.0 + half), t.key_c);
                 }
                 if row >= 10.0 {
                     let font = if t.style.vintage_2005 { Font::vintage(11).bold() } else { Font::new(12) };
@@ -727,18 +729,18 @@ fn keyboard_shaped(ui: &mut Ui, l: &Layout, g: &Geom, lit: &[i32]) {
             let (left, right) = if lit.contains(&key) { (t.key_black_lit_left, t.key_black_lit) } else { (t.key_black_left, t.key_black) };
             if t.style.vintage_2005 {
                 let face = if lit.contains(&key) { right } else { Color::rgb(0x39454b) };
-                crate::vintage::metal(ui.c, Rect::new(k.x, y, 46.0_f32.min(k.w), row), face);
+                crate::vintage::metal(ui.c, Rect::new(k.x, y, 46.0 * stretch, row), face);
                 continue;
             }
             if lemon {
                 // Rounded at the playing end; the left end runs under the clip.
-                ui.c.fill_rrect(Rect::new(k.x - 6.0, y, 51.0, row), 3.0f32.min(row / 2.0), right);
+                ui.c.fill_rrect(Rect::new(k.x - 6.0, y, 45.0 * stretch + 6.0, row), 3.0f32.min(row / 2.0), right);
                 continue;
             }
             for i in 0..6 {
                 let c = left.mix(right, i as f32 / 5.0);
-                let x = k.x + if i == 0 { 0.0 } else { 10.0 + 8.0 * (i - 1) as f32 };
-                let w = if i == 0 { 10.0 } else if i == 5 { 3.0 } else { 8.0 };
+                let x = k.x + stretch * if i == 0 { 0.0 } else { 10.0 + 8.0 * (i - 1) as f32 };
+                let w = stretch * if i == 0 { 10.0 } else if i == 5 { 3.0 } else { 8.0 };
                 ui.c.fill_rect(Rect::new(x, y, w, row), c);
             }
         }

@@ -77,6 +77,8 @@ pub enum Mixer {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Appearance {
     /// Insert-slot controls are independent of shared dials and the Full Mixer finish.
+    pub playlist_halo_visible: Option<bool>,
+    pub playlist_halo_strength: Option<f32>,
     pub insert_knob: Option<Knob>,
     pub insert_full_knob: bool,
     pub insert_traditional_knob: bool,
@@ -144,6 +146,8 @@ impl Appearance {
             "Show" => Some(true), "Hide" => Some(false), _ => None,
         };
         Self {
+            playlist_halo_visible: visible("playlist-halo-visible"),
+            playlist_halo_strength: num("playlist-halo-strength", 200.0).map(|n| n / 100.0),
             insert_knob: match option("insert-knob").as_str() {
                 "Dial" => Some(Knob::Dial), "Ring" => Some(Knob::Ring), _ => None,
             },
@@ -236,6 +240,20 @@ impl Appearance {
     }
 
     pub(crate) fn apply(mut self, palette: &mut Palette, colors: &[(&'static str, Color)]) {
+        let inherited = |key: &str, default: Color| colors.iter().find(|(name,_)| *name==key).map(|(_,c)|*c).unwrap_or(default);
+        let white=inherited("key_white",palette.key_white);
+        let black=inherited("key_black",palette.key_black);
+        let black_left=inherited("key_black_left",palette.key_black_left);
+        let accent=inherited("accent",palette.accent);
+        palette.playlist_key_white=white.mix(palette.sunken,0.12);
+        palette.playlist_key_black=black_left.mix(black,0.25);
+        palette.playlist_key_frame=black_left.mix(palette.sunken,0.35);
+        palette.playlist_key_separator=white.mix(black,0.38);
+        palette.playlist_key_white_active=accent;
+        palette.playlist_key_black_active=accent;
+        palette.playlist_activity_halo=accent;
+        palette.playlist_waveform=palette.text_dim;
+        palette.playlist_waveform_active=accent;
         for &(name, color) in colors {
             if let Some(slot) = palette.get_mut(name) {
                 *slot = color;

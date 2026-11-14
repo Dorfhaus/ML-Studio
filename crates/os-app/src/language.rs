@@ -3,6 +3,9 @@
 //! Presentation strings for the built-in interface languages. Action IDs and
 //! user-provided names stay independent of the display language.
 
+#[path = "language_extra.rs"]
+mod extra;
+
 pub const VISIBILITY: &str = "visible_interface-language";
 
 #[derive(Clone, Copy)]
@@ -177,8 +180,30 @@ impl Language {
             "Use both mouse buttons in step sequencer" => ["Utiliser les deux boutons dans le séquenceur pas à pas", "Usar ambos botones en el secuenciador por pasos", "Beide Maustasten im Step-Sequencer verwenden", "Usar ambos os botões no sequenciador de passos", "Usa entrambi i pulsanti nel sequencer a passi"],
             "Invert pencil buttons" => ["Inverser les boutons du crayon", "Invertir botones del lápiz", "Stifttasten umkehren", "Inverter botões do lápis", "Inverti pulsanti della matita"],
             "Define 1 inch / 2.54 cm or set display's PPI" => ["Définir 2,54 cm ou régler la densité de l’écran", "Definir 2,54 cm o ajustar la densidad de pantalla", "2,54 cm festlegen oder Bildschirm-PPI einstellen", "Definir 2,54 cm ou ajustar a densidade da tela", "Definisci 2,54 cm o imposta i PPI dello schermo"],
-            _ => return source,
+            _ => return extra::text(self.0,source),
         };
         translations.get(self.0 - 1).copied().unwrap_or(source)
+    }
+}
+
+#[cfg(test)]
+mod deeper_tests {
+    use super::*;
+    #[test]
+    fn language_files_static_commands_translate_but_names_remain_literal() {
+        use crate::playlist::{PItem,Cmd};
+        let item=PItem::new("Rename and color...",Cmd::Nothing);
+        let custom=PItem::new(String::from("Rename and color..."),Cmd::Nothing);
+        for i in 1..6 {
+            let language=Language(i);
+            assert_ne!(item.display_label(language),"Rename and color...");
+            assert_eq!(custom.display_label(language),"Rename and color...");
+            for label in ["Open menus on hover","Double-click resets faders and knobs","Load sample in new channel...","File name","Copy used samples to the project folder"] {
+                assert_ne!(language.text(label),label,"missing translation for {label}, language {i}");
+            }
+            assert_eq!(language.text("My Project 01"),"My Project 01");
+        }
+        assert_eq!(Language(0).text("File name"),"File name");
+        assert_eq!(Language(99).text("File name"),"File name");
     }
 }

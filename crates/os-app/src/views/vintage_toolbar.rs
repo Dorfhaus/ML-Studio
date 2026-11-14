@@ -200,7 +200,8 @@ fn shortcut_bank(ui: &mut Ui, s: &State, x: f32, y: f32) {
             continue;
         }
         let hot = ui.hit(cell, Action::ToggleWin(win), hint);
-        skin::native(ui.c, "SCBtns", slot * 2 + usize::from(s.shown(win) || hot), cell.x, cell.y);
+        let on=super::toolbar::window_shortcut_open(s,&Action::ToggleWin(win));
+        skin::native(ui.c, "SCBtns", slot * 2 + usize::from(on || hot), cell.x, cell.y);
     }
 }
 

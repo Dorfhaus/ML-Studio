@@ -39,7 +39,7 @@ fn inventory(root: &Path, allowed: &[String]) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new(); visit(root, root, allowed, &mut paths, 0)?; Ok(paths)
 }
 
-fn remove_owned(root: &Path, parent: &Path, allowed: &[String]) -> Result<()> {
+pub(crate) fn remove_owned(root: &Path, parent: &Path, allowed: &[String]) -> Result<()> {
     // Recheck immediately before deletion, including the canonical parent boundary.
     if fs::canonicalize(root)?.parent() != Some(fs::canonicalize(parent)?.as_path()) { return Err("Cleanup path escaped its parent".into()); }
     let paths = inventory(root, allowed)?;
@@ -68,7 +68,7 @@ fn backups(parent: &Path, current: &Path, installed: u64, mac: bool) -> Result<u
     Ok(removed)
 }
 
-fn process_alive(pid: u128) -> bool {
+pub(crate) fn process_alive(pid: u128) -> bool {
     let Ok(pid)=u32::try_from(pid) else {return true;};
     if pid==0 {return true;}
     #[cfg(windows)] unsafe {
@@ -95,7 +95,14 @@ fn downloads(parent: &Path, installed: u64, protected: Option<&Path>, key: &Veri
         let Ok(m)=fs::read(&manifest_path).and_then(|b| verify_newer_than(&b,key,0).map_err(std::io::Error::other)) else {continue};
         if m.version!=v {continue;}
         let mut allowed: Vec<String> = m.files.into_iter().map(|f|f.name).collect();
-        allowed.extend(["signed.json","helper-ready","result.txt","lemon-update-helper","lemon-update-helper.exe"].into_iter().map(str::to_owned));
+        allowed.extend(["signed.json","helper-ready","helper-cancelled","result.txt","lemon-update-helper","lemon-update-helper.exe","lemon-relaunch.exe"].into_iter().map(str::to_owned));
+        for entry in fs::read_dir(&p)? {
+            let name = entry?.file_name().to_string_lossy().into_owned();
+            if name.strip_prefix("handoff-").is_some_and(|stamp| !stamp.is_empty() && stamp.bytes().all(|b| b.is_ascii_digit())) {
+                allowed.extend(["helper-ready", "helper-cancelled", "result.txt"].map(|file| format!("{name}/{file}")));
+                allowed.extend(["helper-ready", "helper-cancelled", "result.txt"].map(|file| format!("{name}/relaunch/{file}")));
+            }
+        }
         // Only the known Microsoft runtime files copied by our updater, never arbitrary DLLs.
         allowed.extend(["concrt140.dll","msvcp140.dll","msvcp140_1.dll","msvcp140_2.dll","msvcp140_atomic_wait.dll","msvcp140_codecvt_ids.dll","vccorlib140.dll","vcruntime140.dll","vcruntime140_1.dll","vcruntime140_threads.dll"].into_iter().map(str::to_owned));
         if remove_owned(&p,parent,&allowed).is_ok() {removed+=1;}

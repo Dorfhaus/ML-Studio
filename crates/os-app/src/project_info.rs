@@ -483,7 +483,7 @@ fn line_key(f: &mut Field, key: NamedKey) {
     let start = |i: usize| chars[..i].iter().rposition(|&ch| ch == '\n').map_or(0, |p| p + 1);
     let end = |i: usize| chars[i..].iter().position(|&ch| ch == '\n').map_or(chars.len(), |p| i + p);
     let (s0, e0) = (start(c), end(c));
-    f.caret = match key {
+    let caret = match key {
         NamedKey::Home => s0,
         NamedKey::End => e0,
         NamedKey::ArrowUp if s0 == 0 => 0,
@@ -498,7 +498,7 @@ fn line_key(f: &mut Field, key: NamedKey) {
         }
         _ => c,
     };
-    f.all = false;
+    f.place(caret, false);
 }
 
 #[cfg(test)]

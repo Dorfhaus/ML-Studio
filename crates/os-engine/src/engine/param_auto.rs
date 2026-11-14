@@ -68,6 +68,13 @@ impl ParamAuto {
         }
     }
 
+    /// Readback for paced UI feedback; no plugin writes or gesture events.
+    pub(super) fn values(&self,out:&mut Vec<(Target,f64)>) {
+        out.extend(self.last_tick.iter().map(|(&t,&v)|(t,v as f64/1_073_741_824.)));
+        out.extend(self.last.iter().map(|(&t,&v)|(t,v)));
+    }
+    /// Releasing Touch must resend even an unchanged, flat automation value.
+    pub fn forget_target(&mut self,target:Target) {self.last.remove(&target);self.last_tick.remove(&target);}
     /// Values are sent again from scratch (after a seek: the plugin gets the value at the new position).
     pub fn forget(&mut self) {
         self.last.clear();
@@ -151,6 +158,16 @@ impl Engine {
     /// Samples every plugin-parameter clip over the `frames` frames of the tick starting now into `self.params.events`.
     pub(super) fn run_param_automation(&mut self, frames: usize) {
         self.params.events.clear();
+        for &(target,value) in &self.automation_writing {
+            let (dest,index)=match target {
+                Target::ChannelParam(c,k)=>(Dest::Channel(usize::from(c)),k),
+                Target::SlotParam(t,s,k)=>(Dest::Slot(usize::from(t),usize::from(s)),k),
+                _=>continue,
+            };
+            if self.params.last.get(&target)==Some(&value) {continue;}
+            self.params.last.insert(target,value);
+            self.params.events.push(ParamEvent{dest,offset:0,index:u32::from(index),value});
+        }
         if !self.params.any {
             return;
         }
@@ -169,7 +186,7 @@ impl Engine {
                 // The curve's value at the position last read, for the clip's targets that wait alike.
                 let mut value: Option<(f64, Option<f64>)> = None;
                 for &target in &a.targets {
-                    if !is_param(target) || pa.done.contains(&target) {
+                    if !is_param(target) || self.automation_writing.iter().any(|w|w.0==target) || pa.done.contains(&target) {
                         continue;
                     }
                     let wait = if first { 0 } else { pdc.wait(target, tick_len) };
@@ -281,6 +298,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn touch_override_filters_plugin_curves_and_resends_on_release() {
+        use os_model::target;
+        let target=target::Target::ChannelParam(0,0);
+        let mut p=project(target::channel_param(0,0));
+        p.automations[0].points=vec![AutoPoint::new(0.,0.2),AutoPoint::new(4.,0.2)];
+        let mut lib=SampleLibrary::new(None);let mut e=Engine::new(&p,&mut lib,48000,PlayMode::Song);
+        e.run_param_automation(256);assert!((e.params.events[0].value-0.2).abs()<1e-6);
+        e.set_automation_writing(&[(target,0.8)]);e.run_automation(256);e.run_param_automation(256);
+        assert_eq!(e.params.events.len(),1);assert!((e.params.events[0].value-0.8).abs()<1e-6);
+        assert!(e.params.ticks.iter().all(|v|(v.value-0.8).abs()<1e-6));
+        e.set_automation_writing(&[]);e.run_automation(256);e.run_param_automation(256);
+        assert_eq!(e.params.events.len(),1);assert!((e.params.events[0].value-0.2).abs()<1e-6);
+        assert!(e.params.ticks.iter().all(|v|(v.value-0.2).abs()<1e-6));
+    }
     #[test]
     #[ignore = "synthetic dense automation benchmark"]
     fn dense_parameter_lookup_benchmark() {

@@ -12,6 +12,8 @@ use os_ui::kit::{self, lemon as lk};
 use os_ui::{tabler, Color, Font, Rect};
 
 use super::lemon;
+use crate::prefs::language::Language;
+fn tr(s: &str) -> &str { Language::current().text(s) }
 use crate::app::{Action, State, Ui};
 use crate::dialog::{Body, DHit, Field, Kind, Modal, Msg};
 use crate::filedlg::{self as fd, FileDlg, Focus, Mode, PlaceKind, SortBy, HEAD_H, ROW_H};
@@ -77,7 +79,7 @@ pub fn paint(ui: &mut Ui, s: &State) {
 }
 
 pub(super) fn hit(ui: &mut Ui, r: Rect, h: DHit, hint: &'static str) -> bool {
-    ui.hit(r, Action::Dlg(h), hint)
+    ui.hit(r, Action::Dlg(h), tr(hint).to_owned())
 }
 
 /// Where a dialog of `w` x `h` sits: where its caption was dragged, else centred; inside the window either way.
@@ -91,6 +93,7 @@ pub(super) fn place(s: &State, m: &Modal, w: f32, h: f32) -> Rect {
 
 /// Border, caption (title, ×) and the frame colour under everything else.
 pub(super) fn frame(ui: &mut Ui, r: Rect, title: &str) {
+    let title=tr(title);
     let t = ui.t;
     let lemon = lemon(ui);
     hit(ui, r, DHit::Body, "");
@@ -170,9 +173,9 @@ fn msg_box(ui: &mut Ui, s: &State, m: &Modal, msg: &Msg) {
         super::REMEMBER
     };
     let remember_w = if msg.remember.is_some() { super::remember_width(ui, remember_label) + 24.0 } else { 0.0 };
-    let w = (text_w + TEXT_X + TEXT_R).max(buttons_w + 24.0 + remember_w).max(MIN_W).ceil();
+    let w = (text_w + TEXT_X + TEXT_R).max(buttons_w + 24.0 + remember_w).max(if msg.progress.is_some() {500.0} else {MIN_W}).ceil();
     let choices = if let crate::dialog::Then::StemChoose(_,mask)=msg.then {Some(mask)} else {None};
-    let body_h = (27.0 + lines.len() as f32 * LINE).max(91.0) + if choices.is_some() {150.0} else {0.0};
+    let body_h = (27.0 + lines.len() as f32 * LINE).max(91.0) + if choices.is_some() {150.0} else {0.0} + if msg.progress.is_some() {48.0} else {0.0};
     let r = place(s, m, w, 28.0 + body_h + 63.0);
     frame(ui, r, &msg.title);
     let body = Rect::new(r.x + 5.0, r.y + 28.0, r.w - 10.0, body_h);
@@ -188,6 +191,14 @@ fn msg_box(ui: &mut Ui, s: &State, m: &Modal, msg: &Msg) {
             };
             x += ui.c.text(font, x, y, col, run);
         }
+    }
+    if let Some((done,total))=msg.progress {
+        let bar=Rect::new(r.x+TEXT_X,body.bottom()-39.0,r.w-TEXT_X-TEXT_R,8.0);
+        let fraction=if total>0 {(done as f64/total as f64).clamp(0.0,1.0) as f32} else {0.0};
+        ui.c.fill_rrect(bar,4.0,t.s(WELL));
+        if fraction>0.0 {ui.c.fill_rrect(Rect::new(bar.x,bar.y,bar.w*fraction,bar.h),4.0,t.brand_lit(brand::MAIN));}
+        let label=if total>0 {format!("{:.1} / {:.1} MB  -  {}%",done as f64/1_000_000.0,total as f64/1_000_000.0,(fraction*100.0).floor() as u32)} else {"Preparing files...".into()};
+        ui.c.text(Font::new(12),bar.x,bar.y+14.0,t.text_dim,&label);
     }
     if let Some(mask)=choices {
         for (n,label) in ["Vocals", "Drums", "Bass", "Instruments", "All stems"].iter().enumerate() {
@@ -314,6 +325,7 @@ fn icon(ui: &mut Ui, kind: Kind, cx: f32, cy: f32) {
 /// A dialog button (spec §1d, §3). `main`: the focused (message box) or default (file dialog) button. `accel`: the first
 /// letter gets the dotted underline.
 pub(super) fn button(ui: &mut Ui, b: Rect, label: &str, main: bool, hov: bool, down: bool, accel: bool) {
+    let label=tr(label);
     let t = ui.t;
     let ink = if lemon(ui) {
         let rad = lk::r_btn(t);
@@ -336,7 +348,7 @@ pub(super) fn button(ui: &mut Ui, b: Rect, label: &str, main: bool, hov: bool, d
         }
         if hov { t.glyph } else { t.text }
     };
-    let f = Font::new(13);
+    let f = ui.c.fit_font(Font::new(13),label,(b.w-12.).max(12.));
     let tw = ui.c.text_width(f, label);
     let lh = ui.c.line_height(f);
     let (x, y) = ((b.x + (b.w - tw) / 2.0).round(), (b.cy() - lh / 2.0).round());
@@ -371,7 +383,7 @@ fn sig_box(ui: &mut Ui, s: &State, m: &Modal, f: &SigForm) {
     for (i, (label, value)) in labels.into_iter().zip([f.num, f.den]).enumerate() {
         let den = i == 1;
         let cy = r.y + if den { 75.0 } else { 49.0 };
-        ui.c.text(font, r.x + 12.0, (cy - lh / 2.0).round(), t.text, label);
+        ui.c.text(font, r.x + 12.0, (cy - lh / 2.0).round(), t.text, tr(label));
         let b = Rect::new(r.right() - 12.0 - box_w, (cy - 10.0).round(), box_w, 20.0);
         let hov = hit(ui, b, DHit::SigValue(den), if den { "Denominator: click to choose" } else { "Numerator: click to choose" });
         kit::combo(ui.c, t, b, &value.to_string(), font, kit::State::new(hov, open == Some(den), false));
@@ -405,7 +417,7 @@ fn layout(r: Rect, f: &FileDlg) -> Layout {
     let ty = panel.y + 30.0;
     let back = Rect::new(panel.x + 8.0, ty, 26.0, 26.0);
     let up = Rect::new(back.right() + 4.0, ty, 26.0, 26.0);
-    let new_folder = (f.mode != Mode::Open).then(|| Rect::new(panel.right() - 34.0, ty, 26.0, 26.0));
+    let new_folder = Some(Rect::new(panel.right() - 34.0, ty, 26.0, 26.0));
     let path = Rect::span(up.right() + 6.0, new_folder.map_or(panel.right() - 8.0, |n| n.x - 4.0), ty, ty + 26.0);
     let name_y = panel.bottom() - 34.0;
     let combo = (f.mode != Mode::Folder && !f.filters.is_empty()).then(|| Rect::new(panel.right() - 238.0, name_y, 230.0, 26.0));
@@ -436,7 +448,7 @@ fn file_box(ui: &mut Ui, s: &State, m: &Modal, f: &FileDlg) {
     let font = Font::new(13);
     let lh = ui.c.line_height(font);
     let label = if f.mode == Mode::Folder { "Folder" } else { "File name" };
-    ui.c.text(font, l.panel.x + 10.0, (l.name_y + 13.0 - lh / 2.0).round(), t.text, label);
+    ui.c.text(font, l.panel.x + 10.0, (l.name_y + 13.0 - lh / 2.0).round(), t.text, tr(label));
     field(ui, l.name, &f.name, f.focus == Focus::Name, DHit::NameField, "");
     if let Some(c) = l.combo {
         let hov = hit(ui, c, DHit::Filter, "The type of file listed");
@@ -449,12 +461,12 @@ fn file_box(ui: &mut Ui, s: &State, m: &Modal, f: &FileDlg) {
         Mode::Save => "Save",
         Mode::Folder => "Select folder",
     };
-    let bw = |ui: &mut Ui, s: &str| (ui.c.text_width(font, s) + 28.0).max(84.0).round();
+    let bw = |ui: &mut Ui, s: &str| (ui.c.text_width(font, tr(s)) + 28.0).max(84.0).round();
     let (mw, cw) = (bw(ui, main), bw(ui, "Cancel"));
     let cancel = Rect::new(r.right() - 12.0 - cw, r.bottom() - 37.0, cw, 30.0);
     let ok = Rect::new(cancel.x - 6.0 - mw, cancel.y, mw, 30.0);
     let col = if f.status.is_some() { t.h(0xff9e00) } else { t.text_dim };
-    if matches!(f.then,crate::dialog::Then::RackSample(_)) {
+    if matches!(f.then,crate::dialog::Then::RackSample(_) | crate::dialog::Then::BrowserSample) {
         let b=Rect::new(r.x+14.,cancel.y,116.,cancel.h);
         let hov=hit(ui,b,DHit::SamplePreview,"Audition the selected sample without loading it into the channel");
         button(ui,b,if f.preview {"Preview: On"}else{"Preview: Off"},f.preview,hov,false,false);
@@ -506,7 +518,7 @@ fn shortcuts_box(ui: &mut Ui, s: &State, m: &Modal, f: &crate::shortcuts::Form) 
             let open = f.open == Some(row);
             let hov = hit(ui, b, DHit::Shortcut(row), ROWS[row].label);
             kit::combo(ui.c, t, b, f.text(row), font, kit::State::new(hov, open, false));
-            ui.c.text(font, b.right() + 10.0, (b.cy() - lh / 2.0).round(), t.text, ROWS[row].label);
+            ui.c.text(font, b.right() + 10.0, (b.cy() - lh / 2.0).round(), t.text, tr(ROWS[row].label));
             if open {
                 open_box = Some((row, b));
             }
@@ -530,7 +542,7 @@ fn shortcuts_box(ui: &mut Ui, s: &State, m: &Modal, f: &crate::shortcuts::Form) 
     let hov=hit(ui,page,DHit::CommandPage,"Next page of commands");
     button(ui,page,&format!("Page {} / {}",f.page+1,commands.len().div_ceil(crate::shortcuts::COMMAND_PAGE)),false,hov,false,false);
     ui.c.text_clip(Font::new(11),p.x+10.,p.bottom()-38.,p.w-20.,t.text,&f.notice);
-    let bw = |ui: &mut Ui, s: &str| (ui.c.text_width(font, s) + 28.0).max(BTN_W).round();
+    let bw = |ui: &mut Ui, s: &str| (ui.c.text_width(font, tr(s)) + 28.0).max(BTN_W).round();
     let (rw, aw) = (bw(ui, "Reset all"), bw(ui, "Apply"));
     let by = r.bottom() - 8.0 - BTN_H;
     let reset = Rect::new(r.x + 12.0, by, rw, BTN_H);
@@ -577,12 +589,13 @@ fn shortcut_list(ui: &mut Ui, f: &crate::shortcuts::Form, row: usize, b: Rect, d
             }
         }
         let col = if i == f.vals[row] { if lemon(ui) { t.brand_sel(brand::MAIN) } else { t.glyph } } else { t.text };
-        ui.c.text_clip(font, rr.x + 10.0, (rr.cy() - lh / 2.0).round(), rr.w - 16.0, col, ch);
+        ui.c.text_clip(font, rr.x + 10.0, (rr.cy() - lh / 2.0).round(), rr.w - 16.0, col, tr(ch));
     }
 }
 
 /// A section panel with its header tab (as the Settings window's groups and FL's Save as form).
 pub(super) fn section(ui: &mut Ui, p: Rect, title: &str) {
+    let title=tr(title);
     let t = ui.t;
     let f = Font::new(13).bold();
     if lemon(ui) {
@@ -647,17 +660,40 @@ pub(super) fn field(ui: &mut Ui, r: Rect, fl: &Field, focused: bool, h: DHit, hi
     let shift = (caret_x - (inner.w - 2.0)).max(0.0);
     let (x, y) = (inner.x - shift, (r.cy() - lh / 2.0).round());
     ui.c.push_clip(inner);
-    let mut ink = t.text;
-    if focused && fl.all {
-        let w = ui.c.text_width(f, &fl.text);
-        ui.c.fill_rect(Rect::new(x - 1.0, y, w + 2.0, lh), if lemon { t.brand_sel(brand::COLORED_DARK) } else { SEL_BLUE });
-        ink = if lemon { t.brand_sel(brand::HIGHLIGHT) } else { Color::rgb(0xffffff) };
+    let ink = t.text;
+    if let Some((a,b)) = fl.selection().filter(|_|focused) {
+        let left=ui.c.text_width(f,&fl.text[..fl.at(a)]);
+        let w=ui.c.text_width(f,&fl.text[..fl.at(b)])-left;
+        ui.c.fill_rect(Rect::new(x + left - 1.0, y, w + 2.0, lh), if lemon { t.brand_sel(brand::COLORED_DARK) } else { SEL_BLUE });
+
     }
     ui.c.text(f, x, y, ink, &fl.text);
-    if focused && !fl.all {
+    if focused {
         ui.c.fill_rect(Rect::new((x + caret_x).round(), y, 1.0, lh), t.glyph);
     }
     ui.c.pop_clip();
+    use crate::dialog::TextTarget as Target;
+    let target=match h { DHit::NameField=>Some(Target::Name), DHit::PathField=>Some(Target::Path),
+        DHit::Form(crate::project_forms::FHit::Field(i))=>Some(Target::Project(i)), _=>None };
+    if let Some(target)=target {
+        // Half-character cells place the caret at the closest glyph boundary.
+        let bytes:Vec<_>=fl.text.char_indices().map(|(i,_)|i).chain(std::iter::once(fl.text.len())).collect();
+        // Skip the offscreen prefix without measuring every prefix of a long pasted path.
+        let (mut lo,mut hi)=(0,bytes.len());
+        while lo<hi { let mid=(lo+hi)/2; if x+ui.c.text_width(f,&fl.text[..bytes[mid]])<r.x {lo=mid+1;} else {hi=mid;} }
+        let mut left=r.x;
+        for i in lo.saturating_sub(1)..bytes.len() {
+            let boundary=x+ui.c.text_width(f,&fl.text[..bytes[i]]);
+            let next=if i+1==bytes.len() {r.right()} else {x+ui.c.text_width(f,&fl.text[..bytes[i+1]])};
+            let right=if i+1==bytes.len() {r.right()} else {(boundary+next)*0.5};
+            if right>r.x && left<r.right() {
+                let l=left.max(r.x); let rr=right.min(r.right());
+                if rr>l { hit(ui,Rect::new(l,r.y,rr-l,r.h),DHit::TextCaret(target,i),hint); }
+            }
+            left=right;
+            if left>=r.right() {break;}
+        }
+    }
 }
 
 /// A row's background: selected or hovered.
@@ -729,7 +765,7 @@ fn places(ui: &mut Ui, f: &FileDlg, r: Rect) {
             _ => crate::icons::default_shape(shape),
         };
         crate::icons::draw_with_default(ui.c, shape, original, r, ic);
-        ui.c.text_clip(font, row.x + 30.0, (row.cy() - lh / 2.0).round(), row.w - 36.0, ink, &p.label);
+        ui.c.text_clip(font, row.x + 30.0, (row.cy() - lh / 2.0).round(), row.w - 36.0, ink, if matches!(p.kind,PlaceKind::Start | PlaceKind::Drive) { &p.label } else { tr(&p.label) });
         y += 22.0;
     }
     ui.c.pop_clip();
@@ -776,10 +812,10 @@ fn list(ui: &mut Ui, f: &FileDlg, r: Rect) {
         let hr = Rect::span(x0, x1, head.y, head.bottom() - 1.0);
         let hov = hit(ui, hr, DHit::Header(by), "Sort by this column (again: the other way round)");
         let col = if hov { t.glyph } else { t.text_dim };
-        let tw = ui.c.text_width(font, label);
+        let tw = ui.c.text_width(font, tr(label));
         let tx = if right { hr.right() - 8.0 - tw } else { hr.x + if by == SortBy::Name { 30.0 } else { 6.0 } };
         let ty = (hr.cy() - lh / 2.0).round();
-        ui.c.text(font, tx, ty, col, label);
+        ui.c.text(font, tx, ty, col, tr(label));
         if f.sort == by {
             let cx = if right { tx - 8.0 } else { tx + tw + 8.0 };
             kit::chevron(ui.c, cx, hr.cy(), 3.0, if f.reversed { kit::Dir::Up } else { kit::Dir::Down }, if lemon { t.brand_lit(brand::MAIN) } else { t.text_dim });
@@ -1018,7 +1054,7 @@ fn voice_box(ui: &mut Ui, s: &State, modal: &Modal) {
     let button = |ui: &mut Ui, rect, action, label| {
         let hot = hit(ui, rect, DHit::Voice(action), "");
         ui.c.fill_rrect(rect, 7.0, if hot { ui.t.button_hi } else { ui.t.s(0x263e50) });
-        ui.c.text_center(Font::new(12).bold(), rect, ui.t.text, label);
+        ui.c.text_center(Font::new(12).bold(), rect, ui.t.text, tr(label));
     };
     if voice.screen == Screen::Choose {
         ui.c.text_center(Font::new(22).bold(), Rect::new(area.x, area.y+57., area.w, 32.), ui.t.text, "Choose your AI assistant");

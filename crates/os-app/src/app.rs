@@ -1056,6 +1056,7 @@ pub enum Drag {
     /// A dialog's caption (offset of the mouse from its top-left), the file list's scroll bar (`ratio` = list pixels
     /// per pixel moved), spec: ui/dialogs.md.
     Dialog { dx: f32, dy: f32 },
+    DialogText(crate::dialog::TextTarget),
     DialogBar { y0: f32, s0: f32, ratio: f32 },
     /// A slider declared in `crate::prefs` follows the mouse along its track (`w` wide from `x`).
     PlaylistBrightness { x: f32, w: f32 },
@@ -1933,6 +1934,7 @@ impl App {
         }
         match result {
             Ok((file, project)) => {
+                self.smart_cancel();
                 self.transport.stop();
                 self.reset_hosted();
                 self.import_report=crate::import_report::Report::opened(&file,&path);
@@ -2101,6 +2103,7 @@ impl App {
 
     /// Saves the project to `target`; a file over the Project data size warning is said (`App::size_notice`).
     pub(crate) fn save_to(&mut self, target: PathBuf) {
+        self.smart_checkpoint();
         if let Some(bytes) = self.write_project(target, &mut |_| {}) {
             self.size_notice(bytes);
             if let Some(message) = self.state.message.clone().filter(|m|m.starts_with("Saved project. Plugin settings warning:")) {
@@ -2115,6 +2118,7 @@ impl App {
         crate::audio_edits::reconcile(&mut self.state);
         crate::audio_edits::ids(&mut self.state);
         self.params_tick();
+        if !self.state.rec.smart.completed_is_empty(){self.state.message=Some("Save postponed: free an unlocked Playlist lane and press Stop to keep buffered automation.".into());return None;}
         if let Err(e)=crate::clip_effects::normalize(self){self.state.message=Some(e);return None;}
         if let Err(e)=crate::ara::store(self){self.state.message=Some(format!("Save failed: {e}"));return None;}
         // A file saved over is kept as an "overwritten on" backup (spec: ui/settings-choices.md "Backup files").
@@ -2260,6 +2264,7 @@ impl App {
         if self.loading.is_some() || self.export.is_some() {
             return None;
         }
+        self.smart_checkpoint();
         let s = &mut self.state;
         let keep = (s.project.clone(), s.path.clone(), s.file.clone(), s.message.take(), self.saved.clone());
         // A copy is not the last used project (spec: ui/settings-choices.md "Miscellaneous: ... Startup project"), nor a
@@ -2285,6 +2290,7 @@ impl App {
 
     /// Whether project data, tempo or reported hosted-plugin edits changed since the last save.
     pub fn unsaved(&self) -> bool {
+        if self.smart_pending(){return true;}
         self.saved.2 != self.plugins.edit_revision || self.plugins.hosted.values().any(|h|h.ara_dirty) || self.saved.0 != self.state.project || self.saved.1 != self.state.tempo
     }
 
@@ -2321,6 +2327,7 @@ impl App {
     /// Before the project is replaced or the app closes (`doing`: "closing", ...): with unsaved changes, asks to save
     /// them (spec: ui/dialogs.md §1f), and `next` follows once they are saved or not wanted; otherwise right away.
     pub fn ask_discard(&mut self, doing: &str, next: crate::dialog::Next) {
+        self.smart_record_tick();self.smart_finish();
         self.params_tick();
         use crate::dialog::{spans, Answer, Kind, Msg, Then};
         #[cfg(test)]
@@ -2558,6 +2565,9 @@ impl App {
                     self.toolbar_deleted(path);
                 }
             }
+            Then::BrowserSample => {
+                if let Some(p)=file { self.sample_to_channel(p.to_string_lossy().into_owned(),None); }
+            },
             Then::RackSample(row) => {
                 if let Some(p) = file {
                     crate::rack::sample_chosen(self, row, p);
@@ -2571,6 +2581,9 @@ impl App {
                 }
             }
             Then::VocalDownload(row)=>{if reply==Reply::Button(Answer::Yes){crate::vocal::download(self,row);}},
+            Then::MelliInstall=>{if reply==Reply::Button(Answer::Yes){crate::studio_helper::start_download(self);}},
+            Then::MelliProgress=>{if reply==Reply::Button(Answer::Yes){crate::helper_install::cancel();self.state.message=Some("Cancelling Melli download...".into());}},
+            Then::MelliRemove=>{if reply==Reply::Button(Answer::Yes){crate::studio_helper::shutdown();crate::helper_install::start(true);}},
             Then::StretchClips(rows, method) => {
                 if reply == Reply::Button(Answer::Ok) {
                     crate::rack::set_stretch(self, &rows, method);
@@ -2632,6 +2645,7 @@ impl App {
 
     /// The built-in new project (FILE ▸ New with Empty, New from template ▸ Empty).
     pub(crate) fn empty_project(&mut self) {
+        self.smart_cancel();
         self.transport.stop();
         self.reset_hosted();
         let s = &mut self.state;
@@ -2842,6 +2856,12 @@ impl App {
         Some((l.progress(), l.status().split_whitespace().collect::<Vec<_>>().join(" ")))
     }
 
+    /// Native workspace windows and embedded editors must wait for project hosting.
+    /// Export/search progress does not reset their layout or close their editors.
+    pub(crate) fn project_windows_ready(&self) -> bool {
+        self.loading.is_none()
+    }
+
     /// Mixer slots that hold the project file's parametric EQ are played and edited by Lemon Parametric EQ, started
     /// from the slot's saved state (spec: plugins/lemon-parametric-eq-2.md §8). Without the plugin the engine's own EQ
     /// plays them. Edison's slots are opened as Tesla the same way, with their sample, loop, markers and recording
@@ -3036,9 +3056,9 @@ impl App {
         // windows' requests come with it.
         #[cfg(plugin_windows)]
         let requests = {
-            let (project, mixer) = (&self.state.project, &self.state.mixer);
+            let state=&self.state;
             self.plugins.defer_editor_scale=self.transport.playing();
-            self.plugins.idle(|row| if row >= crate::plugins::FX_KEY { crate::mixer::fx_info(project, mixer, row) } else { channel_info(project, row) })
+            self.plugins.idle(|row|crate::automation_feedback::window_info(state,row))
         };
         // Native strip page animation changes the neighboring channel widths too.
         #[cfg(target_os="macos")]
@@ -3081,6 +3101,12 @@ impl App {
         {
             for r in requests {
                 use crate::plugins::Request;
+                let record_action=match &r {
+                    Request::Volume(row,_)=>Some(Action::Knob(crate::knobs::KnobId::ChanVol(*row))),
+                    Request::Pan(row,_)=>Some(Action::Knob(crate::knobs::KnobId::ChanPan(*row))),
+                    Request::PitchCents(row,_)=>Some(Action::Knob(crate::knobs::KnobId::ChanPitch(*row))),_=>None,
+                };
+                if let Some(a)=&record_action {self.smart_begin_host(a);}
                 let chans = &mut self.state.project.channels;
                 match r {
                     Request::Close(_) => continue,
@@ -3205,7 +3231,11 @@ impl App {
                         self.invalidate();
                         continue;
                     }
-                    Request::ToggleOn(row) => chans.get_mut(row).into_iter().for_each(|c| c.enabled = !c.enabled),
+                    Request::ToggleOn(row) => {
+                        if let Some((t,k)) = crate::plugins::fx_of(row) {
+                            self.state.message = crate::mixer::toggle_slot(&mut self.state, t, k);
+                        } else { chans.get_mut(row).into_iter().for_each(|c| c.enabled = !c.enabled); }
+                    },
                     Request::Volume(row, v) => chans.get_mut(row).into_iter().for_each(|c| c.volume = v),
                     Request::Pan(row, v) => chans.get_mut(row).into_iter().for_each(|c| c.pan = v),
                     Request::PitchCents(row, v) => {if let Some(c)=chans.get_mut(row){
@@ -3305,6 +3335,7 @@ impl App {
                         continue;
                     }
                 }
+                if let Some(a)=&record_action {self.smart_record_host(a);}
                 self.state.piano.dirty = true;
                 self.invalidate();
             }
@@ -4625,10 +4656,12 @@ impl App {
         crate::updates::tick();
         crate::plugin_downloads::tick(self);
         crate::starter_pack::tick(self);
+        crate::studio_helper::tick(self);
         crate::plugin_previews::tick(self);
         let (_, update_status) = crate::updates::display();
         if self.update_status != update_status { self.update_status = update_status; self.invalidate(); }
         if views::browser::search_changed(&self.state) { self.invalidate(); }
+        self.automation_feedback_tick();
         self.plugin_tick();
         // Playback loops over the time selection, as it is now (spec: ui/recording.md §5).
         self.sync_loop_range();
@@ -5111,6 +5144,9 @@ impl App {
         if self.top_hit(x, y).and_then(|h| h.win) == Some(Win::ChannelRack) {
             self.sample_to_rack(path.to_string_lossy().into_owned(), y);
             return;
+        }
+        if let Some(row)=crate::playlist_tracks::drops::header_at(self) {
+            crate::playlist_tracks::drops::sample(self,path.to_string_lossy().into_owned(),row);return;
         }
         let Some(grid) = self.pl_grid.filter(|g| g.contains(x, y)) else {
             self.state.message = Some("Drop audio files on the playlist to add audio clips".into());
@@ -5851,6 +5887,7 @@ impl App {
             }
             SAct::VisibilityToggle(key) => {
                 crate::workspace_visibility::toggle(key);
+                if key == crate::studio_helper::VISIBILITY { crate::studio_helper::visibility_changed(); }
                 if matches!(key, "visible_plugin-tape" | "visible_plugin-hall" | "visible_plugin-plasma") {
                     self.state.plugdb.rebuild(&self.plugins);
                 }
@@ -6051,22 +6088,22 @@ impl App {
         };
         Some(match *a {
             Action::Knob(k @ crate::knobs::KnobId::MasterPitch) => (target::MAIN_PITCH,"Master pitch".into(),f64::from(s.knob(k))),
+            Action::Knob(crate::knobs::KnobId::ChanPitch(row)) => (target::channel(chan(row)?.index,target::CHANNEL_PITCH),format!("{} - Channel pitch",chan_name(row)),(0.5+f64::from(chan(row)?.pitch_cents)/9600.).clamp(0.,1.)),
             Action::Knob(crate::knobs::KnobId::ChanVol(row)) => {
-                (target::channel(chan(row)?.index, target::CHANNEL_VOLUME), format!("{} - Channel volume", chan_name(row)), chan(row)?.volume)
+                (target::channel(chan(row)?.index, target::CHANNEL_VOLUME), format!("{} - Channel volume", chan_name(row)), f64::from(s.knob(crate::knobs::KnobId::ChanVol(row))))
             }
             Action::Knob(crate::knobs::KnobId::ChanPan(row)) => {
-                (target::channel(chan(row)?.index, target::CHANNEL_PAN), format!("{} - Channel panning", chan_name(row)), 0.5 + chan(row)?.pan / 2.0)
+                (target::channel(chan(row)?.index, target::CHANNEL_PAN), format!("{} - Channel panning", chan_name(row)), f64::from(s.knob(crate::knobs::KnobId::ChanPan(row))))
             }
             Action::Knob(crate::knobs::KnobId::MixPan(t)) => {
-                let pan = s.project.mixer.iter().find(|m| m.index == t).and_then(|m| m.pan).unwrap_or(0.0);
-                (target::mixer(t, target::MIXER_PAN), format!("{} - Pan", mix_name(t)), 0.5 + pan / 2.0)
+                (target::mixer(t, target::MIXER_PAN), format!("{} - Pan", mix_name(t)), f64::from(s.knob(crate::knobs::KnobId::MixPan(t))))
             }
             Action::Knob(k @ crate::knobs::KnobId::MixSep(t)) => (target::mixer(t,target::MIXER_SEPARATION),format!("{} - Stereo separation",mix_name(t)),f64::from(s.knob(k))),
             Action::Knob(k @ crate::knobs::KnobId::Strip(t,f)) => (target::strip(t,f),format!("{} - {}",mix_name(t),if f==7 {"DS (DeBess)"}else{["Low cut","Compressor","Drive","Gate","Tame"][usize::from(f.min(4))]}),f64::from(s.knob(k))),
             Action::Knob(k @ crate::knobs::KnobId::SlotMix(t,slot)) => (target::slot(t,slot,target::SLOT_MIX),format!("{} - Slot {} mix",mix_name(t),slot+1),f64::from(s.knob(k))),
             Action::Knob(k @ crate::knobs::KnobId::Send(t,d)) => (target::send(t,d),format!("{} - Send to {}",mix_name(t),mix_name(d)),f64::from(s.knob(k))),
             Action::Fader(t) => {
-                let v = s.project.mixer.iter().find(|m| m.index == t).and_then(|m| m.volume).unwrap_or(0.8);
+                let v = s.displayed_volume(t);
                 (target::mixer(t, target::MIXER_VOLUME), format!("{} - Volume", mix_name(t)), v)
             }
             Action::Tempo => (target::TEMPO, "Tempo".into(), crate::playlist::tempo_value(s.tempo)),
@@ -6487,6 +6524,7 @@ impl App {
                 }
                 Drag::RackGraph => self.rack_graph_at((x, y)),
                 Drag::Dialog { dx, dy } => self.dialog_drag(x - dx, y - dy),
+                Drag::DialogText(target) => self.dialog_text_drag(target,x),
                 Drag::DialogBar { y0, s0, ratio } => self.dialog_scroll(s0 + (y - y0) * ratio),
                 Drag::PatternBox { y0, p0 } => {
                     let (y0, p0): (f32, u16) = (y0.to_owned(), p0.to_owned());
@@ -6779,16 +6817,13 @@ impl App {
 
     fn update_menu_hover(&mut self) -> bool {
         let s = &self.state;
-        let Some(active) = s.menu_open else { return false };
-        if self.pressed.is_some() || self.loading() || self.modal_open() || s.settings.open
-            || s.native_view.is_some() || s.native_input.is_some() || s.plugin_picker.open
-            || s.playlist.edit.is_some() || s.pat_ui.name_box.is_some() || s.pat_ui.confirm
-            || s.rack.fill.is_some() || crate::remote::is_open(s)
+        if self.pressed.is_some() || self.loading()
             || !crate::prefs::check(&crate::prefs::HOVER_MENUS)
         {
             return false;
         }
-        if let Some(Action::Menu(index)) = self.hover {
+        if let (Some(active), Some(Action::Menu(index))) = (s.menu_open, self.hover.as_ref()) {
+            let index = *index;
             if active == index && s.pat_ui.menu_at.is_none() {
                 return false;
             }
@@ -7666,6 +7701,7 @@ impl App {
                 self.armed_right = toolbar_right(a).map(|run| (a.clone(), run));
                 return self.invalidate();
             }
+            Some(Action::BrowserList) => { self.browser_empty_menu(x,y); return; }
             Some(Action::BrowserRow(i)) => {
                 if self.params_browser_right(*i, x, y) || self.browser_row_menu(*i, x, y) {
                     return;
@@ -7894,6 +7930,7 @@ impl App {
     }
 
     pub fn mouse_up(&mut self) {
+        self.smart_end_host();
         crate::warp::commit(self);
         crate::audio_edits::finish(&mut self.state);
         if crate::input_bindings::release(self) { return; }
@@ -8669,6 +8706,10 @@ impl App {
                 return Some(Win::PianoRoll);
             }
             if self.alt && !matches!(area, Some(Action::PianoVelocity)) {
+                if let Some(Action::PianoNote(i)) = area {
+                    if self.drag.is_none() { piano::wheel_velocity(&mut self.state, i, dy + dx); }
+                    return Some(Win::PianoRoll);
+                }
                 let row = self.state.piano.row_h * piano::ROW_ZOOM_STEP.powf(dy + dx);
                 piano::set_rows(&mut self.state, g.grid, y, row);
                 return Some(Win::PianoRoll);
@@ -8716,7 +8757,8 @@ impl App {
         {
             self.smart_begin_host(&Action::Fader(t));
             let s = &mut self.state;
-            let v0=crate::mixer::track(s,t)?.volume.unwrap_or(0.8);
+            crate::mixer::track(s,t)?;
+            let v0=s.displayed_volume(t);
             let group=crate::mixer::fader_group(s,t);
             let delta=(v0+f64::from(dy.signum())*views::mixer::FADER_NOTCH).clamp(0.,1.)-v0;
             if delta!=0.0 {
@@ -10019,7 +10061,7 @@ impl App {
                 if crate::warp::cancel_play(self) { return; }
                 match self.transport.state() {
                     // Play toggles pause (the position is held in place); Stop rewinds.
-                    TransportState::Playing => self.transport.pause(),
+                    TransportState::Playing => {self.smart_record_tick();self.smart_finish();self.transport.pause();},
                     TransportState::Paused => crate::warp::resume(self),
                     TransportState::Stopped => self.play_from_stop(),
                 }
@@ -10027,6 +10069,7 @@ impl App {
             Action::Stop => {
                 self.perf_transport();
                 crate::warp::cancel_play(self);
+                self.smart_record_tick();self.smart_finish();
                 self.transport.stop();
                 self.record_stopped();
                 // Stop rewinds to where playback started: the song position (or the piano roll's play-start marker)
@@ -10818,6 +10861,7 @@ impl App {
                 self.state.message = crate::plugin_menu::run(self, crate::plugin_menu::PlugCmd::View(v));
             }
             (HELP_MENU, HELP_GUIDE) => crate::help::open(self),
+            (HELP_MENU, HELP_STUDIO_HELPER) => crate::studio_helper::open(self),
             (HELP_MENU, HELP_CHANGE_LOG) => self.open_settings(crate::change_log::PAGE),
             (HELP_MENU, 7) => {if let Err(e)=crate::donate::open_url("https://discord.gg/CDYs4rQEk"){self.state.message=Some(e);}}
             (HELP_MENU, HELP_ABOUT) => self.open_settings(views::settings::ABOUT),
@@ -11512,6 +11556,325 @@ mod tests {
         }
     }
 
+    #[test]
+    fn playlist_floating_frame_has_no_inset_rail_and_panels_have_flush_edges() {
+        use os_theme::Color;
+        for scale in [1.,1.25,1.5,1.75,2.] {
+            // Verify every edge pixel, not just the center of a standalone border.
+            let mut c=Canvas::new(400,300,scale).unwrap();let bg=Color::rgb(0x333333);let edge=Color::rgb(0x558899);
+            c.clear(bg);let panel=Rect::new(10.3,12.6,100.4,80.2);
+            crate::views::panel_outline(&mut c,panel,edge);
+            let (x0,y0,x1,y1)=((panel.x*scale).round() as u32,(panel.y*scale).round() as u32,(panel.right()*scale).round() as u32,(panel.bottom()*scale).round() as u32);
+            for y in y0-1..=y1 {for x in x0-1..=x1 {
+                let on=x>=x0&&x<x1&&y>=y0&&y<y1&&(x==x0||x==x1-1||y==y0||y==y1-1);
+                let px=c.pixmap.pixel(x,y).unwrap();let expected=if on{edge}else{bg};
+                assert_eq!((px.red(),px.green(),px.blue()),(expected.r,expected.g,expected.b),"uniform frame without protrusions at {scale}: {x},{y}");
+            }}
+            for design in os_theme::Design::ALL {for attached in [false,true] {
+                let mut app=App::new(None);app.state.project=default_project();app.set_design(design,false);
+                if attached {crate::attached_mixer::toggle(&mut app);}
+                app.state.z=vec![Win::Playlist];app.state.show_browser=false;
+                let ws=&mut app.state.wins[Win::Playlist.slot().unwrap()];ws.maxed=false;ws.rect=Rect::new(47.3,92.6,760.,550.);
+                let mut canvas=Canvas::new(1920,1400,scale).unwrap();frame(&mut app,&mut canvas,None);
+                let (fr,client)=crate::views::frame_rects(&app.state,Win::Playlist,app.state.win_rect(Win::Playlist));
+                let x=((if attached {fr.x-1.} else {app.state.win_rect(Win::Playlist).x+3.})*scale).round() as u32;
+                if !attached && crate::clip_picker::width(&app.state,fr)==0. {
+                    let header=hit_rect(&app,&Action::PlHeader(2));let grid=app.pl_grid().unwrap();
+                    let left=header.x-app.state.win_rect(Win::Playlist).x-1.;
+                    assert!((left-5.).abs()<0.01 && (grid.x-header.right()-left).abs()<0.01,"equal visible floating header gutters");
+                    assert!((crate::views::playlist::scroll_parts(&app.state,grid).heads.x-header.x).abs()<0.01);
+                }
+                let base=app.theme.colors.window_title;
+                // With no inspector the wider toolbar intentionally occupies the top gutter.
+                let start=if attached {fr.y+22.} else {app.pl_grid().unwrap().y};
+                for y in (start*scale).ceil() as u32..((fr.bottom()-1.)*scale).floor() as u32 {
+                    let px=canvas.pixmap.pixel(x,y).unwrap();
+                    assert_eq!((px.red(),px.green(),px.blue()),(base.r,base.g,base.b),"no inset rail: {design:?}, {attached}, {scale}, {y}");
+                }
+                if attached {
+                    let pick=crate::clip_picker::width(&app.state,fr);let aw=crate::attached_mixer::width(&app.state);
+                    let right=((fr.x+pick+2.+aw)*scale).round() as u32;
+                    let top=((client.y+2.)*scale).round() as u32;let bottom=((fr.bottom()-2.)*scale).round() as u32;
+                    let expected=canvas.pixmap.pixel(right-1,(top+bottom)/2).unwrap();
+                    for y in top..bottom {
+                        assert_eq!(canvas.pixmap.pixel(right-1,y).unwrap(),expected,"inspector top and bottom align with side: {design:?}/{scale}, y={y}, top={top}, bottom={bottom}");
+                        assert_ne!(canvas.pixmap.pixel(right,y).unwrap(),expected,"no projecting cap");
+                    }
+                }
+                if scale==1.25 {if let Some(out)=std::env::var_os("OS_SHOT_DIR") {canvas.pixmap.save_png(PathBuf::from(out).join(format!("floating-edge-{design:?}-{attached}.png"))).unwrap();}}
+            }}
+        }
+    }
+
+    #[test]
+    fn mixer_selected_channel_outline_has_flush_caps() {
+        for design in os_theme::Design::ALL {for scale in [1.,1.25,1.5,1.75,2.] {
+            let mut app=App::new(None);app.state.project=default_project();app.set_design(design,false);
+            app.state.z=vec![Win::Mixer];app.state.show_browser=false;
+            app.act(Action::Mix(crate::mixer::MHit::View(crate::mixer::WIDE)));
+            app.state.selected_mixer=2;
+            let ws=&mut app.state.wins[Win::Mixer.slot().unwrap()];ws.maxed=false;ws.rect=Rect::new(47.3,92.6,1100.,550.);
+            let mut canvas=Canvas::new(2500,1600,scale).unwrap();frame(&mut app,&mut canvas,None);
+            let hit=hit_rect(&app,&Action::Mix(crate::mixer::MHit::Strip(2)));
+            let (fr,_)=crate::views::frame_rects(&app.state,Win::Mixer,app.state.win_rect(Win::Mixer));
+            let x0=((hit.x+0.75)*scale).round() as u32;let x1=((hit.right()-0.75)*scale).round() as u32;
+            let y0=((hit.y+0.75)*scale).round() as u32;let y1=((fr.bottom()-16.75)*scale).round() as u32;
+            let edge=app.theme.colors.accent;
+            let is_edge=|x,y| {let p=canvas.pixmap.pixel(x,y).unwrap();(p.red(),p.green(),p.blue())==(edge.r,edge.g,edge.b)};
+            for y in y0..y1 {
+                assert!(is_edge(x0,y)&&is_edge(x1-1,y),"continuous sides: {design:?}/{scale}/{y}");
+                assert!(!is_edge(x0-1,y)&&!is_edge(x1,y),"no projecting caps: {design:?}/{scale}/{y}");
+            }
+            for x in x0..x1 {assert!(is_edge(x,y0)&&is_edge(x,y1-1),"complete horizontal edges");}
+            if scale==1.25 {if let Some(out)=std::env::var_os("OS_SHOT_DIR") {canvas.pixmap.save_png(PathBuf::from(out).join(format!("mixer-flush-{design:?}.png"))).unwrap();}}
+        }}
+    }
+
+    #[test]
+    fn playlist_header_edges_match_at_fractional_display_scales() {
+        use crate::playlist as pl;
+        for plain in [false,true] {
+        for attached in [false,true] {
+            for scale in [1.0,1.25,1.5,1.75,2.0] {
+                let mut app=App::new(None);app.state.project=default_project();
+                app.state.project.arrangements.clear();pl::arr_mut(&mut app.state);
+                app.set_design(os_theme::Design::Lemon,false);
+                if attached{crate::attached_mixer::toggle(&mut app);crate::attached_mixer::bind(&mut app.state,2,3);}
+                app.state.z=vec![Win::Playlist];app.state.show_browser=false;app.state.selected_mixer=0;
+                let color=os_model::Rgb::new(181,91,89);
+                if !plain {
+                    pl::arr_mut(&mut app.state).tracks[2].color=Some(color);
+                    crate::mixer::track_mut(&mut app.state,3).unwrap().color=Some(color);
+                }
+                let mut canvas=Canvas::new(1920,1400,scale).unwrap();frame(&mut app,&mut canvas,None);
+                let r=hit_rect(&app,&Action::PlHeader(2));
+                let grid=app.pl_grid().unwrap();assert!((grid.x-r.right()-5.).abs()<0.01,"right gutter matches the left");
+                assert_eq!(crate::views::playlist::scroll_parts(&app.state,grid).heads.x,r.x,"scroll damage follows header geometry");
+                let x0=(r.x*scale).round() as u32;let x1=(r.right()*scale).round() as u32;
+                let y0=(r.y*scale).round() as u32;let y1=(r.bottom()*scale).round() as u32;
+                if plain && !attached {
+                    let mid=(y0+y1)/2;
+                    let body=canvas.pixmap.pixel(x0+2,mid).unwrap();
+                    let face=app.theme.colors.track_header.shade(-0.16);
+                    assert_eq!((body.red(),body.green(),body.blue()),(face.r,face.g,face.b),"neutral header is darker than its theme base");
+                    assert_ne!(body,canvas.pixmap.pixel(x0,mid).unwrap(),"flat one-pixel border");
+                    assert_eq!(canvas.pixmap.pixel(x0,mid),canvas.pixmap.pixel(x1-1,mid),"uniform side borders");
+                }
+                let (fr,client)=crate::views::frame_rects(&app.state,Win::Playlist,app.state.win_rect(Win::Playlist));
+                let pick=crate::clip_picker::width(&app.state,fr);
+                let aw=crate::attached_mixer::width(&app.state);
+                // Only the outer corner pixels: exclude text, selection stripes and buttons.
+                for y in (y0..y0+(3.*scale) as u32).chain(y1-(2.*scale) as u32..y1){
+                    for inset in 0..(5.*scale) as u32{
+                        let a=canvas.pixmap.pixel(x0+inset,y).unwrap();let b=canvas.pixmap.pixel(x1-1-inset,y).unwrap();
+                        for (a,b) in [(a.red(),b.red()),(a.green(),b.green()),(a.blue(),b.blue())]{
+                            assert!(a.abs_diff(b)<=2,"corner mismatch at scale {scale}, attached {attached}, inset {inset}, y {y}: {a} vs {b}");
+                        }
+                    }
+                }
+                if let Some(dir)=std::env::var_os("OS_SHOT_DIR"){
+                    canvas.pixmap.save_png(std::path::PathBuf::from(dir).join(format!("matched-headers-{plain}-{attached}-{scale}.png"))).unwrap();
+                }
+                app.take_damage();
+                let mut full=Canvas::new(1920,1400,scale).unwrap();
+                for (dx,dy) in [(0.,24.),(40.,0.),(0.,-24.),(-40.,0.)] {
+                    let before=app.state.playlist_scroll;
+                    app.state.playlist_scroll.0+=dx;app.state.playlist_scroll.1+=dy;
+                    app.playlist_scrolled(before);
+                    let damage=app.take_damage();frame_damage(&mut app,&mut canvas,damage);app.take_moved();
+                    frame(&mut app,&mut full,None);
+                    if !attached {
+                        assert_same(&canvas,&full,"ordinary header cards after scrolling");
+                    } else if aw>0. {
+                        // The attached change is the inspector's right edge. Its
+                        // existing instrument icons can round subpixels differently
+                        // after a pixel move; compare the changed divider itself.
+                        let xx=((fr.x+pick+2.+aw)*scale).round() as u32-1;
+                        for yy in ((client.y+3.)*scale).ceil() as u32..((fr.bottom()-3.)*scale).floor() as u32 {
+                            assert_eq!(canvas.pixmap.pixel(xx,yy),full.pixmap.pixel(xx,yy),"uniform inspector edge after scroll");
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    #[test]
+    fn playlist_instrument_badge_tracks_notes_and_partial_repaints() {
+        use crate::playlist as pl;
+        let row=2;
+        crate::settings_file::set_flag(crate::playlist_tracks::INSTRUMENT_FEEDBACK,true);
+        for design in os_theme::Design::ALL {
+            for height in [28.,64.,180.] {
+                let mut app=App::new(None);app.state.project=default_project();
+                app.state.project.arrangements.clear();pl::arr_mut(&mut app.state);
+                app.plugins=crate::plugins::Plugins::builtins();
+                app.set_design(design,false);crate::attached_mixer::toggle(&mut app);
+                app.state.z=vec![Win::Playlist];app.state.show_browser=false;
+                let n=crate::mixer::add_track(&mut app.state,None);
+                crate::attached_mixer::bind(&mut app.state,row,n);
+                assert_eq!(crate::playlist_tracks::header_instrument(&app.state,row),None);
+                let index=app.plugins.available.iter().position(|p|p.desc.name==crate::plugins::LEMON_SAMPLER).unwrap();
+                crate::playlist_tracks::insert(&mut app,index,row);
+                app.state.pending_open=None;
+                crate::mixer::track_mut(&mut app.state,n).unwrap().color=Some(os_model::Rgb::new(200,212,20));
+                app.state.playlist_scroll.1=600.;
+                let ch=crate::playlist_tracks::header_instrument(&app.state,row).unwrap();
+                let id=app.state.project.channels[ch].index;
+                pl::arr_mut(&mut app.state).tracks[row as usize].height=Some(height);
+                let mut partial=Canvas::new(1600,1000,1.).unwrap();let mut full=Canvas::new(1600,1000,1.).unwrap();
+                frame(&mut app,&mut partial,None);app.take_damage();
+                let r=hit_rect(&app,&Action::PlHeader(row));
+                let marker=hit_rect(&app,&Action::Mix(crate::mixer::MHit::PlaylistInstrument(row)));
+                assert!(marker.h>height-14.,"marker grows with the row, including tall tracks");
+                assert!(marker.right()<r.x+34.,"marker leaves the controls clear");
+                assert_eq!(app.top_hit(marker.cx(),marker.cy()).unwrap().action,Action::Mix(crate::mixer::MHit::PlaylistInstrument(row)));
+                app.act(Action::Mix(crate::mixer::MHit::PlaylistInstrument(row)));
+                assert_eq!(app.state.pending_open,Some(ch),"marker opens the instrument editor");
+                app.state.pending_open=None;app.take_damage();
+                let (x,y)=((marker.right()-4.) as u32,(marker.bottom()-4.) as u32);
+                let idle=partial.pixmap.pixel(x,y).unwrap();
+                let project=app.state.project.clone();
+                app.show_playback(Shown{sounding:vec![(id,60),(id,u16::MAX)],..Shown::default()});
+                let damage=app.take_damage();
+                assert!(matches!(damage,Some(Some(ref rects)) if rects.iter().any(|r|r.contains(x as f32,y as f32))));
+                frame_damage(&mut app,&mut partial,damage);frame(&mut app,&mut full,None);
+                assert_same(&partial,&full,"instrument note glow partial repaint");
+                assert_ne!(idle,partial.pixmap.pixel(x,y).unwrap());
+                let halo_x=(r.right()-3.) as u32;let halo_y=(r.cy()) as u32;
+                let halo_lit=partial.pixmap.pixel(halo_x,halo_y).unwrap();
+                // The transport includes an audio-activity sentinel alongside notes.
+                // Compare all twelve pitches with/without it: no phantom Eb key.
+                for note in 60..72 {
+                    app.show_playback(Shown{sounding:vec![(id,note)],..Shown::default()});
+                    frame(&mut app,&mut full,None);
+                    app.show_playback(Shown{sounding:vec![(id,note),(id,u16::MAX)],..Shown::default()});
+                    let damage=app.take_damage();frame_damage(&mut app,&mut partial,damage);
+                    assert_same(&partial,&full,"audio sentinel must not light an extra key");
+                }
+                app.show_playback(Shown{sounding:vec![(id,60),(id,u16::MAX)],..Shown::default()});
+                let damage=app.take_damage();frame_damage(&mut app,&mut partial,damage);frame(&mut app,&mut full,None);
+                if let Ok(dir)=std::env::var("LEMON_INSTRUMENT_BADGE_SHOT") {
+                    full.pixmap.save_png(format!("{dir}/badge-{design:?}-{height}.png")).unwrap();
+                }
+                app.show_playback(Shown::default());let damage=app.take_damage();frame_damage(&mut app,&mut partial,damage);
+                assert_eq!(idle,partial.pixmap.pixel(x,y).unwrap(),"glow clears on note-off");
+                assert_ne!(halo_lit,partial.pixmap.pixel(halo_x,halo_y).unwrap(),"channel halo clears on silence");
+                frame(&mut app,&mut full,None);assert_same(&partial,&full,"entire halo clears in partial repaint");
+                assert_eq!(app.state.project,project,"visual feedback never changes project data");
+                app.state.project.channels[ch].sample_path=Some("symbol-only.wav".into());
+                frame(&mut app,&mut partial,None);app.take_damage();
+                let waveform=partial.pixmap.data().to_vec();
+                app.show_playback(Shown{sounding:vec![(id,60),(id,u16::MAX)],..Shown::default()});
+                let damage=app.take_damage();frame_damage(&mut app,&mut partial,damage);frame(&mut app,&mut full,None);
+                assert_ne!(waveform,partial.pixmap.data(),"sample waveform glows too");
+                assert_same(&partial,&full,"waveform activity partial repaint");
+                if let Ok(dir)=std::env::var("LEMON_INSTRUMENT_BADGE_SHOT"){full.pixmap.save_png(format!("{dir}/waveform-{design:?}-{height}.png")).unwrap();}
+                app.state.project.channels[ch].sample_path=None;app.show_playback(Shown::default());
+                crate::settings_file::set_flag(crate::playlist_tracks::INSTRUMENT_FEEDBACK,false);
+                frame(&mut app,&mut partial,None);
+                assert!(!app.hits.iter().any(|h|h.action==Action::Mix(crate::mixer::MHit::PlaylistInstrument(row))));
+                assert_eq!(app.state.project,project);
+                assert_eq!(crate::playlist_tracks::header_instrument(&app.state,row),Some(ch));
+                crate::settings_file::set_flag(crate::playlist_tracks::INSTRUMENT_FEEDBACK,true);
+            }
+        }
+    }
+
+    #[test]
+    fn mini_keyboard_pixel_lines_and_individual_note_lights() {
+        use os_ui::Color;
+        let app=App::new(None);let t=&app.theme.colors;
+        let px=|c:&Canvas,x:i32,y:i32|c.pixmap.pixel(x as u32,y as u32).unwrap();
+        for scale in [1.0,1.25,1.5,1.75,2.0]{
+            for height in [17.,37.,53.,85.,109.,169.,249.]{
+                let badge=Rect::new(10.3,8.6,22.,height);
+                let mut idle=Canvas::new(100,540,scale).unwrap();idle.clear(Color::rgb(0xc8d414));
+                crate::views::playlist::mini_keyboard(&mut idle,t,badge,0);
+                let x0=(badge.x*scale).round() as i32;let x1=(badge.right()*scale).round() as i32;
+                let y0=(badge.y*scale).round() as i32;let y1=(badge.bottom()*scale).round() as i32;
+                let (x,y,w,h)=(x0+1,y0+1,x1-x0-2,y1-y0-2);
+                let edge=|i:i32|y+(i*h+3)/7;
+                let sample_x=x+w-3;
+                let separator=px(&idle,sample_x,edge(1));
+                for i in 1..7 {
+                    let at=edge(i);
+                    assert_eq!(px(&idle,sample_x,at),separator,"all separators share a color");
+                    assert_ne!(px(&idle,sample_x,at-1),separator,"separator above is exactly one pixel: {height}/{scale}");
+                    assert_ne!(px(&idle,sample_x,at+1),separator,"separator below is exactly one pixel: {height}/{scale}");
+                }
+                assert_eq!(px(&idle,x0,y+h/2),px(&idle,x1-1,y+h/2),"matching one-pixel frame");
+                assert_ne!(px(&idle,x0,y+h/2),px(&idle,x,y+h/2),"no doubled frame");
+                for note in 0..12 {
+                    let mut active=Canvas::new(100,540,scale).unwrap();active.clear(Color::rgb(0xc8d414));
+                    crate::views::playlist::mini_keyboard(&mut active,t,badge,1<<note);
+                    assert_ne!(active.pixmap.data(),idle.pixmap.data(),"every pitch class can light");
+                    let black_w=((w as f32*0.62).round() as i32).max(1);
+                    let black_h=((h as f32*0.6/7.).round() as i32).max(1);
+                    for (i,key) in [11,9,7,5,4,2,0].into_iter().enumerate(){
+                        if note!=key {continue;}
+                        let solid=px(&active,x+w-1,(edge(i as i32)+edge(i as i32+1))/2);
+                        for yy in edge(i as i32)..edge(i as i32+1) {
+                            for xx in x+black_w..x+w {
+                                assert_eq!(px(&active,xx,yy),solid,"solid white key through the right edge: {height}/{scale}");
+                            }
+                        }
+                    }
+                    for (boundary,key) in [(1,10),(2,8),(3,6),(5,3),(6,1)] {
+                        let top=edge(boundary)-black_h/2;
+                        let solid=px(&active,x,top);
+                        for yy in top..top+black_h { for xx in x..x+black_w {
+                            if note==key {assert_eq!(px(&active,xx,yy),solid,"solid black key, no pale tip");}
+                            else {assert_eq!(px(&active,xx,yy),px(&idle,xx,yy),"unplayed black keys stay idle");}
+                        }}
+                    }
+                    // At the exposed white-key tips only that white key may light;
+                    // black notes have their own localized light on the left.
+                    for (i,key) in [11,9,7,5,4,2,0].into_iter().enumerate(){
+                        let at=(edge(i as i32)+edge(i as i32+1))/2;
+                        assert_eq!(px(&active,sample_x,at)!=px(&idle,sample_x,at),note==key,"note {note}, key {key}, {height}/{scale}");
+                    }
+                }
+                if scale==1.5&&[53.,109.,249.].contains(&height){
+                    if let Some(dir)=std::env::var_os("OS_SHOT_DIR"){
+                        idle.pixmap.save_png(std::path::PathBuf::from(&dir).join(format!("keys-idle-{height}.png"))).unwrap();
+                        crate::views::playlist::mini_keyboard(&mut idle,t,badge,(1<<0)|(1<<4)|(1<<7)|(1<<10));
+                        idle.pixmap.save_png(std::path::PathBuf::from(dir).join(format!("keys-chord-{height}.png"))).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn automation_feedback_moves_controls_and_partial_paint_matches_full() {
+        use crate::{knobs::KnobId,mixer as mx};
+        use os_model::target::Target;
+        for mode in [mx::WIDE,mx::TRADITIONAL] {
+            let mut app=App::new(None);app.state.project=test_project();
+            app.state.z=vec![Win::Mixer];app.state.selected_mixer=1;mx::set_layout(&mut app.state,mode);
+            let mut partial=Canvas::new(1600,1000,1.).unwrap();
+            let mut full=Canvas::new(1600,1000,1.).unwrap();
+            frame(&mut app,&mut partial,None);app.take_damage();
+            let before=partial.pixmap.data().to_vec();
+            let project=app.state.project.clone();
+            app.show_automation_values(vec![(Target::MixerVolume(1),0.2),(Target::MixerPan(1),0.8),(Target::SlotMix(1,0),0.3)]);
+            assert_eq!(app.state.displayed_volume(1),0.2);
+            assert!((app.state.knob(KnobId::MixPan(1))-0.8).abs()<1e-6);
+            assert!(mx::fader_group(&app.state,1).contains(&(1,0.2)),"drag starts at the audible level");
+            let damage=app.take_damage();assert!(matches!(damage,Some(Some(_))),"playback must not force full frames");
+            frame_damage(&mut app,&mut partial,damage);frame(&mut app,&mut full,None);
+            assert_ne!(before,partial.pixmap.data());assert_same(&partial,&full,"automation control movement");
+            assert_eq!(app.state.project,project,"display must not alter saved values");
+            assert!(app.state.rec.smart.active.is_empty(),"feedback is not recording input");
+            if let Some(dir)=std::env::var_os("OS_SHOT_DIR"){partial.pixmap.save_png(PathBuf::from(dir).join(format!("automation-mixer-{mode}.png"))).unwrap();}
+            app.show_automation_values(Vec::new());let damage=app.take_damage();
+            frame_damage(&mut app,&mut partial,damage);frame(&mut app,&mut full,None);
+            assert_same(&partial,&full,"clear automation feedback");
+        }
+    }
+
     /// Slots holding the file's parametric EQ get a Lemon Parametric EQ instance and show its name; adding the EQ
     /// stores the file's EQ (spec: plugins/lemon-parametric-eq-2.md §8).
     #[test]
@@ -12005,6 +12368,55 @@ mod tests {
             assert!(app.state.piano.selection(app.state.pattern, Some(channel)).is_empty());
             assert_eq!(piano::notes(&app.state), notes);
         }
+    }
+
+    #[test]
+    fn workflow_alt_wheel_velocity_selection_limits_and_undo() {
+        let mut a=App::new(None);a.state.project=test_project();a.state.z=vec![Win::PianoRoll];
+        let ch=piano::channel(&a.state).unwrap();
+        let i=piano::add_note(&mut a.state,ch,96,60);
+        let j=piano::add_note(&mut a.state,ch,192,64);
+        let other=piano::add_note(&mut a.state,ch,288,67);
+        piano::pattern_mut(&mut a.state).notes[i].velocity=100;
+        piano::pattern_mut(&mut a.state).notes[j].velocity=128;
+        a.state.piano.select(a.state.pattern,ch,vec![i,j]);
+        let before=piano::notes(&a.state).to_vec();
+        let mut c=Canvas::new(1600,900,1.).unwrap();frame(&mut a,&mut c,None);
+        let r=a.piano_geom().unwrap().note_rect(&piano::notes(&a.state)[i]).unwrap();
+        a.mouse_move(r.cx(),r.cy());a.alt=true;
+        let geometry=(a.state.piano.row_h,a.state.piano.px_per_beat,a.state.piano.scroll_y);
+        a.wheel(0.,1.,false,false);
+        assert_eq!(piano::notes(&a.state)[i].velocity,101);
+        assert_eq!(piano::notes(&a.state)[j].velocity,128);
+        assert_eq!(piano::notes(&a.state)[other],before[other]);
+        assert_eq!((a.state.piano.row_h,a.state.piano.px_per_beat,a.state.piano.scroll_y),geometry);
+        crate::history::undo(&mut a.state);assert_eq!(piano::notes(&a.state),before);
+        crate::history::redo(&mut a.state);assert_eq!(piano::notes(&a.state)[i].velocity,101);
+        piano::wheel_velocity(&mut a.state,other,-1.);
+        assert_eq!(piano::notes(&a.state)[other].velocity,before[other].velocity-1);
+        assert_eq!(piano::notes(&a.state)[i].velocity,101);
+        a.state.piano.clear_selection();piano::pattern_mut(&mut a.state).notes[i].velocity=0;
+        let count=a.state.history.done();piano::wheel_velocity(&mut a.state,i,-1.);
+        assert_eq!(a.state.history.done(),count);assert_eq!(piano::notes(&a.state)[i].velocity,0);
+    }
+
+    #[test]
+    fn workflow_keyboard_width_layout_and_visibility() {
+        let mut a=App::new(None);a.state.project=test_project();a.state.z=vec![Win::PianoRoll];
+        let before=a.state.project.clone();
+        for width in [71,100,140,180] {
+            crate::piano_tools::run(&mut a,crate::piano_tools::NCmd::KeyboardWidth(width));
+            for scale in [1.,1.25,1.5] {
+                let mut c=Canvas::new((1200.*scale) as u32,(800.*scale) as u32,scale).unwrap();frame(&mut a,&mut c,None);
+                let keys=hit_rect(&a,&Action::PianoKeys);let grid=hit_rect(&a,&Action::PianoGrid);
+                assert_eq!(keys.w,f32::from(width));assert!(keys.right()<grid.x);assert!(grid.w>100.);
+                if width==180 && scale==1.5 { if let Ok(dir)=std::env::var("OS_SHOT_DIR") {std::fs::create_dir_all(&dir).unwrap();c.pixmap.save_png(std::path::Path::new(&dir).join("piano-wide-150.png")).unwrap();} }
+            }
+        }
+        crate::workspace_visibility::toggle("visible_piano-keyboard-width");
+        assert_eq!(crate::piano_tools::keyboard_width(),180);assert_eq!(a.state.project,before);
+        crate::workspace_visibility::toggle("visible_piano-keyboard-width");
+        crate::piano_tools::run(&mut a,crate::piano_tools::NCmd::KeyboardWidth(71));
     }
 
     #[test]
@@ -14846,6 +15258,62 @@ mod tests {
         }
     }
 
+    #[test]
+    fn context_menu_hover_works_in_settings_and_detached_views() {
+        use crate::playlist::{Popup,PItem,Cmd};
+        for (settings,native) in [(false,None),(true,None),(false,Some(Win::Mixer))] {
+            let mut app=App::new(None);
+            app.state.settings.open=settings;
+            app.state.native_view=native;
+            app.state.playlist.popup=Some(Popup{x:100.,y:100.,items:vec![
+                PItem::sub("Parent",vec![PItem::sub("Child",vec![PItem::new("Leaf",Cmd::Nothing)])])
+            ],sub:None,scroll:[0;2],cascade:vec![]});
+            crate::prefs::set_check(&crate::prefs::HOVER_MENUS,false);
+            app.hover=Some(Action::PlPopup(0));
+            assert!(!app.update_menu_hover());
+            crate::prefs::set_check(&crate::prefs::HOVER_MENUS,true);
+            assert!(app.update_menu_hover());
+            app.hover=Some(Action::PlPopupSub(0));
+            assert!(app.update_menu_hover());
+            assert_eq!(app.state.playlist.popup.as_ref().unwrap().cascade,[(0,0)]);
+            app.hover=Some(Action::PlPopupDeep(2,0));
+            assert!(!app.update_menu_hover());
+            assert!(app.state.playlist.popup.is_some());
+        }
+    }
+
+    #[test]
+    fn playlist_drag_destination_and_folder_edges() {
+        use crate::playlist as pl;
+        for (scale,design) in [(1.,Design::Citrus),(1.25,Design::Citrus),(1.5,Design::Citrus),(1.,Design::Lemon),(1.25,Design::Lemon),(1.5,Design::Lemon)] {
+            let mut app=App::new(None);
+            app.set_design(design,false);
+            app.state.project=test_project();app.state.show_browser=false;app.state.z=vec![Win::Playlist];
+            app.state.startup_layout_pending=false;
+            let a=pl::arr_mut(&mut app.state);
+            for row in 0..8 {a.tracks[row].name=Some(format!("Track {row}"));a.tracks[row].color=Some(os_model::Rgb::new(0x50,0x80,0xb0));}
+            a.tracks[1].folder=true;a.tracks[2].grouped=true;a.tracks[3].grouped=true;
+            let mut c=Canvas::new(1280,900,scale).unwrap();
+            frame(&mut app,&mut c,None);
+            let grip=hit_rect(&app,&Action::PlTrackGrip(5));
+            let target=hit_rect(&app,&Action::PlHeader(0));
+            app.mouse_move(grip.cx(),grip.cy());app.mouse_down();app.mouse_move(target.cx(),target.cy());
+            assert!(matches!(app.state.playlist.overlay,Some(pl::Overlay::TrackInsertion(_))));
+            frame(&mut app,&mut c,None);
+            if let Some(dir)=std::env::var_os("OS_SHOT_DIR") {c.pixmap.save_png(std::path::PathBuf::from(dir).join(format!("playlist-destination-{design:?}-{scale}.png"))).unwrap();}
+            let before=app.state.project.clone();
+            crate::settings_file::set_flag("visible_playlist-track-destination",false);
+            frame(&mut app,&mut c,None);
+            assert_eq!(app.state.project,before);
+            app.mouse_up();
+            crate::settings_file::set_flag("visible_playlist-track-destination",true);
+            assert_eq!(pl::track_info(&app.state,0).unwrap().name.as_deref(),Some("Track 5"));
+            assert!(app.state.playlist.overlay.is_none());
+            crate::history::undo(&mut app.state);
+            assert_eq!(pl::track_info(&app.state,5).unwrap().name.as_deref(),Some("Track 5"));
+        }
+    }
+
     /// Holding the mouse on a toolbar window button lights it orange; releasing restores it.
     #[test]
     fn pressed_button_look() {
@@ -16240,7 +16708,10 @@ mod tests {
     #[test]
     fn mixer_separator_keeps_the_selection_and_controls_clear() {
         use crate::mixer::{self as mx, MHit};
-        for (layout, scale) in [(mx::WIDE, 1.0), (mx::WIDE, 1.25), (mx::TRADITIONAL, 1.25)] {
+        for (layout, scale) in [
+            (mx::WIDE, 1.0), (mx::WIDE, 1.25),
+            (mx::TRADITIONAL, 1.0), (mx::TRADITIONAL, 1.25), (mx::TRADITIONAL, 1.5),
+        ] {
             let mut app = App::new(None);
             app.set_design(Design::Lemon, false);
             app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
@@ -16284,6 +16755,24 @@ mod tests {
                 let x = (strip.x * scale).round() as u32;
                 assert!((x..x + 3).any(|x| blue(x, (y * scale).round() as u32)),
                     "visible left selection edge at {y}, layout {layout}, scale {scale}");
+            }
+            if layout == mx::TRADITIONAL {
+                let bottom = strip.bottom() + 64.0;
+                for y in [strip.y + 3.0, strip.y + strip.h * 0.25, strip.cy(), bottom - 14.0] {
+                    let y = (y * scale).round() as u32;
+                    let left = (strip.x * scale).round() as u32;
+                    let right = (strip.right() * scale).round() as u32;
+                    assert!((left..left + 5).any(|x| blue(x, y)), "missing left edge at {y}, scale {scale}");
+                    assert!((right - 5..right).any(|x| blue(x, y)), "missing right edge at {y}, scale {scale}");
+                }
+                let x = (strip.cx() * scale).round() as u32;
+                let y = (bottom * scale).round() as u32;
+                assert!((y - 8..y - 2).any(|y| blue(x, y)), "missing rounded bottom edge at scale {scale}");
+                let y = ((strip.y + 22.0) * scale).round() as u32;
+                let center = ((strip.x - 4.5) * scale).round() as u32;
+                let color = canvas.pixmap.pixel(center, y).unwrap();
+                assert!((center - 3..=center + 3).all(|x| canvas.pixmap.pixel(x, y) == Some(color)),
+                    "separator gutter must have a single solid color at scale {scale}");
             }
             if let Some(dir) = std::env::var_os("ML_MIXER_SEPARATOR_PREVIEW") {
                 let dir = std::path::PathBuf::from(dir);
@@ -25833,6 +26322,65 @@ LemonStudioStyle.button-radius=8
     }
 
     #[test]
+    fn playlist_keyboard_theme_edit_reset_cancel_export_and_halo() {
+        use crate::advanced_theme::{self as e, Hit, FieldFor, Row};
+        use crate::views::settings::{self, SAct};
+        use winit::keyboard::{Key, NamedKey};
+        let dir=std::env::temp_dir().join(format!("keyboard-theme-{}",std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        THEME_DIR.with(|d|*d.borrow_mut()=Some(dir.clone()));
+        let mut app=App::new(None);let original=app.theme.clone();let project=app.state.project.clone();
+        app.open_settings(settings::THEME);app.start_theme_editor();
+        let groups=e::groups(e::KEYBOARD_SECTION);
+        let rows=&groups.iter().find(|(name,_)|*name==e::KEYBOARD_SECTION).unwrap().1;
+        assert_eq!(rows.iter().filter(|r|matches!(r,Row::Color(_))).count(),9);
+        let styles:Vec<_>=rows.iter().filter_map(|r|if let Row::Style(i)=r {Some(*i)}else{None}).collect();
+        assert_eq!(styles.len(),2);
+        let act=|hit|SAct::ThemeEditor(hit);
+        let set=|app:&mut App,field,value:&str| {
+            app.settings_act(act(Hit::Field(field)));
+            app.key(&Key::Character(value.into()),false,false);
+            app.key(&Key::Named(NamedKey::Enter),false,false);
+        };
+        for token in ["playlist_key_white","playlist_key_black","playlist_key_white_active","playlist_key_black_active","playlist_key_frame","playlist_key_separator","playlist_activity_halo","playlist_waveform","playlist_waveform_active"] {
+            set(&mut app,FieldFor::Hex(token),"#F205C7");
+            assert_eq!(app.theme.colors.get(token),Some(os_theme::Color::rgb(0xf205c7)));
+        }
+        assert_eq!(app.theme.colors.key_white,original.colors.key_white,"mini keyboard does not change piano roll");
+        set(&mut app,FieldFor::Number(styles[1]),"125");
+        assert_eq!(app.theme.colors.appearance.playlist_halo_strength,Some(1.25));
+        app.settings_act(act(Hit::Choice(styles[0],"Hide")));
+        let mut c=Canvas::new(100,100,1.).unwrap();c.clear(os_ui::Color::rgb(0x333333));let idle=c.pixmap.data().to_vec();
+        let face=Rect::new(5.,5.,90.,90.);
+        crate::views::playlist::activity_halo(&mut c,&app.theme.colors,face,4.);
+        assert_eq!(c.pixmap.data(),idle,"hidden halo does not paint");
+        app.settings_act(SAct::Button(settings::THEME_UNDO));
+        assert_eq!(app.theme.colors.appearance.playlist_halo_visible,None);
+        crate::views::playlist::activity_halo(&mut c,&app.theme.colors,face,4.);assert_ne!(c.pixmap.data(),idle);
+        app.settings_act(SAct::Button(settings::THEME_REDO));
+        assert_eq!(app.theme.colors.appearance.playlist_halo_visible,Some(false));
+        app.settings_act(act(Hit::ResetGroup(e::KEYBOARD_SECTION)));
+        assert_eq!(app.theme.colors,original.colors);
+        app.settings_act(SAct::Button(settings::THEME_UNDO));
+        assert_eq!(app.theme.colors.playlist_key_white,os_theme::Color::rgb(0xf205c7));
+        app.settings_act(SAct::Button(e::CANCEL));assert_eq!(app.theme,original);
+        app.start_theme_editor();
+        set(&mut app,FieldFor::Hex("playlist_key_white_active"),"#F205C7");
+        set(&mut app,FieldFor::Hex("playlist_activity_halo"),"#22EE44");
+        set(&mut app,FieldFor::Number(styles[1]),"150");
+        let mut preview=Canvas::new(1600,1000,1.).unwrap();
+        if let Some(edit)=app.state.settings.advanced_theme.as_mut(){edit.query.set(e::KEYBOARD_SECTION);edit.groups=e::groups(e::KEYBOARD_SECTION);}
+        app.state.settings.scroll=0.;frame(&mut app,&mut preview,None);
+        if let Some(out)=std::env::var_os("OS_SHOT_DIR"){preview.pixmap.save_png(PathBuf::from(out).join("keyboard-theme-editor.png")).unwrap();}
+        app.settings_act(SAct::Button(e::APPLY));
+        let exported=dir.join("Keyboard.flstheme");app.export_theme(&exported);
+        let mut reopened=App::new(None);reopened.load_theme_file_ex(&exported,false);
+        assert_eq!(reopened.theme.colors,app.theme.colors);
+        assert_eq!(app.state.project,project);
+        THEME_DIR.with(|d|*d.borrow_mut()=None);
+    }
+
+    #[test]
     fn theme_expansion_edits_reset_undo_cancel_export_and_visibility() {
         use crate::advanced_theme::{self as e, Hit, FieldFor, Row};
         use crate::views::settings::{self, SAct};
@@ -29764,6 +30312,7 @@ mod common_shortcut_tests {
 #[cfg(any(windows,target_os="macos"))]
 impl App {
     fn sync_rack_editors(&mut self){
+        if !self.project_windows_ready(){return;}
         if self.state.native_view.is_some_and(|w|w!=Win::Mixer){return;}
         if self.state.native_view.is_none()&&self.state.native_detached.contains(&Win::Mixer)&&self.state.shown(Win::Mixer){return;}
         if crate::mixer::view(&self.state)!=crate::rack_mixer::VIEW||!self.state.shown(Win::Mixer){self.plugins.close_racks();return;}
@@ -29795,6 +30344,40 @@ impl App {
             let status=match self.plugins.hosted.get(&key){None=>Some("Plugin unavailable or still loading".into()),Some(h)=>h.rack_error.clone().or_else(||h.window.as_ref().map(|_|"Original editor is open in its plugin window".into()))};
             if let Some(e)=status{self.state.mixer.rack_errors.insert(v.track,e);}else{self.state.mixer.rack_errors.remove(&v.track);}
         }
+    }
+}
+
+#[cfg(all(test,any(windows,target_os="macos")))]
+mod detached_loading_tests {
+    use super::*;
+    #[test]
+    fn project_loading_defers_mixer_editors_and_preserves_saved_detachment() {
+        let mut app=App::new(None);
+        app.state.project=test_project();
+        app.state.native_detached=vec![Win::Mixer];
+        let frame=crate::layout::MainWin{pos:(-1500,80),size:(1100,700),max:true};
+        app.state.native_frames=vec![(Win::Mixer,frame)];
+        app.plugins.effects=crate::plugins::builtin_effects();
+        let index=app.plugins.effect_index(crate::plugins::LEMON_EQ).unwrap();
+        app.plugins.create_effect(1,0,index,None).unwrap();
+        let key=crate::plugins::fx_key(1,0);
+        app.plugins.hosted.get_mut(&key).unwrap().rack_error=Some("existing editor state".into());
+        app.loading=Some(crate::loading::Loading::start(&app.state.project));
+        // Both the main and detached paint paths must leave editor state untouched.
+        for view in [None,Some(Win::Mixer)] {
+            app.state.native_view=view;
+            assert!(!app.project_windows_ready());
+            app.sync_rack_editors();
+            assert_eq!(app.plugins.hosted[&key].rack_error.as_deref(),Some("existing editor state"));
+        }
+        assert_eq!(app.state.native_detached,vec![Win::Mixer]);
+        assert_eq!(app.state.native_frames,vec![(Win::Mixer,frame)]);
+        app.loading=None;
+        assert!(app.project_windows_ready());
+        app.state.mixer.layout=crate::mixer::WIDE;
+        app.state.mixer.vintage_layout=crate::mixer::WIDE;
+        app.sync_rack_editors();
+        assert!(app.plugins.hosted[&key].rack_error.is_none(),"normal editor lifecycle resumes after loading");
     }
 }
 

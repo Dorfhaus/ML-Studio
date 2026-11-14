@@ -441,21 +441,33 @@ pub fn float_frame(ui: &mut Ui, s: &State, win: Win, r: Rect) -> Option<Rect> {
         ui.c.stroke_rrect(r.inset(3.),0.,1.,Color::rgb(0x28373d));
         ui.c.fill_rect(Rect::new(inner.x-1.,inner.y+23.,inner.w+2.,inner.h-22.),Color::rgb(0x202b32));
     } else if kit::lemon::on(t) {
-        kit::float_frame(ui.c, t, r);
         if win == Win::Playlist {
-            // The Playlist divider meets a square title bar. Fill the client
-            // well's upper corners so its vertical edge starts straight.
-            let top = Rect::new(inner.x - 1.0, inner.y + 22.0, inner.w + 2.0, (kit::lemon::r_panel(t) - 3.0).max(2.0));
-            ui.c.fill_cell(top, t.window_border.mix(t.window_title, 0.3));
-        }
+            // Track cards already define the content edge. The inset client well
+            // left an unnecessary vertical rail and a dark rounded tip beside them.
+            kit::lemon::window(ui.c,t,r);
+        } else {kit::float_frame(ui.c,t,r);}
     } else {
         ui.c.fill_rect(r, ui.t.s(0x191d1f));
         ui.c.fill_rect(r.inset(1.0), t.window_title);
         ui.c.fill_rect(Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, 1.0), ui.t.s(0x303436));
-        ui.c.fill_rect(Rect::new(inner.x - 1.0, inner.y + 22.0, inner.w + 2.0, inner.h - 21.0), ui.t.s(0x131718));
+        if win != Win::Playlist {
+            ui.c.fill_rect(Rect::new(inner.x - 1.0, inner.y + 22.0, inner.w + 2.0, inner.h - 21.0), ui.t.s(0x131718));
+        }
     }
     ui.hit(Rect::new(r.x, r.y, r.w, 28.0), Action::WinDrag(win), "Drag to move");
     Some(inner)
+}
+
+/// Flat panel border on a single device-pixel grid. Corners share exactly the
+/// same bounds as the straight sides and are painted only once.
+pub(crate) fn panel_outline(c:&mut os_ui::Canvas,r:Rect,color:Color) {
+    let k=c.scale;
+    let (x,y,right,bottom)=((r.x*k).round(),(r.y*k).round(),(r.right()*k).round(),(r.bottom()*k).round());
+    let (w,h)=(right-x,bottom-y);
+    if w<2. || h<2. {return;}
+    for (x,y,w,h) in [(x,y,w,1.),(x,bottom-1.,w,1.),(x,y+1.,1.,h-2.),(right-1.,y+1.,1.,h-2.)] {
+        c.fill_cell(Rect::new(x/k,y/k,w/k,h/k),color);
+    }
 }
 
 /// The (layout rect, client rect) that `framed` returns for `win` at `r`, without painting.

@@ -7,7 +7,7 @@ use crate::{app::{App,Win,Action},layout::{self,MainWin}};
 use os_ui::Canvas;
 use crate::{app::Scroll, help, views::settings::SAct};
 #[derive(Default)]
-pub struct Windows { stems:Option<(u16,u32,Vec<std::path::PathBuf>)>, panes:Vec<Pane>, screens:Vec<[i32;4]>, main:Option<crate::app::ViewContext>, changed:bool, layout_generation:u64 }
+pub struct Windows { header_samples:Option<(u16,Vec<String>)>, stems:Option<(u16,u32,Vec<std::path::PathBuf>)>, panes:Vec<Pane>, screens:Vec<[i32;4]>, main:Option<crate::app::ViewContext>, changed:bool, layout_generation:u64 }
 struct Pane {
     kind:Win, window:Rc<Window>, surface:softbuffer::Surface<Rc<Window>,Rc<Window>>, canvas:Canvas,
     cursor:Option<(crate::app::Cursor,u16,u8)>,
@@ -20,6 +20,7 @@ fn key(w:Win)-> &'static str {match w {Win::Guide=>"native_user_guide",Win::Brow
 fn title(w:Win)-> &'static str {match w {Win::Guide=>"ML Studio - User Guide",Win::Browser=>"ML Studio - Browser",Win::Mixer=>"ML Studio - Mixer",Win::PianoRoll=>"ML Studio - Piano roll",_=>"ML Studio - Playlist"}}
 impl Windows {
     pub fn flush_stems(&mut self,app:&mut App){
+        if let Some((row,paths))=self.header_samples.take(){crate::playlist_tracks::drops::samples(app,paths,row);self.changed=true;}
         if let Some((track,tick,files))=self.stems.take(){app.import_stems(files,track,tick);self.changed=true;}
     }
     pub fn browser_window(&self) -> Option<&Window> { self.panes.iter().find(|p| p.kind == Win::Browser).map(|p| p.window.as_ref()) }
@@ -30,6 +31,7 @@ impl Windows {
 
     pub fn owns(&self,id:WindowId)->bool {self.panes.iter().any(|p|p.window.id()==id)}
     pub fn prepare_drag(&mut self,app:&mut App) {
+        if !app.project_windows_ready(){return;}
         let external=app.state.sample_drop.external&&app.state.sample_drop.surface.is_some();
         let target=if external{app.state.sample_drop.surface}else{app.state.native_input};
         if (!external&&app.drag.is_none())||!self.panes.iter().any(|p|Some(p.kind)==target){return;}
@@ -42,11 +44,14 @@ impl Windows {
     }
     pub fn save(&self) {for p in &self.panes {layout::save_native(key(p.kind),p.frame);}}
     pub fn sync(&mut self,app:&mut App,el:&ActiveEventLoop,cache:&mut crate::CursorCache) {
+        // Keep the saved layout pending until hosting finishes. Creating a pane paints it
+        // immediately, which can otherwise open native Mixer editors halfway through loading.
+        if !app.project_windows_ready(){return;}
         let screens=crate::screens(el);let changed=screens!=self.screens;self.screens=screens.clone();
         if self.layout_generation!=app.state.native_layout_generation {
             self.layout_generation=app.state.native_layout_generation;
             for p in &mut self.panes {if let Some((_,f))=app.state.native_frames.iter().find(|(w,_)|*w==p.kind){
-                let f=layout::on_screens(*f,&screens);p.window.set_maximized(false);p.window.set_outer_position(PhysicalPosition::new(f.pos.0,f.pos.1));let _=p.window.request_inner_size(PhysicalSize::new(f.size.0,f.size.1));p.window.set_maximized(f.max);p.frame=f;
+                let f=layout::on_screens(*f,&screens);p.window.set_maximized(false);p.window.set_outer_position(frame_position(f));let _=p.window.request_inner_size(frame_size(f));p.window.set_maximized(f.max);p.frame=f;
             }}
         }
         self.panes.retain(|p|{let keep=if p.kind==Win::Guide {help::detached_open(&app.state)} else {app.state.native_detached.contains(&p.kind)&&app.state.shown(p.kind)};if !keep {#[cfg(windows)] if p.kind==Win::Mixer {app.plugins.close_racks();}layout::save_native(key(p.kind),p.frame);}keep});
@@ -57,7 +62,7 @@ impl Windows {
             if (kind!=Win::Guide && !app.state.shown(kind))||self.panes.iter().any(|p|p.kind==kind){continue;}
             let initial=app.state.native_frames.iter().find(|(w,_)|*w==kind).map(|(_,f)|*f).or_else(||layout::native_win(key(kind))).unwrap_or(MainWin{pos:(100,100),size:match kind {Win::Browser=>(380,680),Win::Guide=>(1050,770),_=>(1100,800)},max:false});
             let frame=layout::on_screens(initial,&screens);
-            let attrs=Window::default_attributes().with_title(title(kind)).with_inner_size(PhysicalSize::new(frame.size.0,frame.size.1)).with_position(PhysicalPosition::new(frame.pos.0,frame.pos.1)).with_min_inner_size(LogicalSize::new(kind.min_size().0 as f64,kind.min_size().1 as f64)).with_maximized(frame.max).with_visible(false);
+            let attrs=Window::default_attributes().with_title(title(kind)).with_inner_size(frame_size(frame)).with_position(frame_position(frame)).with_min_inner_size(LogicalSize::new(kind.min_size().0 as f64,kind.min_size().1 as f64)).with_maximized(frame.max).with_visible(false);
             let made=(||->Result<Pane,String>{
                 let window=Rc::new(el.create_window(attrs).map_err(|e|e.to_string())?);
                 let context=softbuffer::Context::new(window.clone()).map_err(|e|e.to_string())?;
@@ -71,7 +76,7 @@ impl Windows {
             if p.kind!=Win::Guide {app.state.native_frames.retain(|(w,_)|*w!=p.kind);app.state.native_frames.push((p.kind,p.frame));}
             if changed {
                 let next=layout::on_screens(p.frame,&screens);
-                if next!=p.frame {p.window.set_maximized(false);p.window.set_outer_position(PhysicalPosition::new(next.pos.0,next.pos.1));let _=p.window.request_inner_size(PhysicalSize::new(next.size.0,next.size.1));p.frame=next;}
+                if next!=p.frame {p.window.set_maximized(false);p.window.set_outer_position(frame_position(next));let _=p.window.request_inner_size(frame_size(next));p.frame=next;}
             }
             if p.painted.elapsed().as_millis()>=if p.kind==Win::Guide {250} else if app.animating()||p.motion.is_some(){16}else{100} {p.window.request_redraw();}
         }
@@ -91,6 +96,9 @@ impl Windows {
             self.guide_event(app, id, event);
             return;
         }
+        // Existing panes also receive queued redraw/resize events while a new project
+        // loads. Do not repaint plugins or overwrite the incoming project's saved frame.
+        if !app.project_windows_ready(){return;}
         if app.loading() && matches!(event,WindowEvent::MouseInput{state:ElementState::Pressed,..}|WindowEvent::KeyboardInput{..}|WindowEvent::MouseWheel{..}|WindowEvent::DroppedFile(_)){return;}
         // Mouse input is consumed once per frame, not at the mouse polling rate.
         if let WindowEvent::CursorMoved{position,..}=&event {
@@ -167,6 +175,9 @@ impl Windows {
                     app.mouse=((cx-origin.x) as f32/scale,(cy-origin.y) as f32/scale);
                 }
                 if p.kind==Win::Playlist && !app.modal_open() && crate::views::browser::file_icon(&path.to_string_lossy())==crate::icons::Icon::FileAudio
+                    && let Some(row)=crate::playlist_tracks::drops::header_at(app){
+                    self.header_samples.get_or_insert_with(||(row,Vec::new())).1.push(path.to_string_lossy().into_owned());
+                }else if p.kind==Win::Playlist && !app.modal_open() && crate::views::browser::file_icon(&path.to_string_lossy())==crate::icons::Icon::FileAudio
                     && let Some((track,tick))=app.playlist_drop_position(){
                     self.stems.get_or_insert_with(||(track,tick,Vec::new())).2.push(path);
                 }else{app.drop_file_at_plugin(path,None);}
@@ -308,6 +319,16 @@ fn paint_guide(app: &mut App, pane: &mut Pane) {
     }
 }
 
+// Match main.rs::frame_of: macOS stores points, Windows/Linux store pixels.
+fn frame_position(frame:MainWin)->winit::dpi::Position {
+    if cfg!(target_os="macos") {winit::dpi::LogicalPosition::new(frame.pos.0 as f64,frame.pos.1 as f64).into()}
+    else {PhysicalPosition::new(frame.pos.0,frame.pos.1).into()}
+}
+fn frame_size(frame:MainWin)->winit::dpi::Size {
+    if cfg!(target_os="macos") {LogicalSize::new(frame.size.0 as f64,frame.size.1 as f64).into()}
+    else {PhysicalSize::new(frame.size.0,frame.size.1).into()}
+}
+
 fn set_rack_parent(app:&mut App,window:&Window){
     #[cfg(windows)] {use winit::raw_window_handle::{HasWindowHandle,RawWindowHandle};app.rack_parent=match window.window_handle().map(|h|h.as_raw()){Ok(RawWindowHandle::Win32(h))=>h.hwnd.get(),_=>0};}
     #[cfg(target_os="macos")] {use winit::raw_window_handle::{HasWindowHandle,RawWindowHandle};app.rack_parent=match window.window_handle().map(|h|h.as_raw()){Ok(RawWindowHandle::AppKit(h))=>h.ns_view.as_ptr() as isize,_=>0};}
@@ -321,6 +342,14 @@ fn needs_layout(event:&WindowEvent,drag:bool)->bool {
 }
 #[cfg(test)] mod monitor_tests {
     use super::*;
+    #[test] fn detached_frame_uses_platform_units() {
+        let frame=MainWin{pos:(-1500,80),size:(1100,700),max:true};
+        for scale in [1.,1.25,2.] {
+            let k=if cfg!(target_os="macos"){scale}else{1.};
+            assert_eq!(frame_position(frame).to_physical::<i32>(scale),PhysicalPosition::new((-1500.*k) as i32,(80.*k) as i32));
+            assert_eq!(frame_size(frame).to_physical::<u32>(scale),PhysicalSize::new((1100.*k) as u32,(700.*k) as u32));
+        }
+    }
     #[test] fn monitor_switch_notifications_do_not_paint() {
         for _ in 0..1000 {
             assert!(!needs_layout(&WindowEvent::Focused(true),false));

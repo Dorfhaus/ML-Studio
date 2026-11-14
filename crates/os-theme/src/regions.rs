@@ -18,6 +18,7 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
     ("inserts", "Traditional FL-style mixer view", ""),
 ];
 pub fn section(name: &str) -> &'static str {
+    if name.starts_with("playlist_key_") || name.starts_with("playlist_activity_") || name.starts_with("playlist_waveform") { return "Playlist"; }
     if name.starts_with("insert_knob_") {
         return "Traditional FL-style mixer view";
     }

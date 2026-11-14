@@ -185,7 +185,25 @@ def artifacts(plans):
             if dest.startswith('Lemon-Studio-'):
                 dest = 'ML-Studio-' + dest.removeprefix('Lemon-Studio-')
             assets.append(dict(name=dest,url=r.BASE+urllib.parse.quote(rel),sha256=h,path=rel,local=str(f)))
+    for rel,(f,h) in index.items():
+        if rel.startswith('helper/') and rel.endswith('.zip'):
+            assets.append(dict(name=f.name,url=r.BASE+urllib.parse.quote(rel),sha256=h,path=rel,local=str(f)))
     return index,assets
+
+
+def helper_stage(out):
+    """Require the exact optional packages pinned in the signed DAW source."""
+    catalog=json.loads((r.ROOT/'packaging/helper/catalog.json').read_text())
+    folder=out/'helper';site=folder/'lemon-studio'
+    for platform in PLATFORMS:
+        spec=catalog[platform];entry=spec['archive'];source=storage.app_root()/'Helper Release'/entry['name']
+        storage.free_space(source)
+        if not source.is_file() or source.stat().st_size!=entry['size'] or digest(source)!=entry['sha256']:
+            raise RuntimeError('Missing or changed Melli package: '+str(source))
+        rel=f"helper/{spec['version']}/{entry['name']}"
+        if entry['url']!=r.BASE+rel:raise RuntimeError('Melli package URL differs from publication target')
+        target=site/rel;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
+    return stage(r.write_plan(site,folder,'helper'),'helper')
 
 
 def verify_live(plans,out):
@@ -319,14 +337,17 @@ def coordinator(notes=None,check=False,no_changelog=False):
             folder=out/'website';site=folder/'lemon-studio';site.mkdir(parents=True,exist_ok=True);shutil.copy2(r.ROOT/'packaging/download-page.html',site/'index.html')
             p=r.write_plan(site,folder,'website');return stage(p,'website')
         webplan=j.step('Stage website',website)
-        plans=[win_shared,*macplans]
+        helper=j.step('Stage optional Melli',lambda _:helper_stage(out))
+        plans=[win_shared,*macplans,helper]
         if r.git('status','--porcelain') or r.git('rev-parse','HEAD')!=j.data['identity']['commit']:raise RuntimeError('Source changed during the release; no packages will be published')
         def publish(p):
             name=json.loads(Path(p).read_text())['scope']
             def action(_):
                 remote(['publish-worker',name],out/('publish-'+name+'.log'));receipt=Path(p).with_name('PUBLISHED.json');return str(receipt),[receipt]
             return j.step('Publish '+name,action)
-        with ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(publish,plans))
+        # All optional files must be live before any DAW feed advertises this build.
+        publish(helper)
+        with ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(publish,plans[:-1]))
         publish(webplan)
         gp=j.step('Verify live downloads and feeds',lambda _:verify_live(plans,out))
         publication=j.step('Publish GitHub',lambda attempt:github_stage(gp,plans,out,attempt))
@@ -359,7 +380,7 @@ def main():
         if a.worker not in ('arm64','x86_64'):parser.error('Choose arm64 or x86_64')
         worker(a.worker)
     elif a.action=='publish-worker':
-        if a.worker not in ('windows-linux','mac-arm64','mac-x86_64','website'):parser.error('Invalid scope')
+        if a.worker not in ('windows-linux','mac-arm64','mac-x86_64','website','helper'):parser.error('Invalid scope')
         publish_shared(a.worker)
     elif a.action=='status':
         p=output_root()/'Progress.txt';print(p.read_text(encoding='utf-8') if p.exists() else 'No pipeline run for the current source version.')

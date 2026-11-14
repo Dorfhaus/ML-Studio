@@ -131,7 +131,7 @@ fn strip(ui:&mut Ui,s:&State,n:u16,r:Rect,window:Rect) {
     let separator = mx::has_separator(s, n);
     let x = r.cx();
     skin::fader_guide(ui.c, x, top, bottom);
-    let v=track.and_then(|m|m.volume).unwrap_or(0.8) as f32;
+    let v=s.displayed_volume(n) as f32;
     let position = |value: f32| bottom - value.clamp(0.0, 1.0) * (bottom - top);
     skin::fader_unity(ui.c, x, position(0.8), 8.0);
     let hot=ui.hit(Rect::new(x-10.,top-10.,20.,bottom-top+20.),Action::Fader(n),mx::level_text("Volume",f64::from(v)));
@@ -210,7 +210,7 @@ fn effects(ui:&mut Ui,s:&State,r:Rect) {
         ui.hit(kr,Action::Knob(id),s.knob_text(id));mixer_knob(ui,kr.cx(),kr.cy(),6.,8.,s.knob(id),Some(false));
         let led=Rect::new(row.right()-17.,row.cy()-7.,14.,14.);
         ui.hit(led,Action::Mix(MHit::SlotLed(k)),"Enable / bypass slot");
-        if mx::track(s,n).is_none_or(|m|m.slot_on[k as usize]) {art::led_on(ui.c,led);}else{art::led_off(ui.c,led);}
+        if s.displayed_slot_on(n,k) {art::led_on(ui.c,led);}else{art::led_off(ui.c,led);}
     }
     let mut add=Rect::new(r.x,r.bottom()-20.,r.w,20.);
     if crate::workspace_visibility::shown(mx::DELETE_EXTRA_SLOT_VISIBILITY) && mx::has_extra_slot(s, n) {

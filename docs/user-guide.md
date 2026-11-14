@@ -43,6 +43,12 @@ Get the installer or archive for your operating system and processor from the of
 3. Use Help > About to identify your build. Help > Change Log lists the installed release history. When a signed update is available, the update control downloads it and offers a restart.
 Related: Make your first song | Set up an audio device | Report a problem and check for updates
 
+### Find a control that is missing or greyed out
+Keywords: missing hidden disabled grayed greyed unavailable menu option setting button does not show find control
+Open Settings > Visibility and search for the label. Enable its visibility if it is hidden, then return to the original menu or Settings page. Some controls appear in an **Advanced** tab or a collapsed settings group. If a menu entry is missing, also check Settings > Menus for that menu's layout.
+If the control is visible but grey, check what is selected and whether the action needs a saved project, stopped playback, an unlocked track or an installed plugin. A feature can also depend on the platform or audio driver. The toolbar hint area can describe supported controls as you move the pointer over them.
+Related: Show or hide interface features | How menus work | Restore a shortcut that stopped working
+
 ### Read the toolbar and project time
 Keywords: toolbar hint time display song position varispeed output monitor cpu pattern snap recording
 The hint area describes the control under the pointer. PAT and SONG choose what transport plays. Use the pattern selector to choose the current pattern and the Global snap selector to set the shared editing grid. Editors with an independent snap setting can follow the global choice or override it.
@@ -130,9 +136,15 @@ Related: Record a microphone or instrument | Record notes from a MIDI keyboard |
 Keywords: input monitoring latency dry wet record external direct software monitoring offset stereo interface
 Select an input on a Mixer insert and watch the input meter. A mono input is appropriate for one microphone. A stereo input pair is appropriate for an interface receiving a stereo source. Arm the intended insert and check which Playlist track is linked or selected for the take.
 Use one monitoring path to prevent hearing a direct and a delayed copy together. Interface direct monitoring gives a dry cue with minimal delay. DAW monitoring lets you hear the mixer route and its effects. A low stable buffer helps when monitoring through the app.
-Test timing with a known transient before adjusting Recording offset under Audio > Advanced. A positive offset places audio later. Choose 32-bit float, 24-bit PCM or 16-bit PCM to suit the recording workflow. Trim the source or adjust clip gain for later edits.
+Test timing with a known transient before adjusting Recording offset under Audio > Advanced > Recording. A positive offset moves the recorded material later within the take. Trim the source or adjust clip gain for later edits.
 Guide: mixer-input
-Related: Prevent feedback and choose a recording input | Audio processing and recording settings
+Related: Prevent feedback and choose a recording input | Audio processing and recording settings | Fix audio recordings that land early or late
+
+### Fix audio recordings that land early or late
+Keywords: recording offset latency alignment early late ahead behind recording format loopback driver compensation
+Open Settings > Audio > Advanced > Recording. **Recording format** sets the WAV format for new recordings. Choose 32-bit float, 24-bit PCM or 16-bit PCM before recording. Existing files keep their original format.
+**Recording offset** adjusts recorded alignment in milliseconds when a timing estimate is available. It starts at +0.0 ms and ranges from −200 to +200 ms. If repeated test recordings land late, try a small negative correction. If they land early, try a small positive correction. Use the same input, driver and buffer while comparing takes. This control applies to future recordings.
+Related: Set up inputs, monitoring and recording placement | Audio device and latency
 
 ### Recover a played phrase with the score log
 Keywords: score logger dump last played midi notes retrospective history clear
@@ -174,7 +186,8 @@ Place a glide against a sounding note on a compatible instrument and adjust its 
 ### Zoom, navigate and place patterns
 Keywords: piano roll alt wheel vertical zoom place pattern playlist toolbar
 Guide: place-pattern
-Use Alt + wheel over Piano Roll to resize note rows vertically. Use the horizontal overview to move through the pattern and the vertical controls to bring the notes into view.
+Hold Alt and scroll over a note to change velocity by one unit per notch (0–128). Hover a selected note to adjust the selected notes together, or an unselected note to edit just that note. Undo restores the edit. Alt + wheel over the keys or empty note grid still changes row height. Ctrl + wheel zooms time.
+Choose Piano Roll menu > View > Keyboard width for Standard, Wide, Wider or Maximum keys. This changes the keyboard width, not note timing. The choice is saved per profile. Hide this menu in Settings > Visibility > Piano Roll > Keyboard width menu without changing the saved width. Use the horizontal overview to move through the pattern and the vertical controls to bring the notes into view.
 Use Place Pattern to Playlist in the Piano Roll toolbar to put the current pattern at the Playlist playhead. It finds the first track with space for the clip, opens the Playlist and highlights the result.
 
 ### Quantize and shape notes
@@ -182,6 +195,12 @@ Keywords: quantize timing strum arpeggio flam chop glue legato flip randomize
 Guide: piano-tools
 Select the notes to process, then open the relevant command in the Piano Roll Tools menu. Quantize adjusts timing toward a grid. Strum offsets chord notes, and Arpeggiate turns chord notes into a repeating sequence.
 Use Chop to split notes, Glue to join suitable notes and Legato to extend notes toward the following ones. Preview the tool, apply it, or cancel to keep the original.
+
+### Choose between written arpeggios and live Sampler arpeggios
+Keywords: arpeggiate piano roll note pattern bake print written arp sampler wrench held chord live
+To write individual notes into a pattern, select the source notes and open **Arpeggiate** from the Piano Roll Tools menu. Preview the generated phrase, apply it to the selection, and edit the resulting notes in the grid. Undo restores the original phrase.
+To have the Sampler generate notes during playback, use **Arpeggiator** on its wrench tab. This applies to that channel when the relevant MIDI notes play and leaves the Piano Roll notes as entered. Use this approach when you want to change the pulse, range or direction without rewriting the pattern.
+Related: Quantize and shape notes | Set up Sampler arpeggios, echoes and tracking
 
 ### Edit per-note expression with MPE
 Keywords: mpe pitch bend pressure slide timbre controller lanes
@@ -213,6 +232,12 @@ Drag across the channel selectors to select a range. Shift-click selectors to ex
 Ctrl-drag a row to reorder it. If it belongs to the selection, move the selected rows together and use the insertion line as a guide. The Channel Rack Options > View > Auto resize choice offers Off, Minimum height and Maximum height. A rack with more rows than fit can scroll.
 Use Clone for another channel or Clone (Complete) when you need independent pattern material and supported automation, plugin state and matching Playlist placement. Review the clones and their routing before changing shared effects.
 Related: Route selected channels to the Mixer | Program steps and patterns
+
+### Stop overlapping drum samples with cut groups
+Keywords: closed open hi hat choke cut itself cut self cut by cut groups sample polyphony overlap
+For a single sample channel, right-click its Channel Rack name and turn on **Cut itself**. In the Sampler wrench tab, **Cut self** sets matching **Cut** and **By** numbers for that same channel. A new hit releases earlier voices in that group.
+For an open hi-hat that stops when a closed hi-hat plays, set **By** on the open hat to a group number. Set **Cut** on the closed hat to the same number. Leave **Cut** at zero on the open hat if it should leave other voices alone. Zero leaves that side of the group unassigned. Test with overlapping playback and check the sound's release setting if it still rings.
+Related: Play and shape samples in ML Sampler | Program steps and patterns
 
 ### Route selected channels to the Mixer
 Keywords: mixer assignment group routing consecutive destination selected rack channels wheel drag miniature
@@ -254,6 +279,19 @@ Choose a pattern, audio clip or automation source, then place it on the Playlist
 Use the Playlist tools to draw, paint, split, mute or select clips. Right-click the ruler for marker commands and use the Arrangement selector to manage versions of the song.
 
 **Follow playhead** is off by default. During playback you can scroll or zoom the Playlist yourself. To keep the playhead in view automatically, use Options > Follow playhead or the matching toolbar button. Right-click the button to choose between continuous scrolling and page advances. Your choice is saved in your profile.
+
+### Drop samples and instruments on Playlist track headers
+Keywords: sample instrument track arranger header drop audio FL sampler routing
+Drop a single audio file from the Browser or file manager onto a Playlist track header. By default this creates a playable ML Sampler instrument, linked Mixer insert and empty one-bar pattern. Play the selected instrument with your MIDI keyboard; use the track's Record button to arm note recording, then press Play. Double-click the pattern to draw or edit notes. The pattern starts at the Playlist play cursor. The original sample is not converted or overwritten. An explicitly saved header-drop choice is respected: As audio clips creates a clip, As audio tracks creates a linked audio lane, and Always ask presents the choices.
+Set a persistent choice in Playlist menu > Edit > Drop audio on track headers. Cancel or Escape closes the question without changing the project. Each completed drop is one Undo step. Track links, sample paths and patterns are saved with the project. Existing clips and instruments are retained. Locked, frozen and folder headers reject the operation, and recording must finish first.
+Dropping a Browser instrument on a header creates a linked instrument track and pattern directly. Dropping audio on the timeline still creates audio clips. Later audio imports on a linked audio lane use that lane's Mixer output. Use an empty lane when creating a separate instrument or audio part. Multiple sample files can be dropped on the timeline onto separate lanes.
+Instrument tracks show a keyboard along the left edge of their header, including instruments added from the attached Mixer's instrument button. The marker grows with track height. A Sampler with a loaded sample shows a waveform symbol instead. Both glow with live MIDI/typing notes and playback note activity. Click this marker to open the instrument's own editor; the separate Piano Roll shortcut still opens the Piano Roll. Right-click the marker, or use its dropdown arrow when several instruments are assigned, to select the instrument for MIDI and editing. Other instruments and their existing clips remain intact. Dropping several samples together or one after another onto the same header creates separate Sampler instances and keeps them in this selector. Undo reverses a batch drop in one step. Explicit header-drop preferences still apply.
+
+The miniature keyboard lights the individual notes you play, including black keys and chords; all octaves share the same miniature octave. A subtle halo around the channel header follows audio activity, including release tails, without lighting extra keys. In **Settings > Theme > Open Theme Editor > Playlist keyboard & activity**, customize idle white/black keys, solid played-key colors, the frame, separators, sample waveform colors, and the halo color, strength (0-200%) and visibility. The live preview shows idle keys and a chord. Apply saves the theme; Cancel restores it, and Undo/Redo, per-field Reset, section Reset and theme export/import also work. Workspace Visibility > Playlist > Instrument keyboard and note activity hides the whole indicator and halo without affecting playback. Its frame and separators keep a consistent pixel thickness as the track grows. At very small heights it becomes a simplified activity glyph.
+
+Choosing an audio input from the track Record button's right-click menu switches that lane to an audio track and hides the instrument marker, while preserving its instruments and notes. Selecting no input restores its instrument role when instruments are assigned. Audio-only and empty lanes have no keyboard marker. Settings > Visibility > Playlist > Instrument keyboard and note activity hides the marker, glow and selector without affecting instruments, routing or recording.
+Settings > Visibility > Playlist > Sample drop choices hides the preference menu while preserving the selected drop behavior and all project data.
+Related: Import, trim and fade audio | Attach the Mixer to the Playlist
 
 ### Use the clips picker and loop previews
 Keywords: clip picker pattern picker preview audition loop stop playlist left panel
@@ -320,6 +358,18 @@ Guide: comp
 Right-click the Playlist track and choose Create take lanes / comp when available. Keep alternate performances on lanes under the same parent.
 Use the comp tool to choose sections for the main take. Audition transitions and adjust boundaries or fades before bouncing a final take.
 
+### Keep a session editable while reducing CPU
+Keywords: freeze defrost unfreeze resume editing CPU instrument tails bounced comp sidechain
+Right-click the Playlist track header and choose **Freeze track (save CPU)**. ML Studio renders the track's unmuted audio and pattern clips through their instruments into one audio stem per used Mixer input. The header shows FROZEN. Mixer effects, routing and sidechains continue to run live. Instruments shared with other tracks may still use CPU.
+Choose **Unfreeze track (resume editing)** to restore the original clips to the track's current row. Unfreeze before recording into the row or choosing a different comp take. Changes made to the temporary frozen clips are replaced by the original clips. Save the project with its Rendered files so the frozen track can play after reopening.
+Related: Freeze or bounce a track | Read signal levels, latency and plugin load
+
+### Commit insert and bus processing to audio
+Keywords: wet bounce bounce and replace new track render effects buses external sidechain disk tails stems undo
+Right-click a Playlist track header and open **Bounce audio**. **Bounce audio in new track** puts the rendered clip below the source or its full take-lane group and mutes the source. Unmute that row to hear the originals again. **Bounce and replace track** replaces its audio and pattern clips on the same row while retaining automation, take lanes and mute state. Undo brings back the original clips.
+Both choices render insert processing and outgoing buses, preserve song position and automation, and include tails. The new audio plays through the live Master. Wet bounce reports an error if the track depends on an external sidechain. Use Freeze to keep that sidechain live. Rendered files go in the project's Rendered folder. Cancelling before the render is committed leaves the Playlist intact.
+Related: Freeze or bounce a track | Keep a session editable while reducing CPU | Create sends, buses and sidechains
+
 ### Freeze or bounce a track
 Keywords: render new track replace cpu bounce audio freeze unfreeze
 Guide: track-menu
@@ -335,7 +385,7 @@ Group related clips when they should move together. Use time markers to label se
 ### Select, group and move Playlist tracks
 Keywords: folder grouped tracks drag header selection collapse multi-track marquee height reorder
 Click or drag down the track names to select rows, including empty lanes. Shift-click extends the selection. Ctrl-click on Windows/Linux or Cmd-click on Mac toggles individual tracks. Ctrl/Cmd+Shift-drag in the timeline draws a marquee around clips.
-Right-click a selected track header and choose Create folder. Only selected rows move into the new folder in their existing order. Collapse the folder to save vertical space, expand to edit its children, or dissolve it from its menu. Drag a row or selection by the header handle to reorder it or place it in a folder. Use track groups for related lanes and keep take lanes with their leader.
+Right-click a selected track header and choose Create folder. Only selected rows move into the new folder in their existing order. Collapse the folder to save vertical space, expand to edit its children, or dissolve it from its menu. Drag a row or selection by the header handle to reorder it or place it in a folder. An insertion line shows the destination between tracks, and an outline marks a destination folder. Settings > Visibility > Playlist > Track drag destination hides these indicators while keeping drag-and-drop available. Use track groups for related lanes and keep take lanes with their leader.
 Resize track heights to show more waveform or automation detail. The Playlist retains track order, names, colors and grouping with the arrangement. Undo can restore structural edits.
 Guide: track-menu
 Related: Arrange with groups, markers and zoom | Comp and organize takes
@@ -359,6 +409,13 @@ Open an audio clip's menu for its processing and editing actions. Use Make uniqu
 Clip gain, fades and timeline trimming are Playlist edits. Audio Timing and Vocal Tuning have their own apply and undo paths. Applying one to an already rendered result can bake the previous edit into the new audio. Read the confirmation before combining them.
 When an ARA editor is active, render its edit to ordinary audio before applying unsupported clip-processing operations. Keep the project's Rendered folder and referenced audio when moving or archiving the session.
 Related: Make a clip independent | Edit audio timing with warp markers | Tune vocals in the Playlist | Use an ARA audio editor
+
+### Add effects to a single audio clip
+Keywords: clip effects clip FX single clip only reverb delay reverse automation independent per clip insert bypass
+Right-click the intended audio clip and choose **Clip effects...**. Click **+ Add effect** in an empty slot, choose an effect, then click its name to open it. The chain processes the clip before its usual Mixer route. Other clips that share the sample keep their own playback, and the sample file stays intact.
+Use **On/Off** to bypass a slot or **Effects on/Bypassed** to compare the entire chain. **Up** and **Down** reorder the effects, **Params** exposes the effect's parameters, and **Remove** clears the slot. Page arrows reveal more slots. Use **Copy chain** on the first clip and **Paste chain** on the destination to reuse it.
+Save the project to retain the chain. Bounce an ARA clip to ordinary audio before adding Clip Effects. If the app reports no room, check the available Mixer inserts because Clip Effects use a dedicated internal insert.
+Related: Process clips, render edits and keep source audio | Insert effects, wet/dry mix and plugin bypass
 
 ### Control playback, looping and navigation in the Playlist
 Keywords: follow playhead auto scroll loop song selection time marker play start overview scroll zoom
@@ -398,6 +455,15 @@ Guide: mixer-send
 Select the source Mixer track. Click the routing triangle beneath the destination track to create a send, or right-click it for routing choices. Use the send level to control the amount.
 For parallel effects, keep the dry route and send some signal to a reverb or delay return. For a bus, use Route to this track only if the bus should carry the full signal.
 For sidechain ducking, create a sidechain route and choose that source in the effect slot's Sidechain input menu. Check the plugin's own sidechain controls.
+
+### Duck a track with Quick Sidechain
+Keywords: kick bass duck pumping quick sidechain ML Limiter threshold ratio release silent send no effect
+1. Select the Mixer track that should trigger the ducking, such as the kick.
+2. Right-click the routing arrow under the track you want to duck, such as the bass, and choose **Quick Sidechain**.
+3. Open **ML Limiter** on the destination to adjust the result. It starts in COMP with the external input selected, a threshold of −30 dB, a 4:1 ratio and a 200 ms release.
+
+The trigger keeps its current outputs and gains a sidechain-only send. ML Studio enables destination effects and adds the limiter without reordering existing effects. If the destination does not duck, check the trigger meter, the destination's FX switch, global All FX bypass and the limiter's external input. A full chain or routing loop prevents the setup. Undo reverses the operation.
+Related: Create sends, buses and sidechains | ML Limiter | Insert effects, wet/dry mix and plugin bypass
 
 ### Choose the Mixer layout and built-in strip
 Keywords: full mixer custom strip traditional gate tame comp drive low cut high mid low
@@ -461,6 +527,12 @@ Add ML EQ to an effect slot. Select a band and adjust frequency, gain and Q. Use
 Use the band card to bypass or listen to an individual band. Open the band's Dynamic or Spectral controls for level-dependent changes and audition before committing to deep cuts.
 The Mixer mini EQ and an EQ plugin in a slot are separate processors. Check which one is enabled when troubleshooting a tonal change.
 
+### Use the Mixer mini EQ before or after effects
+Keywords: mini EQ Open EQ pre post insert effect order EQ On Off bypass EQ spectrum knob
+Select a Mixer track and use its mini EQ graph to adjust the channel's parametric EQ. **Open EQ** opens the full editor for the same settings. Adding ML EQ to a regular effect slot gives you a separate instance.
+Click **Pre** or **Post** to move the built-in EQ before or after the entire user effect chain. For example, Pre can remove rumble before it reaches a compressor. Post can shape the finished sound after compression. **EQ On/Off** bypasses or re-enables this channel's EQ and retains the curve. If the button is hidden, show **Settings > Visibility > Mixer > Mini EQ bypass button** and make room for it by widening the panel if needed.
+Related: Mix with ML EQ | ML EQ controls and processing modes | Insert effects, wet/dry mix and plugin bypass
+
 ### Use dynamics, saturation and time effects
 Keywords: limiter compressor noise gate clipping reverb delay drive transient chorus
 Guide: effect-slot
@@ -470,8 +542,9 @@ Use drive and saturation for harmonics, Transient Processor to shape attack and 
 ### Correct headphone monitoring
 Keywords: headphones phones autoeq monitor correction profile
 Guide: phones
-Click the Master strip's headphone icon, search for the exact model, and choose the matching profile. Once downloaded, the profile can be used offline.
-Use the PHONES switch to compare or bypass correction. This processing applies to the listening output and is excluded from audio exports, bounce and recording.
+Click the Master strip's headphone icon, search for the exact model, and choose the matching profile. Match the impedance, pads or ANC setting if the catalog lists variants. Selecting a model downloads and activates its parametric correction. If the download fails, the previous correction stays active. The downloaded profile works offline.
+Use the **PHONES** switch to compare or bypass correction. Its initial state is off. This is a listening preference saved per profile and applied at ML Studio's device output. It includes live instruments and Browser previews, works independently of Master bypass, and is excluded from audio exports, freeze, bounce and Mixer recording. Use PHONES to bypass while listening through speakers.
+Related: Read signal levels, latency and plugin load | Export mixer stems and choose what gets processed
 
 ### Master a mix with Master Assistant
 Keywords: master assistant loudness reference headphone correction
@@ -487,6 +560,13 @@ On a strip with built-in processing, enable the sections you need and adjust fil
 For processing order, use Mixer effect slots and drag effects to arrange them. Use slot enable, the track's effects switch, and the strip's own enable switches to isolate a stage during troubleshooting.
 Related: Choose the Mixer layout and built-in strip | Add, reorder and bypass effects
 
+### Fill Mixer inserts with a channel strip
+Keywords: fill all channels fill all insert channels with channel strip view copy rack nothing happens locked full effect slot Waves bulk load
+Switch the Mixer to **Channel Strip** view and use the **+** or strip menu on an insert. Open **Fill all insert channels with** and select an eligible installed plugin to create fresh instances on the insert channels. To copy settings from an existing strip, open its menu and choose **Copy this rack and settings to all inserts**. Each destination gets an independent instance. The Master is outside this workflow.
+Stop recording first. Every destination needs an empty user effect slot and must be unlocked. One locked insert or one full chain can prevent the whole operation. If the picker reports that it is still checking the plugin, wait for the check to finish. If a load or editor check fails, the error names the problem and the existing assignments stay intact. Check the insert effect slots to confirm a fill, and use project Undo to reverse it.
+For a single insert, choose **Choose channel strip**, or use **Use an existing effect** to dock a compatible instance already in its effect slots. **Remove strip (keep bypassed effect)** restores the built-in strip and keeps the effect in its slot in bypass.
+Related: Choose a channel strip and use its processors | Use SSL 360 Link in Channel Strip view | Lock a Mixer channel
+
 ### Use SSL 360 Link in Channel Strip view
 Keywords: SSL 360 Link VST3 wrapper third party channel strip mapping setup scan Solid State Logic
 Install the free SSL 360 Link VST3 from Solid State Logic separately. Open Settings > Plugins > Find new plugins. In Mixer > Channel Strip view, click a strip's + or open its strip menu, then Choose channel strip > Solid State Logic > SSL 360 Link. It appears after a successful scan. The setup article remains available from the strip menu even before installation.
@@ -500,8 +580,10 @@ Related: Find installed plugins | Choose a channel strip and use its processors 
 ### Insert effects, wet/dry mix and plugin bypass
 Keywords: FX slot plugin order 64 expandable effects bypass wet dry multi add move effect smart disable
 Select a Mixer insert and click an empty effect slot to load a plugin. Open the plugin from a filled slot, then adjust its own mix or the slot's wet/dry control. Keep an eye on output level when comparing bypassed and processed sound. Use the insert effects switch to compare the whole chain.
+Open an effect window and expand its host controls using the gear button if necessary. Click ON to bypass or re-enable that exact Mixer effect slot. The Mixer slot indicator and plugin window stay synchronized, and Undo restores the change. The insert-wide FX switch can still bypass the entire chain. Locked inserts reject changes. Settings > Visibility > Plugin windows > Effect bypass button hides this button without changing processing.
 Use the effect slot menu to replace, remove, move or save an effect preset. Extra slots appear in the expanded effects list. Use the effect chain commands when you want to move or reuse a whole chain. The Plugin Picker can insert several compatible effects in one operation.
-Smart Disable allows eligible idle effects to sleep. If a plugin needs to generate sound or track time while idle, use its per-plugin override and check the result.
+An insert has 63 user effect slots and a dedicated mini EQ. Fill the last visible slot or use **+ Add slot** to reveal another empty one. Wheel over the list to scroll after it grows beyond ten rows. Alt+wheel over a slot moves the effect. Slot moves skip the mini EQ, which stays before or after the whole chain according to its pre/post setting.
+Smart disable allows eligible idle effects to sleep. If a plugin needs to generate sound or track time while idle, compare playback with Smart disable off under Settings > Audio > Advanced > CPU.
 Guide: effect-slot
 Related: Save and reuse effect chains | Audio processing and recording settings
 
@@ -569,6 +651,12 @@ Dropping audio files into the Samples Browser adds references to their current l
 Guide: browser
 Related: Browse samples and release history | Discover free plugins
 
+### Restore a moved Browser sample folder
+Keywords: browser sample tree library disappeared missing folder drive moved relink samples factory content
+Open Settings > File > **Browser extra search folders** and add the sample library's current location. You can also drag the folder into the Browser or right-click empty Browser space and choose **Add sample folder**. If you use a removable drive, confirm that it is mounted at the same location before refreshing the Browser.
+Adding a library folder makes its contents available to browse. For an open project with missing audio, use the project's missing-file prompts to locate the original files. In a project that uses samples from an FL Studio installation, **Settings > File > FL Studio factory content folder** points to that installation. **Reset** returns to the detected installation.
+Related: Browse samples, favorites and the Starter Pack | Diagnose missing sound, files and plugins | Send a project with its audio files
+
 ### Browse the current project and plugin parameters
 Keywords: browser current project history patterns generators effects used samples initialized controls presets parameter list
 Use Current project to locate patterns, generators, effects, samples, initialized controls, project data and Undo history. The tree provides project context when you are trying to identify which item is in use. For reusable sounds, use the plugin database and preset folders instead.
@@ -596,14 +684,21 @@ Overview: Learn the built-in samplers and synthesizers.
 Keywords: sample sampler root note loop start end envelopes reverse pitch
 ![ML Sampler | ML Sampler editor](../crates/os-app/assets/plugin-picker/sampler.png)
 
-Open the wrench tab for the sampler's note effects. Choose an arpeggiator direction, then set the speed, gate, octave range and chord source. Select **Held notes** to use the notes you play, or pick a chord or scale to build from the lowest held key. Turn Time all the way up to hold the first arpeggio note.
-
-Turn up **Feed** to add tempo-synced note repeats. Adjust their spacing, count, pan, pitch and filter modulation. **Fat mode** plays closely spaced stereo repeats. Use the **Vol** and **Key** tracking tabs to map velocity and note position to pan, Mod X and Mod Y, relative to each tab's **Mid** point.
-
-These settings are saved with the sampler channel. **Settings > Visibility > Plugin windows > Sampler note effects** hides the controls and keeps their playback settings active.
 Load a sample into a sampler channel. Set the start and end, pitch or root note, and loop behavior to suit the sound. Open Piano Roll and play notes at different pitches to check it.
 Use the channel's envelopes and filters to shape playback. Keep long files on disk when supported if you need to reduce memory use.
-Related: Route ML Sampler to the Mixer
+For repeated notes, chords from one key and changes tied to velocity or key position, open the wrench tab.
+Related: Route ML Sampler to the Mixer | Set up Sampler arpeggios, echoes and tracking | Use sample metadata and loading preferences
+
+### Set up Sampler arpeggios, echoes and tracking
+Keywords: sampler arp echo wrench note effects repeat held notes chord time gate feed ping pong fat mode velocity key
+Open ML Sampler's **wrench** tab. If the note effects are hidden, show **Settings > Visibility > Plugin windows > Sampler note effects**. Each sampler channel saves its own values.
+#### Arpeggiator
+Pick a **direction** to enable note cycling. **Time** controls the interval and at maximum holds the first note. **Gate** controls the length of each generated note. **Range** spans octaves, **Repeat** repeats each step, and **Slide** enables pitch transitions. **Held notes** cycles the notes you play together. **Note alone** uses the played pitch and its octave range. A named chord or scale generates pitches from the lowest held key.
+#### Echo
+Raise **Feed** to hear repeats. **Time** sets their spacing and **Echoes** sets the count, up to ten. **Pan**, **Pitch**, **Mod X** and **Mod Y** change the repeated notes. **Ping pong** alternates stereo position and **Fat mode** produces closely spaced stereo repeats, even at zero Feed. Set **Echoes** to zero to stop scheduling new repeats. Echoes already scheduled finish with the settings they started with.
+#### Tracking
+In **Vol** or **Key**, use **Mid** as the reference velocity or note position, then adjust **Pan**, **Mod X** or **Mod Y** to make the sound respond above and below that point. Try two velocities or two pitches that straddle Mid so you can hear the difference. Wrench note-effect changes update live during playback.
+Related: Play and shape samples in ML Sampler | Choose between written arpeggios and live Sampler arpeggios
 
 ### Route ML Sampler to the Mixer
 Keywords: sampler track mixer insert destination master right click drag wheel
@@ -745,10 +840,11 @@ Related: Create sends, buses and sidechains | Insert effects, wet/dry mix and pl
 Keywords: reverb room size decay pre-delay early reflections diffusion damping dry wet
 Add the reverb to an insert for a local space or to a send for a shared space. Room Size, Decay and Diffusion shape the tail. Pre-delay keeps the source attack separate from the first reflection. Use the frequency and damping controls to keep the return from masking the dry sound.
 On a send, lower the dry level and blend the amount from each track with its send. On an insert, blend within the plugin or use the slot's wet/dry control.
+**Low cut** and **High cut** shape the frequency range entering the reverb. **High damping** governs how quickly the high frequencies die away in the tail. **Crossover** sets the split below which **Bass multiplier** changes the decay. Use **Early reflection level** for the first reflections, **Wet level** for the tail and **Dry level** for the unprocessed source. **Mod Speed** and **Mod Depth** set the rate and strength of movement. Use **Tempo-based predelay** when you want pre-delay expressed in steps and ticks.
 ![ML Reverb | Reverb timing, filtering and level controls](../crates/os-app/assets/plugin-picker/reverb_default.png)
 
 #### Parameter names
-Low cut, High cut, Predelay, Room size, Diffusion, Decay time, High damping, Bass multiplier, Crossover, Stereo separation, Dry level, Early reflection level, Wet level, Mod Speed, Mod Depth.
+Low cut, High cut, Predelay, Room size, Diffusion, Decay time, High damping, Bass multiplier, Crossover, Stereo separation, Dry level, Early reflection level, Wet level, Mod Speed, Mod Depth, Tempo-based predelay, Mid / side input.
 
 Related: ML Hall | Create sends, buses and sidechains
 
@@ -762,6 +858,12 @@ On an insert, blend the repeats with dry sound. On a send, keep the delay wet an
 Input wet, Delay type, Tempo sync, Keep pitch, Time, Delay time R/L offset, Time smooth, Stereo spread, Modulation rate, Modulation time, Modulation cutoff, Diffusion level, Diffusion spread, Distortion type, Feedback level, Filter mode, Feedback cutoff, Feedback resonance, Distortion, Distortion knee, Distortion symmetry, Rate reduction, Bits reduction, Output wet, Output tone, Output dry.
 
 Related: Export settings, metadata and stems | Create sends, buses and sidechains
+
+### Set up a tempo-synced stereo delay
+Keywords: ML Delay tempo sync ping pong keep pitch time smooth note division feedback filter repeats wet dry
+Open **ML Delay** on a Mixer insert. Enable **Tempo sync**, set **Time** against the song grid, and choose **Ping Pong** to alternate repeats between the two sides. The **Delay time R/L offset** control becomes **Delay time R/L pan** in Ping Pong and pans the input. **Stereo spread** adjusts separation. Play a short isolated note to hear the rhythm.
+**Feedback level** determines how much signal returns for another repeat. Use **Filter mode**, **Feedback cutoff** and **Feedback resonance** to shape successive repeats. **Keep pitch** and **Time smooth** affect how the effect responds to time changes. On a send, turn down **Output dry** and set **Output wet** so the return contributes the delayed sound.
+Related: ML Delay | Create sends, buses and sidechains | Export a seamless loop or keep effect tails
 
 ### ML Chorus
 Keywords: chorus modulated delay voice rate depth stereo spread wet
@@ -916,10 +1018,22 @@ Open AI assistant and enable AI control for the session. Save the setup to the D
 The blue Working orb shows when an approved MCP command is running. Hide it under Settings > Visibility > Editor feedback > MCP activity orb.
 
 ### Record automation and manage initial values
-Keywords: record live automation last tweaked initialized controls event editor init song
-Select the recording filter for automation, start the transport and move the supported control during the take. Stop and inspect the recorded result before doing another pass. Use a Playlist automation clip when you want visible points you can reshape and reuse.
-Right-click a control or open Tools > Last tweaked to create an automation clip, open an event editor, link a controller or initialize the control, where the parameter supports it. Browser > Current project > Initialized controls lists stored starting values. Remove or update an obsolete initial value if the project jumps to an old setting at start.
+Keywords: record automation Touch Latch mouse gestures VST3 CLAP plugin parameters record filter playlist clips initial values
+Right-click **Record**, enable **Automation** in the Notes / Audio / Automation filter, and choose **Automation mode**. **Touch** is the default: move a knob or fader while recording, then release it to let existing automation resume. **Latch** keeps writing the last value after you release, until you stop, pause or disarm recording. Other enabled recording types can run at the same time.
+Start playback and move a supported host control or an exposed automatable parameter in a plugin editor. Supported host targets include channel volume, pan and pitch; Mixer faders, pan, separation, EQ, strip controls, sends and slot mix; effect bypass, master pitch and tempo. This does not make every application preference or every private plugin control automatable. A plugin must expose the parameter and report its edits to the host. Plugins without gesture boundaries, wheel edits and typed values use a short 250 ms inactivity interval to end Touch. Latch avoids that timeout.
+The take is buffered during movement. Stop, pause or disarm to commit editable **Playlist automation clips** automatically. By default, repeated movements of the same parameter update **one continuous clip**, including later recording passes and recording after save/reopen. Recording another parameter creates its own clip. Existing audible clips for that parameter in the current arrangement are combined, with new gestures replacing only the touched intervals. In Touch gaps, existing clip automation resumes; where no existing clip is active, the last value holds rather than ramping toward the next gesture. Unaffected curves in other arrangements and other targets of shared clips are preserved. A clipped nonlinear segment may be represented by closely spaced points to preserve its shape. One **Undo** restores the entire pre-take state; Redo reapplies the take.
+To keep each gesture separate, right-click **Record** and enable **Record as separate clips**. This is off by default and independent of Touch/Latch. With it on, a Touch gesture creates its own clip and Latch continues until the take ends; overlapping existing clip starts may split the take to preserve playback priority. Changing this setting commits any buffered take using the previous setting; it does not reorganize clips until another take is recorded.
+Linked channel and Mixer controls place recorded automation on the associated music clip's Playlist row, using the same overlay as **Create automation clip**. The row's automation switch shows or hides the overlay without muting music or stopping automation playback; the automation chooser selects which curve to edit. Unlinked controls use a free row for their first clip, then reuse that row. Muted clips are left alone. Use **Tools > Cancel recording** to discard the uncommitted take. Switch to Song mode to hear Playlist clips if you recorded while in Pattern mode.
+During playback, the original host knobs, Mixer faders and exposed generic plugin controls follow their automation values. This display follows the heard playback position and does not record another take or change the project's saved manual settings. Grabbing a control starts from its displayed position; the held control takes priority while recording. Native third-party editors remain responsible for drawing their own parameter controls.
+Double-click a recorded automation clip to edit its points, shapes and targets. Save/reopen retains the clips. Saving during recording commits the recorded portion and continues the held or latched gesture. In the default mode, later loop passes replace only the portions touched on those passes within the same clip. The recording mode and separate-clips choice are saved per profile. **Settings > Visibility > Toolbar panels > Automation recording mode** and **Automation clip recording option** hide their respective menu controls without changing saved behavior or project data.
+If every usable Playlist lane is occupied or locked, the take stays buffered and the status message asks you to free an unlocked lane and press Stop again. Saving is postponed until those buffered gestures can be placed. Existing initialized controls are kept. With automatic initialization enabled, a missing initial value is added from the available starting value of the control. Inspect **Browser > Current project > Initialized controls** if a control jumps when playback starts.
 Related: Create an automation clip | Edit curves and manage targets | Choose a recording mode and lead-in
+
+### Find out why a knob moves when playback starts
+Keywords: automation initial value knob jumps reset changes on play initialize controls event editor link target unexpectedly
+Check the active arrangement for automation clips linked to the knob. Open the clip's target list and confirm that its curve controls the intended parameter. Pattern events can also drive a control while that pattern plays. Review the event editor for the parameter in any pattern where the jump occurs.
+If the knob jumps when the project opens or playback starts, inspect **Current project > Initialized controls** in the Browser. An initial value sets the starting point before later automation takes over. Removing an initial value leaves any existing automation clips and recorded events in place. To avoid adding initial values automatically with future clips, turn off Settings > General > Advanced > **Initialize controls automatically**.
+Related: Record automation and manage initial values | Edit curves and manage targets | Use sample metadata and loading preferences
 
 ### Reuse linked automation on a Playlist track
 Keywords: linked automation follow boundaries extend cut trim restore track automation Move
@@ -945,6 +1059,15 @@ Search accepts several words across a section and its controls. For example, **p
 These choices save to your profile and follow you between projects. Use the Playlist menu's Show clip picker panel switch to open or close the picker itself.
 Restore default visibility brings back the default show/hide choices. Existing toolbar layout settings still apply.
 
+### Open menus by hovering
+Keywords: hover menu mouseover flyout mouse pointer submenu opens automatically missing switch visibility two steps
+1. Open Settings > Visibility and search for **Open menus on hover**. Show it if it is hidden.
+2. Open Settings > General > Input and enable **Open menus on hover**. Visibility makes the setting available. The Input checkbox controls menu behavior and starts off by default.
+3. Click a main menu title to start. With the menu open, hover over another main title or a row with a submenu arrow. Click the final command to run it. Escape or a click outside dismisses the menu.
+
+In a context menu, Settings dropdown or detached ML Studio view, open the menu in the usual way first. Hover then opens its supported submenus. Third-party plugin interfaces have their own controls. If hovering stops working, check the Input checkbox as well as the Visibility switch. Hiding the checkbox preserves its current value.
+Related: How menus work | Show or hide interface features
+
 ### Move the Settings window
 Keywords: settings options menu move drag position title header floating
 Drag the Settings window by its title bar to move it within the workspace. File, Options and other dropdown menus stay anchored to their menu buttons.
@@ -962,15 +1085,18 @@ Menu layouts are saved to your profile. Restore the menu's defaults if a command
 ### Show a window or restore your workspace
 Keywords: window missing channel rack mixer browser playlist layout
 Use View or the toolbar to reopen the missing window. If its shortcut is hidden, use Settings > Visibility to show it.
+Toolbar window icons stay highlighted while their windows are open, including windows behind another editor or detached onto another monitor. Several icons can be highlighted at once. Closing a window clears its highlight. Project and Plugin Picker shortcuts also reflect their open state. Settings > Visibility > Toolbar window shortcuts > Open-window highlights can hide this feedback without closing windows or changing the project.
 A normal app launch restores the windows left open or closed at the last exit, their sizes and positions, and their stacking order. This includes a workspace with every editor closed. Last-session state takes precedence over the startup template or automatically reopened project. Opening a project explicitly still restores that project's saved layout. Plugin editors are restored only for the matching startup project/template and plugin identity. Closing all editors leaves the Browser as it was; its own visibility choice is also remembered.
 A project can restore saved window positions. For reusable workspaces, arrange your windows and choose View > Window layout > Arrange windows > Save custom layout as. Save a named .lslayout file. Saved layouts appear in the same menu; Load custom layout opens one saved elsewhere. Saving again under the same name updates that preset after the file dialog overwrite check.
+Detached workspace windows and embedded Channel Strip editors wait until the project's samples and plugins have finished loading before restoring. Their saved positions and sizes are retained, including layouts on another monitor.
 Window layouts include Playlist, Mixer, Piano Roll and Channel Rack positions and sizes, open/closed state and stacking order, Browser width and visibility, detached editor frames, Mixer view, Mixer attachment to Playlist, and the positions of the performance monitor, tempo tapper and touch controller. They do not store project-specific plugin editors or replace notes, clips, routing or effects. Offscreen frames are constrained by the existing window recovery rules. Undo last layout change toggles back to the previous workspace. Delete saved layout asks before removing its file. Escape cancels a save/load dialog.
 To assign a hotkey, choose Assign layout hotkey in that menu, then the saved layout. Settings > Controls opens with the layout action selected by its search filter. Capture the key combination, review the current assignment, and click Assign. Use Global scope to switch from any editor. Saved bindings lets you change or remove the shortcut later; Restore default removes that override. Each profile keeps its own layouts and shortcuts. Settings > Visibility > Workspace can hide the layout menu while saved hotkeys keep working.
 
 ### Change theme, icons and cursors
 Keywords: theme vintage fl 2005 theme editor cursor pack toolbar colors
 Guide: theme
-Open Settings > Theme and choose a skin or theme. Use the theme controls to adjust colors, icons, cursor packs and Mixer appearance where available.
+Open Settings > Theme and choose a skin or theme. Use the theme controls to adjust colors, icons, cursor packs and Mixer appearance. **Mixer style** offers Original, Clean Modern and Analog when the editable theme view is active. The Mixer layout menu separately changes which controls and panels are visible.
+Use **Playlist clip brightness** under Theme > Options if the clip bodies are hard to read. Show this slider in Settings > Visibility if it is missing. It adjusts the current theme's display, with a separate value for the Vintage workspace.
 Use the Theme Editor to preview changes and apply or cancel them. Export the theme if you want to share or reuse it on another installation.
 
 ### Audio device and latency
@@ -978,45 +1104,92 @@ Keywords: settings audio normal advanced driver output device mode sample rate h
 Open Settings > Audio. Normal shows Output device and Latency. Use a shorter buffer when playing live and a larger buffer if playback clicks or drops out. Advanced exposes the device's sample rate (Hz) and buffer length. Under ASIO, Show ASIO panel opens the driver's own controls in both Normal and Advanced, including when latency presets are available. Shared or Exclusive mode is shown for supported Windows and Linux devices.
 Use the status and underrun counters to check that the selected settings took effect. Reset underruns clears the counter so you can check a new configuration. Available options depend on your driver and platform. Greyed controls show when a choice is unavailable.
 
+### Why does audio stop when switching apps?
+Keywords: switching windows Alt Tab focus background audio stops pauses no sound browser other apps auto close exclusive
+Open Settings > Audio, switch to Advanced and expand **Input / output**. Turn **Auto close** off if you want ML Studio playback to continue while working in another application. It starts off by default.
+With Auto close on, leaving ML Studio briefly pauses a playing transport and releases the audio output. Returning to ML Studio reopens it and resumes playback. On Windows, switching to another ML Studio window keeps the app in focus. If the problem is that another app cannot use the same device, check **Shared** or **Exclusive** under Audio Mode on devices that offer the choice.
+Related: Audio device and latency | Fix delay, crackles or no sound
+
 ### Audio processing and recording settings
 Keywords: settings cpu generator mixer audio worker limit priority smart disable pdc resampling metronome preview recording format recording offset
-Under Audio > Advanced > CPU, Multithreaded generator processing and Multithreaded mixer processing distribute eligible work. Audio worker limit sets the size of the worker pool. Audio processing priority selects the thread priority on supported platforms. Smart disable lets eligible idle effects sleep. Use its per-plugin override if a plugin needs continuous processing.
-Mixer contains Plugin delay compensation during playback, playback Resampling quality, Browser preview track, Metronome track, and transport options. A preview or metronome route of 0 uses Master. Play truncated notes on transport controls whether sustained notes can be heard when starting mid-note. Available controls are enabled in the app.
+Under Settings > Audio > Advanced > **CPU**, **Multithreaded generator processing** distributes eligible instrument work and **Multithreaded mixer processing** distributes independent mixer work. **Audio worker limit** accepts Automatic or 1, 2, 4, 6 or 8 workers. **Audio processing priority** offers Normal, High or Realtime on supported platforms.
+Under **Mixer**, **Plugin delay compensation during playback** aligns paths using latency reported by plugins. **Playback resampling quality** affects live clips and built-in samplers, from 2-point linear to 512-point sinc. The default is 16-point sinc. Larger filters cost more CPU. Export has its own resampling setting.
+**Browser preview track** and **Metronome track** route each signal to a Mixer insert. A value of 0, displayed as a dash, uses Master. Check a selected insert's mute and output route if samples preview silently or the click is missing. **Play truncated notes on transport** retriggers the remainder of sustained notes when you start or seek into them. **Reset plugins on transport** resets hosted plugins at those starts and cuts existing effects tails.
 Recording offers 32-bit float, 24-bit PCM, or 16-bit PCM. Recording offset moves recorded audio on the timeline. Positive values place it later. Measure against a reference before compensating for a hardware round trip.
+
+### Save CPU with Smart disable
+Keywords: smart disable hosted plugin idle suspend cpu silence VST2 VST3 tails sequencer sleeps modulation audio engine
+Under Settings > Audio > Advanced > CPU, enable **Smart disable** to let eligible VST2 and VST3 instances sleep during silence. It starts off. Show the option in Settings > Visibility if it is missing.
+Eligible instances sleep after four seconds of silence plus any reported finite tail and latency. An effect must also have silent sidechain input. Notes, MIDI, automation, parameter edits and transport changes wake the plugin. Export always processes plugins fully.
+Open or busy editors, held voices, auxiliary-output instruments, ARA playback, and plugins with unknown or infinite tails continue processing. If a plugin has an internal sequencer or modulation that behaves differently after an idle gap, turn Smart disable off and compare playback.
+Related: Audio processing and recording settings | Read signal levels, latency and plugin load
 
 ### MIDI devices, controller type and sync
 Keywords: settings midi input output external sync ports master sync offsets curve velocity release pickup mcu generic transport learn monitor pedal
 Enable the devices you use under MIDI > Input or Output. Match ports for plugins that listen to a particular port. Choose a Controller type per input. Use Generic MIDI for keys and the DAW port in MCU mode for compatible mixer and transport hardware. Use MIDI Monitor or Refresh device list to verify input. DAW MIDI Learn assigns actions to hardware buttons.
 Velocity and release links and curves control how incoming dynamics are mapped. Pickup (takeover mode) helps avoid value jumps. Auto accept detected controller, Foot pedal controls note off, and Toggle on release adjust input handling. Omni preview MIDI channel, Song marker jump MIDI channel and Generator muting MIDI channel assign channels to those functions.
-Set Sync type and Master sync offset for an enabled output that sends clock or sync, and External sync and its offset when following another device. Check the status before recording to a synced timeline.
+For ML Studio to lead, select the output and enable **Send master sync**. Under **Synchronization type**, choose MIDI clock for tempo-based sync or the MTC frame rate that matches the receiving device. Use **Master sync offset** to adjust timing. To follow another device, use **External sync** and its own offset, then check the status before recording.
+
+### Use MIDI velocity curves, pickup and special channels
+Keywords: MIDI pickup takeover controller knob jumps does nothing velocity curve sustain pedal release omni preview marker mute
+Open Settings > MIDI > Input. **Pickup (takeover mode)** waits until a linked knob or fader reaches or crosses the current software value before it takes control. If a linked hardware knob appears unresponsive, sweep it through the software value. **Auto accept detected controller** closes the link dialog after the first controller movement it detects. Disable it to inspect the assignment before accepting.
+**Link note on velocity to** routes the mapped attack velocity to Velocity, Mod X or Mod Y, or disables the link. Use the velocity curve to adjust the response to playing strength. **Link release velocity to** controls whether the release value is used. **Foot pedal controls note off** makes CC64 sustain released notes until the pedal comes up. With the setting off, CC64 goes to the instrument.
+Assign separate MIDI channels to **Omni preview MIDI channel**, **Song marker jump MIDI channel** or **Generator muting MIDI channel** to use their white keys for those functions. A dash leaves the function unassigned. **Toggle on release** gives the muting keys a temporary action while held. Use a different input channel for normally played notes if they are triggering one of these actions.
+Related: Map a MIDI knob or controller | Use MIDI output, sync and the MIDI Monitor
 
 ### General display and language
 Keywords: settings general display ppi scaling high visibility smoothing transparent animations colorful waveforms thick lines force refreshes language note names black notes
-General > Display contains Main GUI scaling, display PPI, Pop-ups scaling and Toolbars scaling. These controls let you match the workspace to the monitor and adjust menus and toolbars separately. Animations, Animation refresh rate and Smoothing adjust visual motion. Transparent windows, Transparent menus, Force refreshes, Thick lines, High visibility and Colorful waveforms adjust presentation.
-General > Language offers English, French, Spanish, German, Brazilian Portuguese and Italian. Translation coverage varies by surface and plugins can use their own language. Note names and Black notes independently choose English, Germanic or solfege notation and sharps or flats.
+Under Settings > General > Display, **Main GUI scaling** sets the workspace size. System follows the monitor's operating-system scale. **Pop-ups scaling** and **Toolbars scaling** each have a Main choice that follows the workspace or a separate percentage. The display PPI ruler lets you calibrate the displayed inch against a physical ruler.
+**Animations** controls animated routing cables. **Smoothing** eases editor scrolling. Its lowest value makes scrolling jump directly to its destination. **Animation refresh rate** caps animated redraws at 40 fps in Less smooth, 60 fps in Smooth, or the display refresh rate in Ultrasmooth. **High visibility** brightens selected controls, including scrollbars and Channel Rack labels. **Colorful waveforms** changes waveform display.
+This build stores **Transparent windows**, **Transparent menus**, **Force refreshes** and **Thick lines** as preferences. These currently have no visible effect. Thick lines is greyed out below 200% effective UI scale.
+Under General > Language, **Interface language** offers English, French, Spanish, German, Brazilian Portuguese and Italian. Main-menu commands, static submenus, more General/Audio/MIDI/plugin settings, and Open/Save controls use the selected language immediately. File paths, project names, plugin names and user presets remain unchanged. Coverage still varies in specialized editors and third-party plugins can use their own language. Note names and Black notes independently choose English, Germanic or solfege notation and sharps or flats.
 
 ### General input and Undo
 Keywords: settings general input mouse optimize for double click reset hover menus piano zoom keys undo warnings max levels
-Under General > Input, Manage shortcuts opens Controls. Choose Optimize for, Piano Roll zoom keys, Vertical scrolling speed and Horizontal scrolling speed. Click-and-hold & special gesture functions, Use both mouse buttons in step sequencer and Invert pencil buttons adjust editor gestures. Double-click resets faders and knobs and Open main menus on hover are optional and off by default.
-Under Undo history, set Maximum undo levels and choose Undo knob tweaks, Alternate undo mode, Put undone recordings in the recycle bin, Show undo history in the browser when undoing changes, and Show recent changes at the top. The clip editors also offer their own pitch and timing history within project Undo.
-Manage messages restores or suppresses individual confirmations. Project data size warning controls when the app warns about large project data. System file association and Updates controls depend on your platform and installation.
+Under Settings > General > Input, **Manage shortcuts** opens Controls. **Piano Roll zoom keys** picks Page Up/Down alone or with Ctrl, Alt or Shift. **Vertical scrolling speed** and **Horizontal scrolling speed** adjust scrolling independently in each direction. **Double-click resets faders and knobs** is off by default and applies to supported ML Studio controls when enabled. Use Workspace Visibility to show this switch or **Open menus on hover** if either is hidden.
+With **Use both mouse buttons in step sequencer** on, a left click sets a step and a right click clears it. With it off, either click toggles the step. In both modes, dragging over steps sets them with the left button or clears them with the right button. **Click-and-hold & special gesture functions** enables cloning by holding a note or clip and cycling the note type when holding a newly drawn Piano Roll note. **Optimize for** and **Invert pencil buttons** currently retain their values without changing pen or touch handling.
+Under **Undo history**, **Maximum undo levels** keeps 1–999 project edits, with a default of 100. **Undo knob tweaks** includes supported knob changes. **Alternate undo mode** makes repeated Ctrl+Z step back and Ctrl+Alt+Z redo. Turn it off to use Ctrl+Z to toggle the last edit and Ctrl+Alt+Z to step further back. Check Edit for the active bindings.
+**Show undo history in the browser when undoing changes** opens Current project > History when you undo. **Show recent changes at the top** reverses the list. **Put undone recordings in the recycle bin** is stored but currently has no effect.
+Under **Hints and warnings**, use **Manage messages** to bring back suppressed confirmations. **Project data size warning** sets the threshold for a message after saving, from 50 MB through 1.5 GB, or Don't warn me. The default is 100 MB. System file association depends on your platform. The **Automatically check for updates** and **Automatically download program updates** checkboxes in General are unavailable in this build. Use the update control in **Help > About**.
+Related: Open menus by hovering | Customize mouse and keyboard behavior | Undo and redo
 
 ### General startup and editor defaults
 Keywords: settings general miscellaneous advanced startup default template plugin windows focus meters sample read loading
-Use Startup project and Default template to choose what opens on launch. Show startup splash screen and Silent startup control startup presentation. Auto name channels, Auto name effect slots, Auto zip empty channels and Auto-route Channel Rack samples to mixer inserts affect new channels or slots.
-Auto select linked modules links selection across views. Auto-scroll mixer while routing keeps destinations reachable. Restore previous state after solo brings back the prior mute state. Alternate meter scale, Auto zoom in piano roll and Small scrollbars in editors change their displays. Monophonic painting in piano roll and Select first channel with notes when the pattern changes adjust editing.
-Detach all new plugins, Open detached plugins with the main window, Hide plugin window toolbar by default, Disable typing keyboard priority by default and Limit the number of open plugin editors set editor behavior. Create automation clips at the playback position chooses where new automation starts.
-Under Advanced, read sample tempo information and Read sample root note use embedded metadata when present. Fast sample preview, Auto keep long audio on disk, Threaded project sample loading and Initialize controls automatically govern loading and initial behavior. Don't limit windows to screen, Cursors scaling and Legacy scaling adjust layout and sizing. Greyed controls depend on platform or availability.
+Under Settings > General > Miscellaneous, **Startup project** chooses Empty project, Default template or Last used project when launching ML Studio directly. **Default template** selects the template for new projects. **Show startup splash screen** controls the startup logo. **Silent startup** mutes the Windows startup chime.
+**Auto name channels** names an existing channel after a sample or channel preset loaded into it. **Auto name effect slots** names a slot after a loaded effect preset. **Auto-route Channel Rack samples to mixer inserts** routes new Rack samples to available inserts. **Auto zip empty channels** folds channels without notes on a pattern change. **Select first channel with notes when the pattern changes** changes which channel is selected at the same time.
+**Auto select linked modules** selects the assigned Mixer track when you focus a linked plugin. **Auto-scroll mixer while routing** helps reach destinations beyond the current view. **Restore previous state after solo** restores the mute states from before you soloed a channel, track or insert. With the setting off, leaving solo turns channels back on. **Alternate meter scale** changes how Mixer levels are displayed near 0 dB.
+**Auto zoom in piano roll** fits the active pattern and channel notes when opening the editor. **Small scrollbars in editors** uses thin scrollbars without arrow buttons. **Monophonic painting in piano roll** removes notes at other pitches under the note you paint. **Create automation clips at the playback position** starts new clips at the playhead when there is no selected time range. Turn it off to start them at bar 1. A time selection takes precedence.
+Related: Choose where plugin editor windows open | Use sample metadata and loading preferences | Native projects, folders and templates
+
+### Choose where plugin editor windows open
+Keywords: plugin window first launch default detached second monitor editors limit plugin toolbar off screen keyboard
+Go to Settings > General > Miscellaneous. **Detach all new plugins** changes the default for plugins added from now on. Existing editors keep their saved mode. On Windows, **Open detached plugins with the main window** puts a newly detached window on the main window's monitor. An editor with a saved position reopens there. A plugin window's D button changes the current editor's mode.
+**Limit the number of open plugin editors** closes the earliest opened editor when opening another would exceed 25. Closing an editor keeps audio processing active. Under General > Advanced, **Don't limit windows to screen** lets you drag a detached plugin title bar past the screen edges on Windows. Docked windows stay constrained to the workspace. **Cursors scaling**, **Legacy scaling**, **Hide plugin window toolbar by default** and **Disable typing keyboard priority by default** currently store preferences without changing editor behavior.
+Related: Put ML Studio windows on several monitors | Plugin manager and plugin editors
+
+### Use sample metadata and loading preferences
+Keywords: WAV acid smpl unity pitch C5 beats root key tempo time stretch resample RAM disk threaded loading project sample preview
+Under Settings > General > Advanced, **Read sample root note** uses the WAV's embedded root note when loading it into a Sampler. If the file has no root tag, the loaded sample defaults to C5. Turn the option off to keep the sampler's current root. **Read sample tempo information** uses an embedded WAV beat count to select Auto stretch and fit the sample to those beats. With no beat count or with the option off, existing stretch settings stay in place.
+**Auto keep long audio on disk** enables Keep on disk when a file of at least 30 seconds is loaded into a Sampler. Existing channel switches keep their values. **Threaded project sample loading** allows up to four workers to decode samples when opening a project. Turn it off to load one file at a time. Browser previews already begin when the start of the file is decoded. **Fast sample preview** currently stores a preference without changing that behavior.
+**Initialize controls automatically** records the current value as the project's initial value when you create an automation clip. This replaces an earlier initial value for the same control in the same Undo step. Disable the preference to keep initialization manual.
+Related: Play and shape samples in ML Sampler | Record automation and manage initial values | Fit a loop or use its detected tempo
 
 ### File, backups and sample libraries
 Keywords: settings file autosave location maximum user data folder factory folder browser extra search folders repair optional features reset browser cache
-File > Backup sets Autosave frequency, Location and Maximum retained backups. Use the Browser's backup area to reopen an earlier revision. Save deliberately before relying on an autosave as a transfer copy.
+Settings > File > **Backup** sets **Autosave** to Never (with a reminder), every 15, 10, 5 or 1 minute, and offers modes that also save before eligible risky operations. The default is every ten minutes. **Location** chooses the global folder or the project's Backup subfolder when it has a data folder. **Maximum** retains 1–999 backups per project name, defaulting to 100. The next backup removes older entries beyond the limit.
+Open the Browser's Backup area to find earlier revisions. After confirming a recovered revision, save it under a separate name to keep the previous saved project available. Use File > Save deliberately when preparing a copy to share.
 File shows the User data folder and the factory content location. Add or remove Browser extra search folders to find sample libraries. Changing a search root changes where ML Studio looks for files. File > Troubleshooting offers Repair optional features and Reset browser cache.
 
 ### Plugin manager and plugin editors
 Keywords: settings plugins formats search folder find new plugins rescan all rescan plugins with errors combine formats prefer vst clap hide favorite
 In Settings > Plugins, enable the folders you want scanned. Add a folder for an installation outside the standard locations. Find new plugins scans additions and Rescan all rebuilds scan results. Use Rescan plugins with errors when retrying failed scans.
 Combine formats of the same plugin and the format preference affect which variants appear in the picker. Use the table to filter, favorite, or hide plugins. Use the plugin window's D control to detach or attach its editor. Projects keep the plugin identity and still need a compatible installation on each computer.
+
+### Choose where a project keeps its audio
+Keywords: data folder relative absolute specified path copy used samples missing external backing up move portable project samples recordings
+Open Settings > Project > **Data folder**. Choose **Store data relative to the project file** to keep project data alongside the saved project, or **Store data in the specified folder** to pick a dedicated location using **Set data folder...**. **Don't use a data folder** leaves the project without a dedicated folder. Review the prompt when changing locations and save the project after choosing.
+**Ask for data folder** controls when the new/save form prompts, such as on startup, on creating a project, or on the first save. **Copy used samples to the project folder** can collect the current samples into its Samples subfolder and copy later sample imports there. If you skip copying existing samples, their previous paths still matter. Use a zipped project when you need a transfer that includes its audio.
+Related: Project data, time and credits | Send a project with its audio files | Save, reopen and recover a project
 
 ### Customize Traditional Mixer insert knobs
 Keywords: theme traditional FL style mixer plugin insert slot mix dry wet knob ring outline circle color full mixer
@@ -1045,6 +1218,13 @@ Keywords: settings project data folder ask copy used samples ppq timebase signat
 Project > Data folder controls where project audio is stored. Choose when to ask for a data folder and whether to Copy used samples to the project folder. Time settings sets Timebase (PPQ) and a time signature or time division. Changing the signature changes the bar grid. Use the tempo control to change BPM.
 Project > Advanced includes Panning law and Play truncated notes in clips. Playlist contains Automatic crossfades and the default for new projects. The Info tab saves the title, author, genre, comments, web link, and Show info on opening. It also shows working time, with a reset control.
 About shows version, licence and product links. Debug can be enabled in Workspace Visibility for diagnostics. Debug details can help when describing a reproducible problem.
+
+### Change the time signature, steps per beat or PPQ
+Keywords: meter grid 3/4 6/8 beats per bar steps per beat numerator denominator timebase PPQ ticks panning law automatic crossfades
+Open Settings > Project > **Time settings**. Choose **Set as time signature**, then set **Numerator** to the beats per bar and **Denominator** to the note value of a beat. The numerator offers 1–16 and the denominator offers 2, 4, 8 and 16. To set the step grid directly, choose **Set as time division** and set **Beats per bar** (1–32) and **Steps per beat** (1–16).
+**Timebase (PPQ)** sets timing resolution in pulses per quarter note. Changing it rescales stored positions to the new resolution. Check fine note and clip edits after lowering PPQ. For a faster or slower song, change the toolbar BPM. To work at a different visible grid interval, change snap in the editor.
+Under Project > **Advanced**, **Panning law** selects Circular or Triangular. It affects how panned audio levels vary across stereo. Under Project > **Playlist**, **Automatic crossfades** applies to the current project. **Enable automatic crossfades in new projects** supplies the default for future projects.
+Related: Project data, time and credits | Set tempo and play the right thing | Import, trim and fade audio
 
 ### Workspace visibility, menus and controls
 Keywords: settings visibility choose what to show menus customize controls bindings portable action shortcuts theme toolbar
@@ -1118,6 +1298,19 @@ Choose Song or Pattern and Whole or Selection where available. Tail can cut, rin
 Enable Split mixer tracks for WAV or FLAC stems and choose whether to include Master. WAV metadata options can write tempo, Playlist markers, loop points and pattern note markers. Gapless MP3 metadata helps compatible players handle encoder delay. Verify start, end and levels in the final files.
 Related: Export a finished song, stems or MIDI | Freeze or bounce a track
 
+### Export a seamless loop or keep effect tails
+Keywords: export render tail cut ring out wrap loop seamless reverb delay selected range pattern gapless encoder
+Open File > **Export audio** and choose **Song** for the Playlist or **Pattern** for a pass of the current pattern. Use **Selection** when you have set the intended time range in the relevant editor. Verify the range before rendering.
+Use **Tail > Cut** when the file must stop at the end of the selected material. **Ring out** includes the decay after that point. **Wrap** puts the sound that would extend past the end back at the beginning and keeps the original length. For a loop, audition the finished file across its join in the player where you will use it.
+For MP3, **Gapless** writes encoder delay information that compatible players can use. Some DAWs still play extra silence. WAV or FLAC avoids the MP3 encoder delay for precise reimport.
+Related: Export a finished song, stems or MIDI | Export settings, metadata and stems
+
+### Export mixer stems and choose what gets processed
+Keywords: export stems split mixer tracks master insert effects hq bit depth dither resampling render multitrack individual stems
+Open File > **Export audio** and show Advanced options. If the tab is missing, show **Settings > Visibility > Workspace > Advanced Export tab**. Choose **WAV** or **FLAC** and enable **Split mixer tracks** to export the Mixer paths as separate files in a stems folder. Enable **Include the master** if you also want the Master file with the split tracks.
+**Insert effects** and **Master effects** control processing at those stages. **HQ for plugins** tells compatible hosted plugins to use their offline processing mode. Choose sample rate, channel format, bit depth and resampling quality for the delivered files. **Dither** adds triangular dither for 16-bit and 24-bit output. **Open the folder when done** reveals the result in the file manager.
+Related: Export a finished song, stems or MIDI | Export settings, metadata and stems | Correct headphone monitoring
+
 ### Resolve collaboration conflicts and recover sessions
 Keywords: network LAN TCP 32190 host guest invite TLS project shared conflict recovery disconnect local copy follow playback
 Hosts and guests need compatible builds. Host after saving and stopping playback. Share the invitation privately, since it grants access to download and edit the project. The guest gets a fresh local project and sample folder. Each computer supplies its own compatible plugins and licenses.
@@ -1134,8 +1327,8 @@ Open the main menus at the top of the workspace. The small menu button inside an
 - A right arrow opens a submenu. Move onto the row and into its submenu to reach the command. A check mark shows an on/off choice. A radio mark shows the selected member of a mutually exclusive group.
 - A greyed command needs a different selection or project state, or is unavailable in this build. For example, a project must be saved before it can revert to its own backup. Audio, pattern and automation clips offer different commands.
 - The key printed beside a command is its shortcut in the relevant context. Settings > Controls can change the effective binding. When Typing keyboard to piano is active, many bare letter keys play notes.
-- A menu's wheel moves among available rows. A menu that spans several columns can scroll sideways to reveal more items. Click outside or press Escape to close without choosing a command. With General > Input > Open main menus on hover enabled, click a main menu to start. Hover over other menu titles or submenu arrows to open them, and click a command to run it. Press Escape or click outside to end menu navigation.
-Related: Main menu command index | Customize menus | Keyboard and mouse shortcuts
+- A menu's wheel moves among available rows. A menu that spans several columns can scroll sideways to reveal more items. Click outside or press Escape to close without choosing a command. With General > Input > Open menus on hover enabled, click a main menu to start. Hover over other main-menu titles or submenu arrows to open them, and click a command to run it. The same submenu behavior applies to context menus, Settings menus and detached ML Studio views once their menu is open. Press Escape or click outside to end menu navigation.
+Related: Open menus by hovering | Main menu command index | Customize menus | Keyboard and mouse shortcuts
 
 ### File menu
 Keywords: File new recent template save as version import MIDI export stems ZIP project cleanup backup collaborate
@@ -1236,8 +1429,8 @@ Related: Select and edit several channels | Route selected channels to the Mixer
 ### Mixer and effect slot menus
 Keywords: mixer options track insert slot FX presets spare state scaling PDC dock to routing layout inspector
 Open Mixer Options for the inspector, its location and layout, recording-to-Playlist behavior, automatic Plugin delay compensation, View, attachment to Playlist, Detached, unused tracks, Smart Disable and audio editor cleanup. Use the Mixer layout selector to choose Traditional, channel strip, Full and available Vintage views.
-Right-click an insert for name, color and icon, track insertion, save effect chain, reset, solo, layout, Dock to and render options. The send controls provide routing actions. Track locks can limit changes on an insert. Choose the insert before opening a menu for its effect list or inputs.
-Right-click an effect slot for Replace, Delete, Presets, spare-state comparison, Browse parameters, supported sidechain input, CPU options, Move up/down, View editor, rename/color/icon, and scaling where offered. Some slots have extra options from the hosted plugin. The effect context differs between a filled slot, an empty slot and the insert itself.
+Right-click an insert for rename, color, track insertion, save effect chain, reset, solo, separator and channel layout. Change icon, Dock to and the track-menu Render to wave file entries are unimplemented placeholders in this build. Use the documented export/bounce workflows to render audio. The send controls provide routing actions. Track locks can limit changes on an insert. Choose the insert before opening a menu for its effect list or inputs.
+Right-click an occupied effect slot for Replace, Delete, Browse parameters, Sidechain input, Move up/down, View editor and Rename. Preset/spare-state, per-slot CPU, scaling and several appearance entries in this particular slot menu are placeholders, not working commands. Use the plugin wrapper or its own editor for supported preset operations, and Settings > Audio for global Smart disable. An empty slot opens a different picker context.
 Related: Save and reuse effect chains | Attach the Mixer to the Playlist | Create sends, buses and sidechains
 
 ### Browser, plugin wrapper and parameter menus
@@ -1266,6 +1459,14 @@ Playlist pitch and timing editors offer separate Undo/Redo controls for the acti
 Keywords: report bug build update restart troubleshooting support
 Use Report a Bug and include your build, operating system, exact steps, expected result and actual result. A small project or screenshot helps when it can be shared safely.
 Use the update control to check for a signed release. Save your work before restarting to apply it. If the updater cannot start, ML Studio stays open and shows the error. If installation fails after closing, check the message when ML Studio reopens. You can also install a public update from the official downloads page. **Help > About** opens the page with the build number.
+
+On Windows, clicking Update to restart can display a Windows permission prompt if the helper or installation folder requires administrator access. Approve it to continue, or cancel to keep working and retry later. A standard Windows account may need an administrator's credentials. The updater verifies the downloaded files and folder access before closing your project. Automatic installation during an ordinary exit defers permission requests until you explicitly choose Update. If Windows policy blocks the helper, the error remains visible for troubleshooting.
+
+### Check for an update after a manual install
+Keywords: updater update button manual install Windows error 740 permission admin signed restart download update
+On the Windows public copy, open **Help > About** and check the installed build number. If you manually installed the newest release, the next update will become available when a newer compatible build is offered. Use the update control in About to download and apply it.
+Windows may ask for permission when the helper starts or the destination requires administrator access. Approve the prompt to continue. If Windows reports error 740 on an older build, install the current signed public package, reopen ML Studio and verify the build in About. If Windows still blocks the updater, include the build and full error in your report.
+Related: Report a problem and check for updates | Install and open ML Studio
 
 ### Main menu command index
 Keywords: menu reference complete commands file edit add patterns view options tools help shortcuts
@@ -1305,3 +1506,2297 @@ Open supported FL Studio projects through File > Open. Compare routing, automati
 Greyed menu entries are unavailable in the current build or context. Playlist Performance Mode and MIDI scripts are not implemented. Choose the supported MIDI Learn or controller profiles for hardware control. Availability of native drivers, ARA editors and optional tools depends on platform and installed components.
 Use Help > About to compare builds and Help > Change Log to check what shipped in each release. Download and install the correct architecture for your OS.
 Related: Import a project from FL Studio | Set up a keyboard or mixer controller | Install and open ML Studio
+
+
+### Editing names and browsing files
+Keywords: save open copy paste space clipboard filename path text selection browse samples folder
+
+Open/Save, New project and Rename project text fields accept spaces and Unicode names. Use Ctrl+A/C/X/V (Command on macOS) to select all, copy, cut and paste; Ctrl+Z and Ctrl+Y or Ctrl+Shift+Z undo/redo text edits. Shift+Left/Right or Shift+Home/End selects part of the text, Ctrl+Left/Right moves by word, and Ctrl+Backspace/Delete removes a word. Click to position the caret or drag to select a range. Pasting into these single-line fields turns line breaks and tabs into spaces. These edits stay inside the dialog; they do not operate playback or project undo.
+
+In a file browser, Ctrl+L focuses and selects the folder path; paste or type a path and press Enter to navigate. Alt+Up goes to the parent folder, Alt+Left goes back, F5 refreshes, and Ctrl+Shift+N creates a folder. Tab switches between name and path; Shift+Tab also moves backwards through the Save form’s expanded Information fields. Cancel or Esc closes without saving, and existing files still require overwrite confirmation. In the project Save form, the folder button chooses the location; Browse opens the regular file browser.
+
+Right-click empty space in the Browser to load a sample into a new channel, add a sample folder, open the latest added sample folder in your system file manager (the user folder if no folder has been added), configure folders, or refresh. Loading a sample uses the usual new-sampler workflow and its project undo. Choosing a sample folder keeps it in the Browser for future use. Settings > Visibility > Browser > Empty-space file actions hides this shortcut menu without removing folders or project content.
+
+### Chat with the optional ML Studio Helper (Melli)
+Keywords: helper Melli companion AI chat offline memory model GPU assistant animation download install remove
+Choose Help > ML Studio Helper (Melli). On first use, Download and install fetches the 492 MB Qwen3.5-0.8B UD-Q3_K_XL model directly from Hugging Face, plus about 175-245 MB of runtime files depending on your platform; allow 2 GB free disk space. Python and the local runtime are included. Supported targets are Windows x64, Linux x64 with glibc 2.36+ and a desktop environment, and macOS 14+ on Apple Silicon or Intel. The download is verified against hashes embedded in the DAW. A progress panel shows the current file, actual downloaded MB and percentage, with Cancel download and Run in background buttons. Open the same Help entry to see progress again. Verification and installation are shown as separate stages; an interrupted download can be retried. Nothing is downloaded just by opening ML Studio.
+
+Click the character to load the model and open her speech bubble. Type in Talk to Melli and press Enter or the arrow. Melli is a witty, warm companion for everyday conversation as well as music, theory and ML Studio questions. Exact application instructions come from this build's bundled guide; ... > Guide source shows the consulted passages. She cannot browse the web, hear your project or operate your computer. Replies can still be wrong or select an irrelevant passage.
+
+Minus collapses the bubble while keeping the model loaded. X closes Melli and unloads the model, including during a response. Closing ML Studio also stops her. Settings > Visibility > Workspace > ML Studio Helper companion hides the entry and stops the companion without changing project data. The overlay follows the main window and hides when minimized or another app is active; Wayland desktops may control positioning. GPU acceleration uses Vulkan on Windows/Linux or Metal on Mac, with a CPU fallback. Close Melli when you need her resources for demanding audio work.
+
+Recent context is bounded to six exchanges / 12000 characters and is never saved as a transcript. ... > New chat or closing Melli clears it. Useful self-disclosed facts can persist separately as up to 24 short notes in one file no larger than 16 KiB. Older notes are displaced when full. ... > Memory lets you view, edit, disable learning/use, or Forget everything. Turning memory off preserves existing notes but stops using them. Memory is imperfect; do not share passwords or other secrets. Small error logs rotate, model files do not grow as you chat, and changing DAW versions reuses the model.
+
+To reclaim space, choose ... > Remove downloaded Helper files and confirm in ML Studio. This removes package-owned runtime/model files and keeps saved notes; forget those first if desired. Reopen the Help entry to download Melli again. Ordinary installations use the ML Studio user folder's Melli subfolder. No account is required; after installation, chats work offline. Linux desktops must provide the Qt/X11 or Wayland system libraries. If Melli fails to open on Debian/Ubuntu, ensure libxcb-cursor0, libxkbcommon-x11-0, libegl1 and libopengl0 are installed through your system package manager. The portable files include Qt itself, not the operating system display server or graphics drivers.
+
+### Select multiple Mixer channels
+Keywords: select multiple mixer channels tracks inserts multiselect ctrl click cmd selection several group faders
+Click an empty part of the first Mixer strip body, then hold Ctrl and click the body of each additional strip. On macOS use Command in place of Ctrl. This adds individual Mixer channels to the selection; they do not have to be next to each other. Use the strip body rather than the mute light, polarity button, meter or routing arrow, which perform their own actions.
+Clicking an already-selected strip without Ctrl changes the current strip while keeping the group selected. Clicking an unselected strip without Ctrl replaces the group with that strip. Ctrl-click adds; it does not toggle a selected strip off. Shift-click range selection is not implemented by this Mixer strip gesture. The attached inspector's channel selector chooses a single channel.
+Drag a selected channel's volume fader to move the selected unlocked channels together while preserving their relative gain relationships where the fader limits allow. A locked channel does not follow. Undo restores the group volume move. Selecting Mixer strips is separate from selecting Channel Rack instruments or Playlist rows.
+Related: Set levels, pan and routing | Select and edit several channels | Lock a Mixer channel
+
+### Route multiple Mixer channels to a bus
+Keywords: mixer multiple channels group route routing bus send ctrl shift only sidechain remove master
+Select the source Mixer strips with Ctrl-click. Click the destination's routing arrow to add a normal route from the selected sources. The destination is the channel that receives the audio. Master cannot be used as a source, and a channel cannot route to itself. Routing that would create a feedback loop is refused.
+Ctrl-click the destination routing arrow for routing only to that destination, removing those sources' other routes. Shift-click the destination arrow for a sidechain send with a zero audible send level. Ctrl+Shift-click combines sidechain with only-to-this-destination routing. These modifiers apply to routing arrows, not to selecting the strip body.
+For a drum bus, select the drum source inserts and use routing only to the bus when you want the bus to be their sole output path. Keeping both a direct Master route and a bus route creates parallel signal paths. For a reverb send, normally keep the original output and add a send to the reverb insert, then adjust the send amount. Locked sources/destinations can prevent changes; check the status message.
+A sidechain route alone does not configure compression. Choose the external input in a plugin that supports it, or use Quick Sidechain. Save the project to retain routing. Use Undo for a mistaken routing edit.
+Related: Select multiple Mixer channels | Create sends, buses and sidechains | Duck a track with Quick Sidechain
+
+### Solo a Mixer selection and preserve its buses
+Keywords: mixer solo selected channels group downstream upstream alt restore mute
+Select the Mixer channels you want to hear, then use Solo selected tracks from the track context menu. Solo includes downstream destinations needed to hear the selected channels, including buses and Master. Alt with the Mixer solo gesture also includes upstream channels feeding the selected tracks.
+The Restore previous state after solo preference determines whether leaving the solo restores the earlier enabled/muted state. If a required change would modify a locked channel, the operation is blocked and shows a lock message. This is different from deleting routes or bypassing effects; the routing itself stays in the project.
+Related: Select multiple Mixer channels | Lock a Mixer channel | Create sends, buses and sidechains
+
+### Insert and reorder Mixer tracks without losing routing
+Keywords: mixer insert multiple tracks reorder move selected channels recording lock separator
+Right-click an existing Mixer insert and choose Insert Multiple Tracks. Enter a valid count in the dialog and confirm. The available count depends on remaining Mixer capacity. Stop recording first; inserting tracks while recording or across a protected group is refused.
+Moving selected Mixer inserts treats the selected tracks as a stable block. The tracks keep their routing and plugin identity as their positions change. Master is excluded from insert reordering. Locked channels/groups and recording can prevent a move. Use Undo to return from an unintended structural change.
+Related: Rename, color and group mixer channels | Select multiple Mixer channels
+
+### Choose normal sends, sidechains or Quick Sidechain
+Keywords: routing sidechain duck kick bass compressor limiter key input send level threshold release all FX
+A normal send carries audible signal to another Mixer insert. A sidechain supplies a detector/key signal to a compatible effect; it is not automatically an audible parallel mix. Select the trigger/source channel before operating the destination routing arrow. For manual setup, create the sidechain and select that external input in the destination plugin.
+For Quick Sidechain, select the trigger, right-click the destination's routing arrow and choose Quick Sidechain. It adds ML Limiter in COMP mode, selects the external input, starts at -30 dB threshold, 4:1 ratio and 200 ms release, and enables destination effect processing. The trigger retains its other outputs. Open the limiter to adjust the amount and timing.
+Quick Sidechain preserves existing effect order and uses slot 10 or a slot after the last occupied user slot. A full chain or routing loop is refused before changing the project. If All FX is bypassed, turn that audition bypass off to hear the ducking. The setup can be undone.
+Related: Duck a track with Quick Sidechain | ML Limiter | Route multiple Mixer channels to a bus
+
+### Expand and navigate a long Mixer effect chain
+Keywords: mixer effects slots 63 add slot scroll move alt wheel EQ bypass wet dry
+Filling the final visible user-effect slot reveals another empty slot. Use + Add slot to reveal one explicitly. A Mixer channel supports 63 user effects, separate from the dedicated mini EQ. The effects panel displays ten rows at a time and indicates the visible range.
+Wheel over the effect list to reach additional slots. Alt+wheel or an effect's Move up/down menu changes its processing order. The small slot mix knob keeps its own wheel behavior. Slot moves skip the reserved EQ; the mini EQ pre/post setting remains relative to the entire user chain.
+Save the project to retain expanded slots, plugin states, bypass and mix. Older builds limited to ten slots cannot play the additional effects correctly; use a compatible newer build when transferring such a project.
+Related: Add, reorder and bypass effects | Use the Mixer mini EQ before or after effects
+
+### Understand Channel Strip view processing and removal
+Keywords: channel strip mixer rack original plugin native EQ strip bypass remove free slot fill all independent
+Channel Strip view shows the original supported plugin interface above Lemon's fader, pan, mute/solo and meters. Choose an installed/scanned supported strip from a blank upper panel. The original vendor controls and preset menus remain available. General effect menus can still load other effects.
+The assigned rack processes before that channel's remaining effects and replaces its native strip and dedicated EQ processing while assigned. The native settings are retained. The rack runs independently of the ordinary effects-enable switch; its own slot bypass still works. A free user-effect slot is required, and other effects are not overwritten.
+Remove the strip assignment to restore native strip/EQ processing. The former rack stays as a bypassed effect. Changing racks also keeps the former rack bypassed. Save the project for assignments and plugin states; assignment/removal and batch changes support Undo.
+Fill all insert channels with creates independent plugin instances. Copy this rack and settings to all inserts copies settings as well. These commands apply to insert channels; Master monitoring remains separate. If filling appears to do nothing, confirm an eligible scanned plugin and free slots, check the displayed loading error, and verify the selected view/context. Do not assume a silent failure is successful loading.
+Related: Fill Mixer inserts with a channel strip | Choose a channel strip and use its processors | Use SSL 360 Link in Channel Strip view
+
+### Page and resize original Channel Strip plugin editors
+Keywords: channel strip paging Waves Scheps SSL EV2 E G TG12345 Magma RChannel REDD size DPI scaling scroll
+Use the left/right buttons below a Channel Strip editor to page through complete sections. Supported layouts have section-aware stops; EV2 and TG12345 pages overlap so controls crossing a decorative divider remain available on at least one page. Unknown or expanded layouts fall back to the whole interface.
+The plugin scales to available height when it supports host scaling. If it refuses scaling, its actual original dimensions are retained. Resize the Mixer to make room; if the editor is taller than the available screen, vertical scrolling is the fallback. Hiding or scrolling an editor out of view does not stop its audio processing.
+Only installed/scanned supported entries appear in the strip picker. Entries in Other resizable strips (unsupported) are experimental. A vendor's own scaling/preset menus remain vendor controls; the guide cannot define every third-party interface version.
+Related: Choose a channel strip and use its processors | Plugin manager and plugin editors
+
+### Route shared audio clips independently
+Keywords: audio clip shared sample channel routing mixer track picker make unique independent
+Click and release the sample/channel TRACK box to open the miniature Mixer routing picker. The Channel Rack Mixer box and Playlist audio-clip menu Send to mixer track also open it. Wheel over the TRACK control changes its number. Dragging the control is a routing drag rather than a picker click, even if you return to the start.
+Search by destination name or number. Click a tile to apply and close. Previous/Next and the wheel reach further tracks; Master 0 is included. Escape or the close button cancels without editing. The current destination is highlighted.
+Routing belongs to the sample channel. Other Playlist clips sharing that channel follow the same change. Make the clip unique before changing routing when only that clip should move to another Mixer destination. Routing changes are undoable and saved with the project.
+Related: Route audio with the miniature Mixer picker | Make a clip independent
+
+### Decide between freeze, wet bounce and keeping the Mixer live
+Keywords: freeze bounce consolidate CPU instrument mixer effects buses sidechain tails double processing
+Freeze track (save CPU) on a Playlist header renders hosted instruments and unmuted clips to audio stems, retaining original clips for Unfreeze track (resume editing). Mixer inserts, buses and sidechains remain live. It saves instrument CPU, not Mixer-effect CPU. Instruments shared by another row may still need to run.
+Bounce audio in new track renders insert and outgoing bus processing, creates the audio row below the source/take group, and mutes the source after success. Bounce and replace track uses the same row, preserves automation/take lanes and existing mute state, and can be undone. The live Master processes the bounced result.
+Wet bounce with an external sidechain is refused when it cannot correctly include the required other-channel signal. Use freeze or Consolidate (keep mixer live) when the routing/sidechain must continue running. Do not add the original wet processing again to an already processed bounce.
+Rendered files use unique names in the project's Rendered folder and include tails. A failed/cancelled render does not replace the source. Unfreeze restores originals at the row's current location and discards edits to the temporary freeze clips; unfreeze before changing comp takes or recording into that row.
+Related: Freeze or bounce a track | Commit insert and bus processing to audio | Keep a session editable while reducing CPU
+
+### Know what headphone correction changes
+Keywords: headphones phones AutoEq monitor export bounce recording master bypass offline cache
+Click the Master headphone icon, search for the exact headphone model/variant, and select it to download and activate its correction. The PHONES rocker toggles correction. Choose the correct impedance, pads and ANC variant where listed. A failed download leaves the previous correction in place; the chosen profile is cached for offline use.
+Correction affects ML Studio's physical output, including playback, live notes and previews. It is not printed into exports, freeze/bounce files or Mixer recordings. It is separate from master effects, All FX, STRIP bypass and the miniature EQ. Bypass it for speakers or when another correction system is already active.
+The model and on/off choice are preferences for the active profile, not per-project mix processing. A catalog match is a measured-model correction, not an individual calibration of your particular headphones or ears.
+Related: Correct headphone monitoring | Export a finished song, stems or MIDI
+
+### Diagnose Smart disable after an idle gap
+Keywords: smart disable sleeping plugin tail silence wake automation editor CPU VST CLAP export
+Enable Smart disable in Settings > Audio > Advanced > CPU. It is off by default. Compatible VST2/VST3 instances may sleep after four seconds of exact silence plus their reported finite tail and latency. Effects require silent main and sidechain inputs. Quiet decays and noise are not treated as silence.
+Notes, MIDI, automation, parameter/preset edits, editor opening and transport changes wake an instance. Unknown/infinite tails, held notes/pedals, auxiliary-output instruments, ARA playback and open/busy editors can keep it awake. CLAP uses its own plugin-requested sleep/wake behavior.
+Exports process fully regardless of this live preference. If an internal sequencer or autonomous modulation fails after a pause, turn Smart disable off and compare; the host cannot predict unreported future output. Hiding the setting in Visibility does not change its saved value.
+Related: Save CPU with Smart disable | Fix delay, crackles or no sound
+
+### Resolve Controls inheritance and gesture conflicts
+Keywords: controls global context inheritance keyboard capture double triple click hover 350 500 drag escape
+Settings > Controls stores bindings per profile. Select Global, Piano Roll, Playlist, Mixer, Channel Rack, Browser, Piano Roll: empty grid or Piano Roll: notes; then choose the event and modifiers. Capture records a keyboard key; Escape cancels capture. A new binding replaces the same context/event/modifier combination.
+The specific Piano Roll note/grid context inherits Piano Roll, then Global. Restore event removes an override and returns to inheritance. Do nothing explicitly suppresses the event. Text fields/dialogs retain input, and Typing keyboard to piano takes precedence over plain note letters; disable it before using those letters for editing shortcuts.
+Click and drag assignments are independent. A drag starts after five pixels of movement. Assigned left double/triple-click actions defer the single click for 350 ms; without them there is no multi-click wait. A custom Hover event fires once after 500 ms on a target. Activate window fires on later editor activation, not startup. These are assigned Controls events, separate from Open menus on hover.
+Escape cancels a deferred click. After a native drag starts, Escape finishes it without closing the editor; use Undo if you need to revert the edit. Supported actions operate on the current selection, and unavailable commands report that they cannot run. Mixer volume actions respect locks and grouped faders.
+Related: Customize mouse and keyboard behavior | Restore a shortcut that stopped working | Open menus by hovering
+
+### Save, import and repair custom action sequences
+Keywords: controls macro sequence append 32 undo saved named pin toolbar JSON import export references
+Use Append in Settings > Controls to build up to 32 compatible direct editing actions. A sequence is one project Undo/Redo step, even with an Undo-history limit of one. Dialog, file, project-management and Undo/Redo commands must run alone. Mouse-down gestures also run alone and cannot be assigned to keyboard, wheel or hover events.
+Give a binding a name and choose Save name to reuse it through Saved actions. Pin as toolbar button exposes up to four named Custom actions buttons, with full-name tooltips. Show the buttons through Workspace Visibility and the toolbar layout as needed; hiding them retains the bindings.
+Saved opens bindings for editing. Circular or missing named references are rejected. If you restore a binding that another action references, repair the dependent action before using it. Export saves names, sequences and pinned state as JSON. Import validates the whole file before replacing bindings; Undo change restores earlier binding-settings edits, up to 32 in the current session.
+Unknown action IDs imported from another version remain stored but report unavailable. Custom menu arrangements do not change the original menu action IDs used by these bindings.
+Related: Build action sequences and toolbar buttons | Customize mouse and keyboard behavior
+
+### Write a portable action script
+Keywords: lsa script repeat name action ID import macro fifth velocity portable limits
+A portable .lsa script is UTF-8 text. Select the target context/event in Settings > Controls first; capture the key if the event is Keyboard, then Import the script. Each nonempty line is an action ID, a name: directive, a comment starting with #, or repeat COUNT ACTION_ID. Find exact supported IDs in a Controls JSON export.
+For example, use three lines: name: Fifth softer; repeat 7 piano.up; piano.velocity-down. Put each of those on a separate line in the file, without the semicolons. This raises selected notes seven semitones and reduces velocity one step. The expanded sequence can contain at most 32 direct editing actions.
+These scripts run finite DAW editing actions. They cannot execute shell commands, access files, run arbitrary JavaScript/Lua, wait asynchronously or recursively call named actions. Controllers that emit keyboard events can use keyboard bindings; native gamepad/HID mapping is not included.
+Related: Save, import and repair custom action sequences | Build action sequences and toolbar buttons
+
+### Choose the correct Plugin Picker destination
+Keywords: plugin picker F8 insert replace instrument effect destination Hybrid favorites search picture
+Open the picker from an instrument Add/Replace command for instruments, or from an effect slot for effects. Right-click an empty effect slot targets that exact slot. F8 over the Channel Rack chooses instruments; F8 over the Mixer chooses effects. Elsewhere the default F8 opens Hybrid. A customized picker shortcut takes precedence.
+The toolbar/general Plugin picker opens Hybrid for drag-and-drop. Click a plugin to add to the original destination, or drag it to the Rack/Playlist/Mixer slot. Search covers names, categories, vendors and formats. Stars save favorites; arrow keys select, Enter adds and Escape closes.
+Right-click empty Rack space or its + area for Plugin picker - insert instrument. Right-click a channel name or its piano-roll preview for Plugin picker - replace instrument. Insert adds a separate channel; Replace changes the selected one. Verify the destination before replacing a sound.
+Related: Search, favorite and manage the plugin picker | Add, replace and route an instrument
+
+### Generate, replace and troubleshoot plugin preview pictures
+Keywords: plugin picker preview thumbnail picture generate Windows cancel report missing blank GPU license
+The picker uses built-in/catalog pictures when available. Hover for a larger preview. Choose picture assigns a PNG/JPEG to the selected plugin identity in the current profile, resized to at most 480 by 300. It does not upload the picture or open the plugin just for ordinary browsing.
+On Windows, Generate previews processes installed plugins missing a picture using separate offscreen editor helpers. Existing pictures are preserved. First scan newly installed plugins through Manage plugins. Progress shows the current plugin; Cancel stops generation and keeps completed pictures. Run it again to process remaining or new plugins.
+Generation requires stopped playback and cancels if playback starts. Each plugin gets a 25-second timeout. Preview report explains skipped entries. Some protected/GPU editors or activation dialogs cannot produce a usable image; no activation prompts are clicked automatically. Use Choose picture for these entries. Existing pictures work across platforms; automatic capture is Windows-only in this implementation.
+Related: Search, favorite and manage the plugin picker | Find installed plugins
+
+### Understand what collaboration shares and what stays local
+Keywords: collaboration shared edits local device zoom layout plugins sample transfer follow host playback
+A collaboration session shares project editing; each computer renders audio using its own installed plugins. Patterns, notes, clips, arrangements, channel settings, Mixer controls/routing, automation and exposed plugin parameter gestures are shared. Full plugin state/preset changes settle while playback is stopped; received instance/state changes can wait until the recipient stops.
+Sample files transfer, but plugin binaries, licences and external plugin libraries do not. Both participants need compatible plugins and libraries. Matching project data does not guarantee matching audio if plugin versions or device settings differ.
+Playback is independent unless a guest enables Follow host playback. Following tracks host start/stop and position with drift correction; it is not sample-accurate internet jamming, audio streaming or voice chat. Audio devices, window layout, zoom/scroll, active editors and Playlist lane folding/heights stay local.
+Conflicting edits pause shared editing for the affected participant. Reopen Collaborate and choose Keep my version or Use shared version deliberately. The host must remain connected; End / leave closes the session, and ending hosting invalidates its invitation. Each participant keeps a local project.
+Related: Collaborate on a project | Resolve collaboration conflicts and recover sessions
+
+### Keep project formats, versions and recovery files straight
+Keywords: lmn flp save as save new version templates backups zip compatibility renamed extension
+New projects, Save As, Save New Version, new project-folder saves, templates and autosave backups use .lmn. Open accepts .lmn, legacy .flp and zipped projects. Saving an already-open .flp normally keeps that filename; Save As proposes .lmn and Save New Version creates a new .lmn sibling. Existing files are not batch-renamed.
+Both extensions are recognized for recovery. A .lmn extension does not convert unsupported third-party plugins into built-ins or guarantee perfect import of every FL Studio feature. Keep the source project when importing and review missing plugins, routing, automation and playback.
+Save to a new project folder or export a zipped project when transferring audio with the song. Plugins and external libraries may still need separate installation. Before deleting unused audio or overwriting a version, keep a recoverable project copy and verify the project's sample locations.
+Related: Native projects, folders and templates | Import a project from FL Studio | Send a project with its audio files
+
+### Use the guide reference without confusing defaults with saved settings
+Keywords: reference defaults current profile settings unavailable menu disabled feature controls hints
+The setting-reference articles list the build's declared defaults and choices. Your saved profile may use different values. Hiding a setting through Visibility does not switch the feature off; change its value in its normal settings page. Menu customization can also hide commands independently of feature visibility.
+Control-hint references quote the editor's own hover instructions. Modifiers apply to the named control/context, not universally across the app. Menu-reference pages list discoverable commands, not a sequence to follow. Entries explicitly marked not implemented cannot be used. Context, selection, platform, installed plugins and locks may further restrict a working command.
+The Helper cannot inspect your current selection, customized shortcut assignments or third-party plugin interface from a text question. Tell it the editor, control and what you are trying to do. If the guide lacks a verified workflow, it should say what information is missing instead of inventing a shortcut. Current source coverage records distinguish extracted labels from reviewed behavior.
+Related: Browse or search the User Guide | Find a control that is missing or greyed out
+
+### Follow or duck a parameter from an audio level
+Keywords: follow audio level peak link duck source depth release envelope control
+Open a supported parameter's context menu and choose Follow audio level. Choose Follow source to make it follow a Mixer insert's level, or Duck from source for inverted behavior. Choose the source insert from the submenu. This creates a project-local audio-level link without adding a controller-plugin slot.
+Reopen the link menu to set Depth to 25%, 50%, 75% or 100%, and Release to 50, 150, 300 or 600 ms. A new link starts at full depth and 150 ms release. Remove audio-level link removes the connection and restores the saved base value. Undo restores a link change. This is a parameter-control link, distinct from an audible Mixer send or a compressor's external sidechain input.
+Related: Map a MIDI knob or controller | Create sends, buses and sidechains
+
+### Change existing Piano Roll note colors and note types
+Keywords: piano roll color group selected notes slide glide portamento normal apply
+Open the note-color selector to choose one of 16 color groups for drawing. Changing the drawing color alone does not recolor every existing note. Select notes first, then use Selected notes > Apply current color in that menu to recolor those notes.
+The same Selected notes submenu changes existing notes to Normal notes, Slide / glide notes or Portamento notes. These entries require a note selection. The change is undoable. Audible glide/portamento also depends on the instrument's supported note behavior; a note type is not a guarantee that every third-party plugin implements it.
+Related: Use Glide Notes and slide pitches | Draw, move and edit notes
+
+### Select notes, a pitch range or a time range in Piano Roll
+Keywords: piano roll select notes E Ctrl add keyboard pitch range ruler right drag stretch deselect
+Choose the Select tool (E by default) and drag a box around notes; Ctrl adds to the selection. On the keyboard, Ctrl/Command+Shift-drag selects notes across the chosen pitches. These gestures select notes in the current Piano Roll context, not Mixer channels.
+Drag the Piano Roll ruler to move the play start. Right-drag the ruler to select a time range. With Pencil or Brush, right-click empty grid to deselect. Alt+wheel over a note edits velocity; over empty grid it changes row height. If a custom Controls binding overrides a gesture, restore that event or use the assigned action.
+With Stretch active, drag note ends to scale selected timing and lengths; dragging note bodies still moves notes. Right-click empty grid to turn Stretch off. Undo reverses an unintended completed edit.
+Related: Use the Piano Roll editing tools | Customize mouse and keyboard behavior
+
+### Draw, route and save ML Wave modulation
+Keywords: ML Wave modulation LFO drawn free run one shot tempo sync macro matrix depth route
+Open MODULATION beside SYNTH. Draw in any of the four LFO graphs; each curve has 65 interpolated points. Sine, Triangle, Ramp and Square replace the shape, and Undo restores the previous edit. LFO1 switches to Drawn automatically; choose Classic for the original shape selector.
+Free sync uses Hz. Tempo divisions include straight, dotted and triplet values. Note loop restarts per note, Free run uses a continuously advancing shared clock, and One shot runs once then holds its last value. Tempo-relative timing does not imply locking the phase to song position.
+Drag an LFO, envelope or macro label to an oscillator, filter or output destination knob. Hover SYNTH during the drag to reveal its knobs. New routes start at +25%; change signed depth in the matrix. Clear removes a route. Unsupported drops cancel and a full matrix reports that no slot is available.
+There are eight routes, thirteen sources and twenty-one destinations. The first two rows retain restricted selectors for older automation compatibility; the six newer rows offer all choices. Four macros are host-automatable. Displays follow the newest active voice. Custom curves are saved in native plugin state; parameter-only presets cannot carry custom assets. Completing a curve edit can restart held notes/tails, so draw between notes.
+Related: Design sounds with ML Wave | Build a patch in ML Wave
+
+### Build and apply an ML Wave wavetable draft
+Keywords: ML Wave table edit workshop harmonics frames tween normalize smooth invert reverse apply draft undo
+Open TABLE EDIT at the top of Wave or EDIT TABLE in oscillator A/B. Draw in DRAW WAVEFORM and drag harmonic bars 1-64; harmonic phase and higher existing harmonics are preserved. Edits remain a draft until Apply to Oscillator.
+Choose a frame in the strip or with Frame arrows. Add, duplicate, delete, move left/right, or insert a Tween between the selected frame and the next. Tables contain 1-128 frames. Normalize, Smooth, Invert and Reverse affect the selected frame. Workshop Undo/Redo retains up to 24 editing operations.
+The stacked view highlights the selected frame and interpolated preview. Move its slider to inspect transitions, then Apply to Oscillator and use Position on SYNTH to hear the scan. Applying embeds the table in the native patch/project and changes only the chosen oscillator to wavetable mode. Apply between notes because restoring state can restart held notes/tails.
+Unapplied drafts are not saved with the project and are lost when the instance unloads or is recreated. Reload discards the draft and reloads the oscillator. Apply or Reload a dirty draft before switching A/B in the workshop.
+Related: Design sounds with ML Wave | Build a patch in ML Wave
+
+### Extract a Wave table from a recording and save a user bank
+Keywords: ML Wave extract recording root pitch zero crossing user bank table name save reload
+Select a recorded sound on Wave's SYNTH page, then open EDIT TABLE or Reload in the workshop. Drag across RECORDING to select a section, set the output frame count, and choose Extract. Extraction uses the recording's Root pitch and nearby rising zero crossings. Complex/detuned audio or an inaccurate Root can need adjustment; this is not automatic multisample mapping or continuous pitch tracking.
+Click USER BANK and TABLE NAME to type names. Ctrl+A replaces the field, Backspace removes characters, Enter finishes and Escape restores its previous text. Save to User Bank adds the table to SYNTH > Wavetables as Bank / Table. Existing files receive numbered alternatives instead of being overwritten.
+Apply embeds the table in the native project/preset; saved bank files remain local user-library files. Keep the bank files if you want those choices available in other projects. The source recording remains in the instrument library.
+Related: Build and apply an ML Wave wavetable draft | Build a patch in ML Wave
+
+### Choose ML Wave recordings, root pitch and unison Blend
+Keywords: ML Wave sounds basic waves recordings root pitch sample one shot unison blend position import
+Use each oscillator's source dropdown for Basic Waves, Wavetables, available recorded libraries or Reference Saw. The next dropdown chooses the wave/recording; recorded instruments also offer patch selection. Longer inline lists have Previous/Next. Click a choice or outside to close. Only importing a new external file opens a file picker.
+Recorded samples play once at keyboard-controlled pitch; they are not automatically looped or mapped across multisample zones. Root buttons change the source pitch by -12, -1, +1 or +12 semitones. Raising Root makes the same played key sound lower. Position, Bend and phase are wavetable controls; recorded playback still uses pitch, unison, detune, envelopes, filter and effects.
+UNISON BLEND shows center versus outer voice amplitudes. With one or two voices there are no distinct center/outer groups to rebalance. Loaded audio is embedded in native saved sounds. Sample or Root changes can interrupt held notes; edit between notes. Included recording libraries depend on the installed edition; do not assume a source-only or public build includes personal libraries.
+Related: Design sounds with ML Wave | Extract a Wave table from a recording and save a user bank
+
+### Navigate ML Plasma panels, patch view and advanced controls
+Keywords: ML Plasma Synth Effects Links Play Setup Panels Patch Simple Full More advanced modules
+Plasma has Synth, Effects, Links, Play and Setup tabs. Synth and Effects can display Panels or Patch. Simple folds advanced controls behind More; Full shows them in place. A block's menu or double-click opens its advanced panel. Back returns to the main view.
+Synth arranges Layer 1-3, Root, Texture, Filter 1/2 and Amp, with modulation sources below. A block's on light controls its contribution. Shift-click its name toggles it. Drag a block name to reorganize the screen; visual row order does not rewire sound. Copy/paste block settings only between compatible block kinds.
+The Parts sidebar lists available Modules and library items. Add a free module by clicking or dragging it; a full family is unavailable. Removing a block switches its slot off and resets its settings. Library can load tables into layers and shapes into LFOs. Patch shows audio routing as wires and exposes modulation relationships; use Routing to edit the signal destinations deliberately.
+Related: Design sounds with ML Plasma
+
+### Choose ML Plasma layer engines and filter routing
+Keywords: ML Plasma wavetable sample multisample granular spectral root texture filter main direct routing
+Each of Plasma's three main layers can use wavetable, multisample, sample, granular or spectral synthesis. Root supplies the sub oscillator and Texture supplies noise. Choose the layer mode before adjusting its mode-specific controls; wavetable frame position is not the same as sample position or granular offset.
+Granular controls include grain length, density, offset, direction, window shape and random variation in pitch, time, pan and gain. Spectral resynthesizes a sample or table. Root has shape, octave, coarse pitch, phase, retrigger, pan and level; Texture supports built-in noise or a file with one-shot/keytrack, color, start/random-start, pitch, fine, pan and level.
+Choose Filter 1/2 type, cutoff, resonance, drive, key tracking, pan, mix and level. A type-dependent extra control changes with the model. Each source chooses F1, F2, F1+F2 with balance, MAIN or DIRECT. The Routing panel also sets source/filter outputs, send levels, pan and level. Watch gain when combining direct and filtered paths.
+Related: Design sounds with ML Plasma | Navigate ML Plasma panels, patch view and advanced controls
+
+### Edit ML Plasma effects, links and performance quality
+Keywords: ML Plasma effects Main Send A Send B links 64 modulation matrix smoothing auxiliary quality oversampling
+Effects has Main, Send A and Send B chains. Drag an effect by its name to reorder it or move it between chains. A chain's menu can copy, paste or empty it; Keep on preset load retains that chain when another sound loads. Open More or Full for the selected effect's detailed controls.
+Links holds up to 64 modulation connections. Each has source, destination, amount, polarity, curve, rise/fall smoothing, live output and bypass. An auxiliary source has its own curve/invert and output scale. Select a link to edit its curve at full size; bypass or remove the intended link when a control moves unexpectedly.
+Setup includes tuning, MPE, voice behavior and quality. Quality uses Draft without oversampling, High at 2x (default) or Ultra at 4x. More active layers, voices/unison, effects and oversampling increase processing cost. Turn unused parts off and compare quality settings in the musical context.
+Related: Design sounds with ML Plasma | Find out why a knob moves when playback starts
+
+### Program ML Plasma arpeggiator and phrases
+Keywords: ML Plasma arp arpeggiator phrases latch thru gate chance trigger octave record layer extend fold
+Open Play for the Arpeggiator and Phrases. The arpeggiator has twelve pattern slots, including up/down/as-played/chords/random and drawn steps with velocity/accent. Choose tempo division or Hz, dotted/triplet timing, transpose/range/cycles, gate, repeats, chance, latch/thru and retrigger behavior. Trigger-octave keys choose slots while playing.
+Phrases provides twelve sequences with Piano Roll, velocity and parameter automation lanes. Set length, keyboard span, transpose, play mode, rate, launch quantization, restart and gate. Record captures played notes; Layer keeps existing notes, Extend lets the phrase grow, and the grid control quantizes. Fold shows used keys; the headphone control auditions placed notes.
+These are Plasma's internal sequencers, separate from the DAW's Playlist and the Sampler wrench arpeggiator. Check which sequencer is enabled when repeated notes continue. MIDI-output availability also depends on host routing; do not assume enabling an internal output option connects an external device.
+Related: Design sounds with ML Plasma | Set up Sampler arpeggios, echoes and tracking
+
+### Import Plasma presets and investigate missing assets
+Keywords: ML Plasma Serum SerumPreset fxp import presets library missing samples wavetables approximation
+Use Plasma's Library or Open preset to load its native sounds, Serum 2 .SerumPreset or Serum 1 .fxp preset files. Imported settings are mapped to Plasma's own engine. The result is not a promise of identical Serum sound. Host-level missing-plugin replacement behavior must be checked separately; importing a preset does not establish that an entire foreign project is compatible.
+Add your preset/content folders to the library when needed and use Read again to rescan. Referenced wavetables, samples and impulse responses must exist in your installed content folders. Read the import notice and hover the info mark beside the preset name for the detailed approximation/missing-file report.
+Save the adapted sound under a new name after reviewing it. Plasma does not supply another vendor's proprietary content with an imported preset. If a source, warp or trigger mode has no exact counterpart, use the report to decide what to adjust rather than assuming an exact conversion.
+Related: Design sounds with ML Plasma | Recover a missing plugin or preset
+
+### Adjust Master Assistant controls precisely
+Keywords: master assistant detailed controls numeric double click wheel threshold ratio attack release ceiling imager mono
+In Detailed controls, Dynamic EQ exposes Threshold and Max reduction for four bands. Multiband Comp selects Low, Low mid, High mid or High with Threshold, Ratio, Attack, Release and Makeup, plus crossover frequencies. Stereo Imager has four width controls: 100% is unchanged and 0% is mono. Maximizer has Threshold, Ceiling, Release and mode.
+Drag vertically or type a value. Double-click returns a control to its parameter default. Wheel editing is disabled on these knobs so scrolling the workspace does not accidentally change the sound. The controls remain saved and automatable processor parameters. Opening the editor alone does not enable processing; use its on/off control and compare bypass at sensible levels.
+Related: ML Master Assistant detailed controls | Master a mix with Master Assistant
+
+<!-- source-reference-start -->
+### Setting: Main GUI scaling
+Keywords: setting: main gui scaling reference controls options settings
+Location: Settings > General > Display.
+
+Available choices: System; 100%; 125%; 150%; 175%; 200%; 250%; 300%; 350%; 400%.
+Default: System.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Pop-ups scaling
+Keywords: setting: pop-ups scaling reference controls options settings
+Location: Settings > General > Display.
+
+Available choices: Main; 100%; 125%; 150%; 175%; 200%; 250%; 300%; 350%; 400%.
+Default: Main.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Toolbars scaling
+Keywords: setting: toolbars scaling reference controls options settings
+Location: Settings > General > Display.
+
+Available choices: Main; 100%; 125%; 150%; 175%; 200%; 250%; 300%; 350%; 400%.
+Default: Main.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Colorful waveforms
+Keywords: setting: colorful waveforms reference controls options settings
+Location: Settings > General > Display.
+
+Available choices: Off; Color map; Multiband.
+Default: Off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Mixer style
+Keywords: setting: mixer style reference controls options settings
+Available choices: Original; Clean Modern; Analog.
+Default: Analog.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Playlist scrollbar style
+Keywords: setting: playlist scrollbar style reference controls options settings
+Available choices: Classic; Separate thumb.
+Default: Separate thumb.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Interface language
+Keywords: setting: interface language reference controls options settings
+Available choices: English; Français; Español; Deutsch; Português (Brasil); Italiano.
+Default: English.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Note names
+Keywords: setting: note names reference controls options settings
+Location: Settings > General > Language.
+
+Available choices: English; Germanic; Solfege (do, re, mi, ...).
+Default: English.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Black notes
+Keywords: setting: black notes reference controls options settings
+Location: Settings > General > Language.
+
+Available choices: Sharps - #; Flats - ♭.
+Default: Sharps - #.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Autosave
+Keywords: setting: autosave reference controls options settings
+Location: Settings > File > Backup.
+
+Available choices: Never (just remind every 10 minutes); Rarely (every 15 minutes); Occasionally (every 10 minutes); Regularly (every 5 minutes); Frequently (every 5 minutes & before risky operations); Very frequently (every minute & before risky operations).
+Default: Occasionally (every 10 minutes).
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Location
+Keywords: setting: location reference controls options settings
+Location: Settings > File > Backup.
+
+Available choices: Always save to the global folder; Save to the project data folder if there is one.
+Default: Save to the project data folder if there is one.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Maximum
+Keywords: setting: maximum reference controls options settings
+Location: Settings > File > Backup.
+
+Default: 100. Allowed control values: 1 to 999.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Restore previous state after solo
+Keywords: setting: restore previous state after solo reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Select first channel with notes when the pattern changes
+Keywords: setting: select first channel with notes when the pattern changes reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto zoom in piano roll
+Keywords: setting: auto zoom in piano roll reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Brighter Playlist clips
+Keywords: setting: brighter playlist clips reference controls options settings
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Small scrollbars in editors
+Keywords: setting: small scrollbars in editors reference controls options settings
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto zip empty channels
+Keywords: setting: auto zip empty channels reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Monophonic painting in piano roll
+Keywords: setting: monophonic painting in piano roll reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Enable automatic crossfades in new projects
+Keywords: setting: enable automatic crossfades in new projects reference controls options settings
+Location: Settings > Project > Playlist.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Play truncated notes on transport
+Keywords: setting: play truncated notes on transport reference controls options settings
+Location: Settings > Audio > Mixer.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Reset plugins on transport
+Keywords: setting: reset plugins on transport reference controls options settings
+Location: Settings > Audio > Mixer.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Alternate meter scale
+Keywords: setting: alternate meter scale reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Create automation clips at the playback position
+Keywords: setting: create automation clips at the playback position reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto select linked modules
+Keywords: setting: auto select linked modules reference controls options settings
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Hide plugin window toolbar by default
+Keywords: setting: hide plugin window toolbar by default reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto-route Channel Rack samples to mixer inserts
+Keywords: setting: auto-route channel rack samples to mixer inserts reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto name channels
+Keywords: setting: auto name channels reference controls options settings
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto name effect slots
+Keywords: setting: auto name effect slots reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Detach all new plugins
+Keywords: setting: detach all new plugins reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Open detached plugins with the main window
+Keywords: setting: open detached plugins with the main window reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Disable typing keyboard priority by default
+Keywords: setting: disable typing keyboard priority by default reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Limit the number of open plugin editors
+Keywords: setting: limit the number of open plugin editors reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show startup splash screen
+Keywords: setting: show startup splash screen reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Silent startup
+Keywords: setting: silent startup reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Use both mouse buttons in step sequencer
+Keywords: setting: use both mouse buttons in step sequencer reference controls options settings
+Location: Settings > General > Input.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Startup project
+Keywords: setting: startup project reference controls options settings
+Location: Settings > General > Miscellaneous.
+
+Available choices: Empty project; Default template; Last used project.
+Default: Default template.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Click-and-hold & special gesture functions
+Keywords: setting: click-and-hold & special gesture functions reference controls options settings
+Location: Settings > General > Input.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Maximum undo levels
+Keywords: setting: maximum undo levels reference controls options settings
+Location: Settings > General > Undo history.
+
+Default: 100. Allowed control values: 1 to 999.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Undo knob tweaks
+Keywords: setting: undo knob tweaks reference controls options settings
+Location: Settings > General > Undo history.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Alternate undo mode
+Keywords: setting: alternate undo mode reference controls options settings
+Location: Settings > General > Undo history.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Put undone recordings in the recycle bin
+Keywords: setting: put undone recordings in the recycle bin reference controls options settings
+Location: Settings > General > Undo history.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show undo history in the browser when undoing changes
+Keywords: setting: show undo history in the browser when undoing changes reference controls options settings
+Location: Settings > General > Undo history.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show recent changes at the top
+Keywords: setting: show recent changes at the top reference controls options settings
+Location: Settings > General > Undo history.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Read sample root note
+Keywords: setting: read sample root note reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Read sample tempo information
+Keywords: setting: read sample tempo information reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Animation refresh rate
+Keywords: setting: animation refresh rate reference controls options settings
+Location: Settings > General > Display.
+
+Available choices: Less smooth; Smooth; Ultrasmooth.
+Default: Ultrasmooth.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Don't limit windows to screen
+Keywords: setting: don't limit windows to screen reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Initialize controls automatically
+Keywords: setting: initialize controls automatically reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Fast sample preview
+Keywords: setting: fast sample preview reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto keep long audio on disk
+Keywords: setting: auto keep long audio on disk reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Threaded project sample loading
+Keywords: setting: threaded project sample loading reference controls options settings
+Location: Settings > General > Advanced.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Cursors scaling
+Keywords: setting: cursors scaling reference controls options settings
+Location: Settings > General > Advanced.
+
+Available choices: System; 100%; 125%; 150%; 175%; 200%; 250%; 300%; 350%; 400%.
+Default: System.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Legacy scaling
+Keywords: setting: legacy scaling reference controls options settings
+Location: Settings > General > Advanced.
+
+Available choices: Main; 100%; 200%; 300%; 400%.
+Default: Main.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: High visibility
+Keywords: setting: high visibility reference controls options settings
+Location: Settings > General > Display.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Force refreshes
+Keywords: setting: force refreshes reference controls options settings
+Location: Settings > General > Display.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Thick lines
+Keywords: setting: thick lines reference controls options settings
+Location: Settings > General > Display.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Transparent menus
+Keywords: setting: transparent menus reference controls options settings
+Location: Settings > General > Display.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Transparent windows
+Keywords: setting: transparent windows reference controls options settings
+Location: Settings > General > Display.
+
+Available choices: Off; On.
+Default: Off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Optimize for
+Keywords: setting: optimize for reference controls options settings
+Location: Settings > General > Input.
+
+Available choices: Multi-button mouse; Pencil; Multi-touch monitor.
+Default: Multi-button mouse.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Invert pencil buttons
+Keywords: setting: invert pencil buttons reference controls options settings
+Location: Settings > General > Input.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto close
+Keywords: setting: auto close reference controls options settings
+Location: Settings > Audio > Input / output.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Smart disable
+Keywords: setting: smart disable reference controls options settings
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Align tick lengths
+Keywords: setting: align tick lengths reference controls options settings
+Location: Settings > Audio > CPU.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Multithreaded generator processing
+Keywords: setting: multithreaded generator processing reference controls options settings
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Multithreaded mixer processing
+Keywords: setting: multithreaded mixer processing reference controls options settings
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Plugin delay compensation during playback
+Keywords: setting: plugin delay compensation during playback reference controls options settings
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Audio worker limit
+Keywords: setting: audio worker limit reference controls options settings
+Available choices: Automatic; 1; 2; 4; 6; 8.
+Default: Automatic.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Audio processing priority
+Keywords: setting: audio processing priority reference controls options settings
+Available choices: Normal; High; Realtime.
+Default: Realtime.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Recording format
+Keywords: setting: recording format reference controls options settings
+Available choices: 32-bit float; 24-bit PCM; 16-bit PCM.
+Default: 32-bit float.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Recording offset
+Keywords: setting: recording offset reference controls options settings
+Default: 2000. Allowed control values: 0 to 4000.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Playback resampling quality
+Keywords: setting: playback resampling quality reference controls options settings
+Available choices: 2-point linear; 16-point sinc; 24-point sinc; 32-point sinc; 64-point sinc; 128-point sinc; 256-point sinc; 512-point sinc.
+Default: 16-point sinc.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Project data size warning
+Keywords: setting: project data size warning reference controls options settings
+Location: Settings > General > Hints and warnings.
+
+Available choices: 50MB; 100MB (default); 250MB; 500MB; 1GB; 1.5GB; Don't warn me.
+Default: 100MB (default).
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Ask for data folder
+Keywords: setting: ask for data folder reference controls options settings
+Location: Settings > Project > Data folder.
+
+Available choices: On startup, when starting a new project and when saving unsaved projects; When starting a new project and when saving unsaved projects; When starting a new project only; When saving unsaved projects only; Don't ask.
+Default: When saving unsaved projects only.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Copy used samples to the project folder
+Keywords: setting: copy used samples to the project folder reference controls options settings
+Location: Settings > Project > Data folder.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Pickup (takeover mode)
+Keywords: setting: pickup (takeover mode) reference controls options settings
+Location: Settings > MIDI > Input.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Auto accept detected controller
+Keywords: setting: auto accept detected controller reference controls options settings
+Location: Settings > MIDI > Input.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Foot pedal controls note off
+Keywords: setting: foot pedal controls note off reference controls options settings
+Location: Settings > MIDI > Input.
+
+Checkbox; default: on.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Toggle on release
+Keywords: setting: toggle on release reference controls options settings
+Location: Settings > MIDI > Input.
+
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Link note on velocity to
+Keywords: setting: link note on velocity to reference controls options settings
+Location: Settings > MIDI > Input.
+
+Available choices: (none); Velocity; Mod X; Mod Y.
+Default: Velocity.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Link release velocity to
+Keywords: setting: link release velocity to reference controls options settings
+Location: Settings > MIDI > Input.
+
+Available choices: (none); Release.
+Default: Release.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Controller type
+Keywords: setting: controller type reference controls options settings
+Location: Settings > MIDI > Input.
+
+Available choices: (generic controller).
+Default: (generic controller).
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Synchronization type
+Keywords: setting: synchronization type reference controls options settings
+Location: Settings > MIDI > Output.
+
+Available choices: MIDI clock; MTC 24 fps; MTC 25 fps; MTC 30 fps (drop); MTC 30 fps (non-drop); MTC 29.97 fps (drop); MTC 29.97 fps (non-drop).
+Default: MIDI clock.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Omni preview MIDI channel
+Keywords: setting: omni preview midi channel reference controls options settings
+Location: Settings > MIDI > Input.
+
+Default: 0. Allowed control values: 0 to 16.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Song marker jump MIDI channel
+Keywords: setting: song marker jump midi channel reference controls options settings
+Default: 0. Allowed control values: 0 to 16.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Generator muting MIDI channel
+Keywords: setting: generator muting midi channel reference controls options settings
+Default: 0. Allowed control values: 0 to 16.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Double-click resets faders and knobs
+Keywords: setting: double-click resets faders and knobs reference controls options settings
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Open menus on hover
+Keywords: setting: open menus on hover reference controls options settings
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Piano Roll zoom keys
+Keywords: setting: piano roll zoom keys reference controls options settings
+Available choices: Page Up / Page Down; Ctrl + Page keys; Alt + Page keys; Shift + Page keys.
+Default: Page Up / Page Down.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Vertical scrolling speed
+Keywords: setting: vertical scrolling speed reference controls options settings
+Location: Settings > General > Input.
+
+Default: 256. Allowed control values: 0 to 512. Wheel increment: 32.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Horizontal scrolling speed
+Keywords: setting: horizontal scrolling speed reference controls options settings
+Location: Settings > General > Input.
+
+Default: 256. Allowed control values: 0 to 512. Wheel increment: 32.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Smoothing
+Keywords: setting: smoothing reference controls options settings
+Location: Settings > General > Display.
+
+Default: 128. Allowed control values: 0 to 512. Wheel increment: 16.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Browser preview track
+Keywords: setting: browser preview track reference controls options settings
+Location: Settings > Audio > Mixer.
+
+Default: 0. Allowed control values: 0 to 125.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Metronome track
+Keywords: setting: metronome track reference controls options settings
+Location: Settings > Audio > Mixer.
+
+Default: 0. Allowed control values: 0 to 125.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Toggle browser
+Keywords: setting: toggle browser reference controls options settings
+Available choices: F8; Shift+F8; Ctrl+F8; Alt+F8.
+Default: Alt+F8.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Toggle plugin picker
+Keywords: setting: toggle plugin picker reference controls options settings
+Available choices: F8; Shift+F8; Ctrl+F8; Alt+F8.
+Default: F8.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Toggle project picker
+Keywords: setting: toggle project picker reference controls options settings
+Available choices: F8; Shift+F8; Ctrl+F8; Alt+F8.
+Default: Ctrl+F8.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show plugin database
+Keywords: setting: show plugin database reference controls options settings
+Available choices: F8; Shift+F8; Ctrl+F8; Alt+F8.
+Default: Shift+F8.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show when necessary
+Keywords: setting: show when necessary reference controls options settings
+Available choices: (none); Alt; Shift.
+Default: (none).
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show every time
+Keywords: setting: show every time reference controls options settings
+Available choices: (none); Alt; Shift.
+Default: Alt.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Don't show
+Keywords: setting: don't show reference controls options settings
+Available choices: (none); Alt; Shift.
+Default: Shift.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show clip properties
+Keywords: setting: show clip properties reference controls options settings
+Available choices: (disabled); (none); Alt.
+Default: Alt.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### Setting: Show channel settings
+Keywords: setting: show channel settings reference controls options settings
+Available choices: (disabled); (none); Alt.
+Default: (none).
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
+### App - menu labels 1
+Keywords: app - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Editor size [submenu]
+- Replace [submenu]
+- Refresh [submenu]
+- View voice count
+- View FPS
+- Misc
+- Performance monitor style [submenu]
+- Detailed table
+- Load dashboard
+- Plugin performance monitor
+- Audio settings
+- Continuous scrolling
+- Default device
+- Type in BPM...
+- Tap tempo
+
+### Ara - menu labels 1
+Keywords: ara - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Open current editor
+- Remove ARA edits (use original audio)
+- Scan for ARA editors...
+
+### Browser - menu labels 1
+Keywords: browser - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Scan for ARA editors...
+- System [submenu]
+- Tags [submenu]
+- Add to channel rack
+- Add to selected mixer track
+- Load into selected channel
+- Collapse structure
+- Reread structure
+- Content [submenu]
+- Browser tabs [submenu]
+- Audio preview [submenu]
+- Appearance [submenu]
+- Search [submenu]
+- Navigation [submenu]
+- Send to selected channel [submenu]
+
+### Browser Preview - control hints 1
+Keywords: browser preview - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Click waveform to preview from here
+
+### Harmony - control hints 1
+Keywords: harmony - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Chord workspace
+- Select this chord
+- Enter accepts; Escape cancels
+
+### Changelog - control hints 1
+Keywords: changelog - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Search the Change Log
+
+### Wiki - control hints 1
+Keywords: wiki - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- User Guide home
+- Search the User Guide (Ctrl+K)
+- Enlarge picture
+- Close picture
+
+### Import Report - menu labels 1
+Keywords: import report - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Show import report
+- Export full report...
+- Find missing samples...
+- Use available plugin substitutes (default presets)
+- Browse for another file...
+
+### Instrument Stack - menu labels 1
+Keywords: instrument stack - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Remove instrument...
+- Channel instruments [submenu]
+
+### Knobs - menu labels 1
+Keywords: knobs - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Reset
+
+### Loop Fit - menu labels 1
+Keywords: loop fit - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Fit to length [submenu]
+
+### Messages - menu labels 1
+Keywords: messages - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Show all
+- Show none
+
+### Midi Play - menu labels 1
+Keywords: midi play - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Off
+
+### Mini Eq - control hints 1
+Keywords: mini eq - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Open the full Lemon Parametric EQ — same settings
+
+### Misc - menu labels 1
+Keywords: misc - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Reset
+
+### Mixer - menu labels 1
+Keywords: mixer - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Off
+- Send to this channel
+- Route to this channel only
+- Sidechain to this channel
+- Route to this track
+- Route to this track only
+- Quick Sidechain
+- Sidechain to this track
+- Sidechain to this track only
+- Custom color...
+- Insert Multiple Tracks
+- Rename...
+- Save effect chain…
+- Change color... [submenu]
+- Reset selected track(s) to default
+- Reset selected track(s) routing
+
+### Mixer - menu labels 2
+Keywords: mixer - menu labels 2 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Separator
+- Channel Strip mixer [submenu]
+- Channel layout [submenu]
+- Dock to [submenu]
+- File [submenu]
+- Move up
+- Move down
+- Inspector style [submenu]
+- Show in inspector [submenu]
+- Section order [submenu]
+- Reset inspector layout
+- Inspector on left
+- Attached inspector layout [submenu]
+- Plugin delay compensation [submenu]
+- View [submenu]
+- Detached
+
+### Mixer - menu labels 3
+Keywords: mixer - menu labels 3 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Trim unused tracks [submenu]
+- Remove all (audio editor) instances
+- Vintage compact mixer
+- Full Original mixer — vintage
+- Channel Strip mixer
+- Replace [submenu]
+- Delete...
+- Presets [submenu]
+- Browse parameters
+- Sidechain input [submenu]
+- View editor
+- Rename, color and icon...
+- Scaling [submenu]
+- None
+- Remove
+- Cancel
+
+### Mixer - unavailable menu placeholders 1
+Keywords: mixer - unavailable menu placeholders 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Change icon... [not implemented]
+- Left [not implemented]
+- Middle [not implemented]
+- Right [not implemented]
+- Render to wave file... [not implemented]
+- Allow threaded processing [not implemented]
+- Automatic [not implemented]
+- Link all parameters... [not implemented]
+- Waveforms [not implemented]
+- Extra properties [not implemented]
+- Switch smart disable for all plugins [not implemented]
+- Plugin database [not implemented]
+- Patcherize [not implemented]
+- Patcherize all [not implemented]
+- Browse presets [not implemented]
+- Save preset as... [not implemented]
+
+### Mixer - unavailable menu placeholders 2
+Keywords: mixer - unavailable menu placeholders 2 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Add to plugin database (flag as favorite) [not implemented]
+- Display preset name in preset selector [not implemented]
+- Store in spare state [not implemented]
+- Flip with spare state [not implemented]
+- Smart disable [not implemented]
+- Random color [not implemented]
+- 100% [not implemented]
+- Help [not implemented]
+
+### Mixer Recording - menu labels 1
+Keywords: mixer recording - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- None
+- No audio inputs found: check Settings > Audio
+
+### Mpe - menu labels 1
+Keywords: mpe - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- MPE / Note expression [submenu]
+- Zone [submenu]
+- Member channels [submenu]
+- Pitch bend range [submenu]
+- Pitch sensitivity [submenu]
+- Pressure response [submenu]
+- Slide response [submenu]
+
+### One Click - menu labels 1
+Keywords: one click - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Into the audio editor
+- (no audio inputs)
+
+### Params - menu labels 1
+Keywords: params - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Edit automation clip...
+- Create automation clip
+- Copy value
+- Paste value
+- Edit events in new window
+- Edit events in piano roll
+- Type in value...
+- Set... [submenu]
+
+### Params - unavailable menu placeholders 1
+Keywords: params - unavailable menu placeholders 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Edit events [not implemented]
+- Override volatile link... [not implemented]
+
+### Peak Link - menu labels 1
+Keywords: peak link - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Follow audio level...
+- Follow source [submenu]
+- Duck from source [submenu]
+- Depth [submenu]
+- Release [submenu]
+- Remove audio-level link
+
+### Piano Note Mode - control hints 1
+Keywords: piano note mode - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Note color: choose a color group; apply color/type to selected notes
+- Scale Notes Only: hide out-of-scale keys
+
+### Piano Note Mode - menu labels 1
+Keywords: piano note mode - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Apply current color
+- Normal notes
+- Slide / glide notes
+- Portamento notes
+- Selected notes [submenu]
+
+### Piano Tools - menu labels 1
+Keywords: piano tools - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Import MIDI file...
+- Export as MIDI file...
+- Chord workspace...
+- Key and scale...
+- Send Selected Notes To... [submenu]
+- Move to channel [submenu]
+- Copy to channel [submenu]
+- Key, scale and highlighting...
+- File [submenu]
+- Edit [submenu]
+- Tools [submenu]
+- Stamp [submenu]
+- Select [submenu]
+- Snap [submenu]
+- Note length [submenu]
+- Draw mode [submenu]
+
+### Piano Tools - menu labels 2
+Keywords: piano tools - menu labels 2 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- View [submenu]
+- Keyboard style [submenu]
+- Control lane [submenu]
+- Helpers [submenu]
+- Time markers [submenu]
+- MIDI parts [submenu]
+- Target channel [submenu]
+- Keyboard width [submenu]
+
+### Piano Tools - unavailable menu placeholders 1
+Keywords: piano tools - unavailable menu placeholders 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Auto locate [not implemented]
+
+### Playlist - menu labels 1
+Keywords: playlist - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Edit [submenu]
+- Undo
+- Cut
+- Copy
+- Paste
+- Duplicate
+- Delete
+- Shift left
+- Shift right
+- Shift up
+- Shift down
+- Make unique
+- Mute
+- Unmute
+- Insert space
+- Delete space
+
+### Playlist - menu labels 2
+Keywords: playlist - menu labels 2 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Tools [submenu]
+- Consolidate playlist selection
+- Export all playlist tracks
+- Quick quantize start times
+- Tool [submenu]
+- Snap [submenu]
+- Visible clip controls [submenu]
+- Audio clip options [submenu]
+- Automation editing [submenu]
+- Pattern note colors [submenu]
+- Select [submenu]
+- Deselect
+- Select all
+- Select by selected source
+- Select muted
+- Invert selection
+
+### Playlist - menu labels 3
+Keywords: playlist - menu labels 3 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Select time around selection
+- Group [submenu]
+- Group
+- Ungroup
+- Zoom [submenu]
+- Zoom in
+- Zoom out
+- Zoom out far
+- Zoom on selection
+- Time markers [submenu]
+- Reset empty playlist tracks
+- Clip options [submenu]
+- View [submenu]
+- Waveform detail when zoomed [submenu]
+- Track cleanup [submenu]
+- Marker profiles [submenu]
+
+### Playlist - menu labels 4
+Keywords: playlist - menu labels 4 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Save profile...
+- Load and replace markers...
+- Merge profile...
+- Manage profiles...
+- Add one...
+- Add auto
+- Add one every
+- Add jump to next bar
+- Add time signature change...
+- Place loop
+- Change to marker loop
+- Use this track's instrument
+- Detect sample tempo
+- Make it fit
+- Half length (double time)
+- Double length (half time)
+
+### Playlist - menu labels 5
+Keywords: playlist - menu labels 5 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Fit to bars [submenu]
+- Reset to original duration
+- Stretch clip edges
+- Trim clip edges
+- Edit audio timing
+- Preview
+- Muted
+- Rename...
+- Make Unique
+- Send to mixer track...
+- Clip effects...
+- Change color...
+- Vocal Align to this clip…
+- Time / stretching [submenu]
+- Audio processing [submenu]
+- Strip silence...
+
+### Playlist - menu labels 6
+Keywords: playlist - menu labels 6 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Normalize audio clips [submenu]
+- Edit with ARA...
+- Stem separation...
+- Clean up audio in Tesla...
+- Select & organize [submenu]
+- Select all similar clips
+- Random color
+- Use selected time range in comp
+- Comping [submenu]
+- Use entire take in comp
+- Edit selected MIDI clips together
+- Edit pattern
+- Reset pattern stretch
+- Cut itself
+- Copy value
+- Return to original value
+
+### Playlist - menu labels 7
+Keywords: playlist - menu labels 7 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Paste value
+- Type in value...
+- Create folder
+- Dissolve folder (keep tracks)
+- Unfreeze track (resume editing)
+- Freeze track (save CPU)
+- Bounce audio [submenu]
+- Bounce audio in new track
+- Bounce and replace track
+- Create take lanes / comp
+- Color [submenu]
+- This track height [submenu]
+- Use default height
+- Compact
+- Normal
+- Tall
+
+### Playlist - menu labels 8
+Keywords: playlist - menu labels 8 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Extra tall
+- Playlist row height (all tracks) [submenu]
+- Mute all clips
+- Unmute all clips
+- Group with above track
+- Collapse group
+- Insert one
+- Move up
+- Move down
+- Track type and routing [submenu]
+- Add marker...
+- Add time signature...
+- Move content left
+- Move content right
+- Reset
+- Create automation clip
+
+### Playlist - menu labels 9
+Keywords: playlist - menu labels 9 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Clone...
+- Merge with...
+- Merge with... [submenu]
+- Browse parameters
+- Route to free mixer track
+- Create automation [submenu]
+
+### Playlist - unavailable menu placeholders 1
+Keywords: playlist - unavailable menu placeholders 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Off [not implemented]
+- Beats [not implemented]
+- Bars [not implemented]
+- 2 bars [not implemented]
+- 4 bars [not implemented]
+- 8 bars [not implemented]
+- Quantize song jumps [not implemented]
+- Add two... [not implemented]
+- Root note [not implemented]
+- Scale [not implemented]
+- Add key marker [not implemented]
+- Change icon... [not implemented]
+- Edit sample... [not implemented]
+- Edit events [not implemented]
+- Piano roll [not implemented]
+- Replace [not implemented]
+
+### Playlist - unavailable menu placeholders 2
+Keywords: playlist - unavailable menu placeholders 2 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Delete... [not implemented]
+- Presets [not implemented]
+- Browse presets [not implemented]
+- Save preset as... [not implemented]
+- Add to plugin database (flag as favorite) [not implemented]
+- Store in spare state [not implemented]
+- Flip with spare state [not implemented]
+- Link all parameters... [not implemented]
+- Allow threaded processing [not implemented]
+- Smart disable [not implemented]
+- Rename, color and icon... [not implemented]
+- Save channel state as... [not implemented]
+- Browse channel states [not implemented]
+
+### Playlist Controls - menu labels 1
+Keywords: playlist controls - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Stretch audio when resizing
+
+### Playlist Links - menu labels 1
+Keywords: playlist links - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Audio track output [submenu]
+- Instrument track [submenu]
+- Inspect current clip outputs [submenu]
+
+### Playlist Tools - menu labels 1
+Keywords: playlist tools - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- No clips yet
+- Show clip picker panel
+
+### Drops - menu labels 1
+Keywords: drops - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Drop audio on track headers [submenu]
+- Cancel
+
+### Plugin Downloads - control hints 1
+Keywords: plugin downloads - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Plugin Downloads
+
+### Plugin Menu - menu labels 1
+Keywords: plugin menu - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Manage plugins...
+- Organize plugin folders [submenu]
+- Effects
+- Instruments
+- Open plugin picker
+
+### Plugin Picker - control hints 1
+Keywords: plugin picker - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Restore plugin picker
+- Plugin picker
+- Drag to move Plugin Picker
+- Drag to resize Plugin Picker
+
+### Presets - menu labels 1
+Keywords: presets - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- (no presets)
+- Presets
+- Browse presets
+- Save preset as...
+- Import preset...
+- Rename preset...
+- Delete preset...
+
+### Project Info - control hints 1
+Keywords: project info - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Click to close
+
+### Project Picker - menu labels 1
+Keywords: project picker - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- New pattern
+- (no channels)
+
+### Rack - menu labels 1
+Keywords: rack - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Add instrument [submenu]
+- Edit channels [submenu]
+- Color selected [submenu]
+- Organize [submenu]
+- Display filter [submenu]
+- Sort by [submenu]
+- Mixer routing [submenu]
+- Audio tools [submenu]
+- View [submenu]
+- Auto resize [submenu]
+- Channel button width [submenu]
+- Channel name alignment [submenu]
+- Plugin picker - insert instrument...
+- Insert instrument [submenu]
+- Plugin picker - replace instrument...
+- Tempo / stretching [submenu]
+
+### Rack - menu labels 2
+Keywords: rack - menu labels 2 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Replace instrument [submenu]
+- Channel instruments [submenu]
+- Pattern editing [submenu]
+- Consolidate / Bounce to Audio [submenu]
+- Color [submenu]
+- Edit events in new window
+- Edit events in piano roll
+- Create automation clip
+- Edit automation clip...
+- Paste value
+- Type in value...
+
+### Rack - unavailable menu placeholders 1
+Keywords: rack - unavailable menu placeholders 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Edit events [not implemented]
+- Copy value [not implemented]
+- Set... [not implemented]
+- Advanced looping [not implemented]
+
+### Rack Controls - menu labels 1
+Keywords: rack controls - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Route selected channels to consecutive mixer tracks...
+
+### Channel Strip mixer - control hints 1
+Keywords: channel strip mixer - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Slide to the next complete plugin section
+
+### Channel Strip mixer - menu labels 1
+Keywords: channel strip mixer - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Choose channel strip [submenu]
+- Fill all insert channels with [submenu]
+- Other resizable strips (unsupported) [submenu]
+- Use an existing effect [submenu]
+- Channel width [submenu]
+
+### Record - menu labels 1
+Keywords: record - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Audio, into the playlist as an audio clip [submenu]
+- Audio, into the audio editor
+- Don't ask again
+- Merge
+- Replace
+- Cancel
+- Respect recording filter
+- Only when recording
+- Automation mode [submenu]
+- Touch (release returns to automation)
+- Latch (keep writing until Stop)
+- Record as separate clips
+
+### Record Lead - menu labels 1
+Keywords: record lead - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Off
+- Count-in (clicks only)
+- Pre-roll (play before recording)
+
+### Remote - menu labels 1
+Keywords: remote - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Link to controller...
+- Override global link...
+- Remove link
+
+### Route Picker - menu labels 1
+Keywords: route picker - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Route to Master
+- Choose Mixer track...
+- Show current Mixer track
+- Drag up/down to change Mixer track
+
+### Theme Library - menu labels 1
+Keywords: theme library - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Duplicate as my theme
+- Rename...
+- Delete...
+- Show in folder
+
+### Arpeggiate view - control hints 1
+Keywords: arpeggiate view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Close (puts the notes back)
+- Group arpeggiated notes
+
+### Browser view - control hints 1
+Keywords: browser view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Move here to show the browser
+- Browser options
+- Edit parameter value
+- Plugin presets
+- Drag to scroll samples
+- Search the browser (Enter = find next, Esc = clear)
+- Browser: drag to resize, double-click for the default width
+
+### Cabledebug view - control hints 1
+Keywords: cabledebug view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Cable physics debug panel: drag a slider, right-click resets it
+
+### Channel Win view - control hints 1
+Keywords: channel win view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Drag to move
+
+### Dialog view - control hints 1
+Keywords: dialog view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- AI assistant: click to speak. Microphone is off while idle.
+- Dismiss the assistant orb
+
+### Menus view - control hints 1
+Keywords: menus view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Select pattern
+
+### Menus view - menu labels 1
+Keywords: menus view - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- MIDI file...
+- Project import report...
+- Resolve imported files...
+- Select pattern [submenu]
+
+### Midi Form view - control hints 1
+Keywords: midi form view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Import the file with these settings (Enter)
+
+### Midi Page view - control hints 1
+Keywords: midi page view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Clear this MIDI binding
+- Midi master clock sync offset (milliseconds; wheel or drag, right-click: reset)
+- Midi external clock sync offset (milliseconds; wheel or drag, right-click: reset)
+- Edit mapping curve
+- Device whose MIDI clock drives playback
+- Scroll MIDI devices
+- No device selected
+- Close (drops the changes)
+
+### Traditional view - control hints 1
+Keywords: traditional view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Add more tracks
+- Mixer scroll area
+- Mute / solo
+- Reverse polarity
+- Swap left & right channels
+- Enable / bypass track effects
+- Arm / disarm disk recording
+- Traditional mixer layout
+
+### Vintage Compact view - control hints 1
+Keywords: vintage compact view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Mixer scroll area
+- Mute / solo
+- Scroll effect slots
+- Effect slot options
+- Enable / bypass slot
+- Add another effect slot
+- Audio input / recording source
+
+### Mixer view - control hints 1
+Keywords: mixer view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Pause here to insert a mixer track
+- Insert an empty mixer track here
+- Supported Waves channel strips have been tested. Compatible resizable UAD channel strips are supported but untested.
+- Add more tracks
+- Mixer scroll area
+- Mixer options
+- Add a new track after the selected track
+- Mute / solo
+- Reverse polarity
+- Swap left & right channels
+- Drag to resize this inspector section
+- Add effect slot
+- Scroll insert effects
+- Open effect or choose a plugin
+- Insert effect options
+- Enable / bypass effect
+
+### Mixer view - control hints 2
+Keywords: mixer view - control hints 2 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Edit sends and routing
+- Choose a mixer channel, including Master
+- Stereo output level
+- Drag to move
+- Scroll effect slots
+- Mute / solo  (ctrl)0..9
+- Add another effect slot (up to 63)
+- Send this channel to an additional pair on your audio interface
+
+### Mod view - control hints 1
+Keywords: mod view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Detach / attach window - move freely between monitors
+- Drag to move
+- Ok with this ticked turns this message off (Manage messages)
+
+### Mondebug view - control hints 1
+Keywords: mondebug view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Monitor debug panel: drag a slider, right-click resets it
+
+### Patterns view - control hints 1
+Keywords: patterns view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Edit or clear this swatch
+- Name suggestions
+- Use this name
+- Set the colour
+
+### Perf view - control hints 1
+Keywords: perf view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Drag to move
+- Close (the measurements are reset)
+- Find: show only the plugins whose name, patch or place has this text (Esc clears)
+- Double-click: open the plugin's window
+
+### Piano Roll view - control hints 1
+Keywords: piano roll view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Piano roll: click to add notes; Alt+wheel edits note velocity (empty space: row height); right-click empty space to deselect with Pencil or Brush
+- Click to edit this Playlist clip
+- Vertical zoom: drag up/down or use the wheel. Right-click resets
+- Piano roll options
+- Target channel (wheel: channels with notes; right-click: settings)
+- Drag: move the play start - right-drag: select a time range
+- Event panel: drag to resize, double-click to hide or show
+- Event panel: choose which note property to edit
+- Event panel: drag to set this property of notes
+- Piano roll tools: quantize, chop, glue, strum, arpeggiate, randomize...
+- Key and scale: drawing and keyboard snapping
+- Chord workspace (Alt+P)
+- Undo (Ctrl+Z)
+- Draw (P)
+- Paint (B): drag to paint notes along the row
+
+### Piano Roll view - control hints 2
+Keywords: piano roll view - control hints 2 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Slice (C): drag a line to cut notes
+- Delete (D): click or swipe to delete notes
+- Mute (T): click or swipe to mute / unmute notes
+- Select (E): drag a box to select notes, Ctrl adds
+- Stretch toggle: drag note ends to scale selected timing and lengths; drag note bodies to move; right-click empty grid to turn off
+- Zoom (Z): drag a box to zoom, right-click zooms out / back
+- Playback (Y): drag to hear the notes under the line
+- Place Pattern to Playlist (Ctrl+Shift+Enter)
+
+### Piano Dlg view - control hints 1
+Keywords: piano dlg view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Close (puts the notes back)
+- Keep the spacing of the note starts
+- log: End's speed reached along an exponential curve
+- What happens to the note lengths
+- Range: click or drag, the nearer end follows
+- Transpose: click or drag, the key becomes C5
+- Scroll the keyboard
+
+### Playlist view - control hints 1
+Keywords: playlist view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Stretch audio when resizing
+- Stretch (Shift+M): drag a clip edge to stretch its contents
+- Clips: patterns, audio clips and automation clips
+- Drag to resize the Clip Picker
+- Toggle looping for Clip Picker previews
+- Clip sources
+- Track height: drag up/down or use wheel; right-click or Alt-click resets
+- Song position (right-drag: time selection)
+- Time marker (click: song position, drag moves, right-click: menu)
+- Open track instrument; right-click to choose an instrument
+- Choose track instrument
+- Mute track (right-click / Ctrl+click: solo)
+- Piano Roll; right-click to insert an instrument
+- Show / hide automation overlay
+- Piano Roll; right-click to insert an instrument on this channel
+- Drag tracks onto a folder to add them, or onto another track to reorder
+
+### Playlist view - control hints 2
+Keywords: playlist view - control hints 2 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Collapse / expand the group
+- Drag to resize this Playlist track
+- Type, Enter accepts, Esc cancels
+
+### Project Forms view - control hints 1
+Keywords: project forms view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Close without renaming (Esc)
+
+### Studio view - control hints 1
+Keywords: studio view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Channel rack
+- Drag to resize
+- Pattern options
+- Drag to resize channel buttons
+- Drag between steps to select channels
+- Graph editor
+
+### Rack view - control hints 1
+Keywords: rack view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Channel rack
+- Channel rack - drag to move
+- Zipped channel - Alt+U unzips all
+- Mute / solo  (shift/ctrl+)0..9
+- Global Pitch Follow: toggle without changing the current pitch
+- Click: plug-in window; drag: select channels; Ctrl+drag: move rows
+- Select (Up/Down)
+- Audio waveform: click for sample settings; right-click for channel menu
+- Piano roll preview - click to open the Piano roll
+- Drag between steps to select channels
+- Step - click or drag to paint (left / right)
+- Set loop point
+- Channel display filter (PgUp/PgDn)
+- Drag to resize
+- Pattern length: drag or right-click
+- Channel options
+
+### Rack view - control hints 2
+Keywords: rack view - control hints 2 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Global Pitch Follow for all channels: preserve current pitch
+- Drag to resize channel buttons
+- Play / pause pattern
+- Pattern length
+- Loop mode
+- Graph editor (Ctrl+K)
+- Interactive step sequencer / piano roll overview
+- Add a channel
+- Click to change
+- Write the sequence to the channel's steps (Enter)
+
+### Settings view - control hints 1
+Keywords: settings view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Drag Settings
+- Close (Esc)
+- Pick this colour
+- Saturation (left to right) and brightness (bottom to top)
+- The colour before: click to go back to it
+- Back to the colours from before the picker opened
+- Switch the workspace appearance
+- Name your new submenu
+- Search visibility controls
+- Brightens Playlist clips in this theme
+- Change the text colour so it reads on every surface
+- MP3 music genres
+- Remove this folder
+- Listed when a plugin is found in several formats
+- Sort by this column
+- Find: type to keep the plugins whose name, vendor or file contain the text (Esc clears)
+
+### Settings view - control hints 2
+Keywords: settings view - control hints 2 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Display PPI: drag, or turn the mouse wheel
+
+### Strum view - control hints 1
+Keywords: strum view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Close (puts the notes back)
+
+### Tapper view - control hints 1
+Keywords: tapper view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Tap me, or press any key on your MIDI keyboard
+- Nudge tempo to align time (Left / pitch bend)
+- Nudge tempo to align time (Right / pitch bend)
+- Apply tempo: tapped tempos set the project tempo
+
+### Toolbar view - control hints 1
+Keywords: toolbar view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Open Tesla audio editor
+- Donate through Michael Lane's PayPal.me page
+- Report a bug or send feedback: review technical details before submitting
+- Toolbar options · some controls are hidden at this width
+- Logo - drag onto the palette to take it off
+- About ML Studio
+- Pattern mode: play the current pattern
+- Song mode: play the playlist
+- Tempo (drag up/down: the whole number, or the decimal place the drag starts on)
+- Oscilloscope / spectrum analyzer (click to switch)
+- Output level (peak L / R)
+- Song position: the playlist is empty
+- New pattern (find first / next empty)
+- Pattern options
+- Row - drag onto the other row to swap them
+- The toolbar presets, Save preset as... and Delete preset
+
+### Toolbar view - control hints 2
+Keywords: toolbar view - control hints 2 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Done: the toolbar keeps this layout
+
+### Typein view - control hints 1
+Keywords: typein view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Type, Enter accepts, Esc cancels
+- Close (Esc)
+
+### Vintage Toolbar view - control hints 1
+Keywords: vintage toolbar view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Pattern options
+- Live output waveform and stereo peak levels
+- Pattern mode
+- Song mode
+- Tempo: drag whole number or decimal digit; right-click for options
+
+### View - control hints 1
+Keywords: view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Drag to scroll pitch; wheel over notes to scroll, Ctrl+Shift+wheel to zoom pitch
+- Vocal editor
+- Drag value up/down; Alt for fine changes, Alt-click resets
+- Wheel: pitch scroll · Shift: time scroll · Ctrl: time zoom · Ctrl+Shift: pitch zoom · drag empty space to select
+- Drag empty space to select; choose Draw to paint pitch
+- Drag pitch scrollbar
+- Drag time navigator; the Playlist timeline stays aligned
+- Vocal tools
+
+### Warp - control hints 1
+Keywords: warp - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Audio timing editor
+- Retry rendering audio edits
+- Close timing editor
+
+### Workspace Layout - menu labels 1
+Keywords: workspace layout - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Assign layout hotkey [submenu]
+- Delete saved layout [submenu]
+
+### Configurable command shortcuts - exact defaults
+Keywords: configurable command shortcuts - exact defaults reference controls options settings
+Settings > General > Input > Manage shortcuts changes these defaults. Apply keeps the changes; clearing a command disables its binding. A reassigned default does not trigger the old action. Ctrl means Command on macOS.
+
+- Play / stop: Space
+- Play / pause: Ctrl+Space
+- Save project: Ctrl+S
+- Save project as: Ctrl+Shift+S
+- Open project: Ctrl+O
+- Undo: Ctrl+Z
+- Redo: Ctrl+Shift+Z
+- Playlist: F5
+- Channel rack: F6
+- Piano roll: F7
+- Mixer: F9
+- Metronome: Ctrl+M
+- Typing piano keyboard: Ctrl+T
+
+### Citrus - parameter names 1
+Keywords: citrus - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Mod X
+- Mod Y
+
+### ML Delay - parameter names 1
+Keywords: ml delay - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Input wet
+- Delay type
+- Tempo sync
+- Keep pitch
+- Time
+- Delay time R/L offset
+- Time smooth
+- Stereo spread
+- Modulation rate
+- Modulation time
+- Modulation cutoff
+- Diffusion level
+- Diffusion spread
+- Distortion type
+- Feedback level
+- Filter mode
+- Feedback cutoff
+- Feedback resonance
+- Distortion
+- Distortion knee
+
+### ML Delay - parameter names 2
+Keywords: ml delay - parameter names 2 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Distortion symmetry
+- Rate reduction
+- Bits reduction
+- Output wet
+- Output tone
+- Output dry
+
+### ML Limiter - parameter names 1
+Keywords: ml limiter - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Gain
+- Soft saturation threshold
+- Limiter ceiling
+- Limiter attack time
+- Limiter attack curve
+- Limiter release time
+- Limiter release curve
+- Limiter peak window
+- Comp threshold
+- Comp ratio
+- Comp knee
+- Comp attack time
+- Comp release time
+- Comp curve
+- Comp RMS window
+- Noise gain
+- Noise threshold
+- Noise release time
+
+### ML Reverb - parameter names 1
+Keywords: ml reverb - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Low cut
+- High cut
+- Predelay
+- Room size
+- Diffusion
+- Decay time
+- High damping
+- Bass multiplier
+- Crossover
+- Stereo separation
+- Dry level
+- Early reflection level
+- Wet level
+- Mod Speed
+- Mod Depth
+
+### ML Sampler - parameter names 1
+Keywords: ml sampler - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Keep on disk
+- Resample
+- Load regions
+- Load slice markers
+- Loop start position
+- Loop end position
+- Use loop points
+- Ping pong loop
+- Pitch shift
+- Time stretch (multiplicator)
+- Time stretch (time)
+- Remove DC offset
+- Normalize
+- Reverse
+- Reverse polarity
+- Fade stereo
+- Swap stereo
+- Clipping
+- Stereo delay
+- Loop points follow a reversal
+
+### ML Sampler - parameter names 2
+Keywords: ml sampler - parameter names 2 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Root note
+- Fine tuning
+- Affected by the main pitch
+- Add root note to key
+- Zone low key
+- Zone high key
+
+### ML Chorus - parameter names 1
+Keywords: ml chorus - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Delay
+- Depth
+- Stereo
+- LFO 1 speed
+- LFO 2 speed
+- LFO 3 speed
+- LFO 1 wave
+- LFO 2 wave
+- LFO 3 wave
+- Cross type
+- Cross cutoff
+- Wet only
+
+### ML Stereo Shaper - parameter names 1
+Keywords: ml stereo shaper - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Right into left
+- Left
+- Right
+- Left into right
+- Delay
+- Phase
+- Effects position
+
+### ML Tesla - parameter names 1
+Keywords: ml tesla - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Play / pause
+- Record
+
+<!-- source-reference-end -->

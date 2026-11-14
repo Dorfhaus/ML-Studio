@@ -1682,7 +1682,7 @@ fn paint_group(ui: &mut Ui, s: &State, gr: &Group, r: Rect, open: bool, clip: Re
         }
         ui.c.text(f, r.x + if lemon { 8.0 } else { 4.0 }, r.y + 4.0, if lemon { t.accent } else { t.text }, title);
         if !gr.note.is_empty() {
-            ui.c.text(Font::new(13), r.x + if lemon { 8.0 } else { 4.0 } + tw, r.y + 4.0, t.text_dim, gr.note);
+            ui.c.text(Font::new(13), r.x + if lemon { 8.0 } else { 4.0 } + tw, r.y + 4.0, t.text_dim, Language::current().text(gr.note));
         }
         if gr.fold {
             let bar = Rect::new(r.x, r.y, r.w, 26.0);
@@ -1707,16 +1707,18 @@ fn paint_group(ui: &mut Ui, s: &State, gr: &Group, r: Rect, open: bool, clip: Re
 }
 
 /// A check showing `on`; one that is not `enabled` (not in `LIVE`) is greyed out.
-fn check(ui: &mut Ui, key: &'static str, on: bool, x: f32, cy: f32, enabled: bool) {
+fn check(ui: &mut Ui, key: &'static str, on: bool, x: f32, cy: f32, enabled: bool, right: f32) {
     // A check declared in `crate::prefs` shows its state (the row's is its default).
     let on = crate::prefs::find_check(key).map_or(on, crate::prefs::check);
-    check_control(ui, key, on, (x, cy), enabled.then_some(SAct::Check(key)));
+    check_control(ui, key, on, (x, cy), enabled.then_some(SAct::Check(key)), right);
 }
 
-fn check_control(ui: &mut Ui, key: &'static str, on: bool, (x, cy): (f32, f32), action: Option<SAct>) {
+fn check_control(ui: &mut Ui, key: &'static str, on: bool, (x, cy): (f32, f32), action: Option<SAct>, right: f32) {
     let t = ui.t;
     let label = Language::current().text(key);
-    let tw = ui.c.text_width(Font::new(13), label);
+    let max_width=(right-x-11.).max(24.);
+    let font=ui.c.fit_font(Font::new(13),label,max_width);
+    let tw = ui.c.text_width(font, label).min(max_width);
     if key == crate::vintage::LABEL {
         let track = Rect::new(x - 6.0, cy - 7.0, 29.0, 14.0);
         let hit = Rect::new(x - 8.0, cy - 10.0, tw + 46.0, 20.0);
@@ -1725,21 +1727,21 @@ fn check_control(ui: &mut Ui, key: &'static str, on: bool, (x, cy): (f32, f32), 
         kit::bordered(ui.c, track, 7.0, t.window_border, fill);
         ui.c.fill_circle(if on { track.right() - 7.0 } else { track.x + 7.0 }, cy, 4.5,
             if on { t.accent } else { t.text_dim });
-        let lh = ui.c.line_height(Font::new(13));
+        let lh = ui.c.line_height(font);
         ui.c.text(Font::new(13).bold(), track.right() + 8.0, (cy - lh / 2.0).round(),
             if hover { t.glyph } else { t.text }, label);
         return;
     }
     let hr = Rect::new(x - 8.0, cy - 9.0, tw + 26.0, 18.0);
     let enabled = action.is_some();
-    let hov = action.is_some_and(|action| ui.hit(hr, Action::Settings(action), ""));
+    let hov = action.is_some_and(|action| ui.hit(hr, Action::Settings(action), label.to_owned()));
     if !enabled {
         ui.off(hr, key);
     }
     led(ui, x, cy, on, hov);
     let col = if hov { t.glyph } else { t.text };
-    let lh = ui.c.line_height(Font::new(13));
-    ui.c.text(Font::new(13), x + 11.0, (cy - lh / 2.0).round(), col, label);
+    let lh = ui.c.line_height(font);
+    ui.c.text_clip(font, x + 11.0, (cy - lh / 2.0).round(),max_width,col,label);
     if !enabled {
         grey(ui, hr);
     }
@@ -1847,15 +1849,15 @@ fn paint_row_at(ui: &mut Ui, s: &State, group: &'static str, row: &Row, g: Rect,
         #[cfg(not(windows))]
         Row::Check(k, _) if *k == ASSOCIATE_CHECK => check_greyed(ui, k, x0 + 10.0, cy, ASSOCIATE_ELSEWHERE),
         // A check that is not available yet shows its default, greyed out.
-        Row::Check(k, d) => check(ui, k, *d, x0 + 10.0, cy, live(k)),
+        Row::Check(k, d) => check(ui, k, *d, x0 + 10.0, cy, live(k),g.right()-12.),
         Row::VisibilityToggle(label, key) => check_control(
             ui, label, crate::workspace_visibility::shown(key), (x0 + 10.0, cy),
-            Some(SAct::VisibilityToggle(key)),
+            Some(SAct::VisibilityToggle(key)),g.right()-12.,
         ),
-        Row::Off(k, d) => check(ui, k, *d, x0 + 10.0, cy, false),
+        Row::Off(k, d) => check(ui, k, *d, x0 + 10.0, cy, false,g.right()-12.),
         Row::Check2(a, da, b, db) => {
-            check(ui, a, *da, g.x + 22.0, cy, live(a));
-            check(ui, b, *db, g.x + 324.0, cy, live(b));
+            check(ui, a, *da, g.x + 22.0, cy, live(a),g.x+306.);
+            check(ui, b, *db, g.x + 324.0, cy, live(b),g.right()-12.);
         }
         // The Audio page's device, rate and buffer combos and General's Animations open their menus.
         // An ASIO driver has no Windows mode: the Mode combo shows the one kept, greyed, and its hint says why.
@@ -1872,7 +1874,8 @@ fn paint_row_at(ui: &mut Ui, s: &State, group: &'static str, row: &Row, g: Rect,
                 Some(c) if c.key == crate::prefs::CONTROLLER_TYPE.key => v.as_str(),
                 Some(c) if c.key != crate::prefs::INTERFACE_LANGUAGE.key => language.text(crate::prefs::choice(c)),
                 Some(c) => crate::prefs::choice(c),
-                None => v,
+                None if *label == OUTPUT_DEVICE => v,
+                None => language.text(v),
             };
             let b = Rect::new(x0, y + 3.0, *w, 21.0);
             let hov = ui.hit(b, Action::Settings(SAct::Combo(label, b.x, b.bottom())), "");
