@@ -16,7 +16,7 @@ const SUG_W: f32 = 96.0;
 const SUG_ROW: f32 = 18.0;
 const SW: f32 = 22.0;
 
-fn custom_swatches(ui: &mut Ui, p: Rect, editing: Option<&(usize, crate::dialog::Field)>) {
+fn custom_swatches(ui: &mut Ui, p: Rect, editing: Option<&(usize, [f32; 3])>) {
     let t = ui.t;
     let y = p.y + SW * 2. + 2.;
     ui.c.text(Font::new(11), p.x + 5., y + 1., t.text_dim, "Custom swatches");
@@ -37,14 +37,16 @@ fn custom_swatches(ui: &mut Ui, p: Rect, editing: Option<&(usize, crate::dialog:
             crate::icons::draw(ui.c, crate::icons::Icon::Pencil, edit.inset(1.), t.text);
         }
     }
-    if let Some((i, field)) = editing {
-        let row = Rect::new(p.x + 5., y + 42., p.w - 10., 22.);
-        let hex = Rect::new(row.x, row.y, 94., row.h);
-        ui.c.fill_rrect(hex, 3., t.sunken);
-        ui.c.text_clip(Font::new(12), hex.x + 5., hex.y + 3., hex.w - 8., t.text, &field.text);
-        let x = hex.x + 5. + ui.c.text_width(Font::new(12), field.before_caret()).min(hex.w - 9.);
-        ui.c.fill_rect(Rect::new(x, hex.y + 3., 1., 15.), t.accent);
-        let mut left = hex.right() + 4.;
+    if let Some((i, hsv)) = editing {
+        let wheel = Rect::new(p.x + 12., y + 43., 100., 100.);
+        let value = Rect::new(wheel.right() + 10.0, wheel.y, 22.0, wheel.h);
+        ui.hit(wheel, Action::Pat(Hit::SwatchWheel), "Color wheel: choose hue and saturation");
+        ui.hit(value, Action::Pat(Hit::SwatchBrightness), "Brightness");
+        crate::theme_adjust::paint_color_wheel(ui.c, wheel, value, *hsv);
+        ui.c.fill_rrect(Rect::new(value.right() + 10.0, wheel.y, 54.0, 31.0), 3.0,
+            crate::theme_adjust::from_hsv(*hsv));
+        let row = Rect::new(p.x + 5., y + 148., p.w - 10., 22.);
+        let mut left = row.x;
         for (label, action, width) in [
             ("Save", Hit::SaveSwatch, 41.),
             ("Clear", Hit::ClearSwatch, 41.),
@@ -213,8 +215,9 @@ pub fn paint(ui: &mut Ui, s: &State) {
         if b.palette {
             let custom = mixer || crate::workspace_visibility::shown("visible_playlist-custom-swatches");
             let w = SW * 10. + 2.;
-            let h = SW * 2. + 2. + if !custom { 0. } else if b.custom.is_some() { 68. } else { 43. };
-            let y = if r.bottom() + h > s.screen.1 && r.y >= h { r.y - h } else { r.bottom() };
+            let h = SW * 2. + 2. + if !custom { 0. } else if b.custom.is_some() { 174. } else { 43. };
+            let y = if r.bottom() + h <= s.screen.1 { r.bottom() }
+                else { (r.y - h).clamp(0.0, (s.screen.1 - h).max(0.0)) };
             let p = Rect::new((r.right() - w).clamp(0., (s.screen.0 - w).max(0.)), y, w, h);
             ui.c.fill_rect(p, t.menu_pop);
             ui.hit(p, Action::Pat(Hit::Inside), "");

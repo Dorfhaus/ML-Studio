@@ -75,12 +75,24 @@ pub fn face(base: Color, st: State) -> Color {
     if st.disabled { c.mix(base, 0.5).shade(-0.1) } else { c }
 }
 
+/// Preserve black ink on bright yellow control faces, including themed hover/selected states.
+pub fn button_ink_on(face: Color, requested: Color) -> Color {
+    let (hue, saturation, lightness) = face.hsl();
+    if (42.0..=70.0).contains(&hue) && saturation > 0.32 && lightness >= 0.42 {
+        Color::rgb(0x000000)
+    } else {
+        requested
+    }
+}
+
 /// Glyph / label colour for a state on a neutral face.
 pub fn ink(t: &Palette, st: State) -> Color {
     if st.disabled {
         t.text_faint
     } else if st.on || st.pressed {
-        t.on_glyph
+        use os_theme::chrome::Chrome;
+        let background = Chrome::ActiveButton.or(t, t.on_bottom);
+        button_ink_on(background, Chrome::ActiveInk.or(t, t.on_glyph))
     } else if st.hover {
         t.tx(0xffffff)
     } else {
@@ -230,10 +242,17 @@ pub fn custom_button_in(c: &mut Canvas, t: &Palette, r: Rect, st: State, local: 
     use os_theme::appearance::Finish;
     let a = t.appearance;
     let finish = local.or(a.buttons);
-    if finish.is_none() && !a.themed_buttons && a.button_radius.is_none() && a.bevel.is_none() && a.border.is_none() {
+    use os_theme::chrome::Chrome;
+    let active = (!st.disabled && (st.on || st.pressed)).then(|| Chrome::ActiveButton.get(t)).flatten();
+    if active.is_none() && finish.is_none() && !a.themed_buttons
+        && a.button_radius.is_none() && a.bevel.is_none() && a.border.is_none()
+    {
         return false;
     }
-    let (top, bottom) = if st.disabled {
+    let (top, bottom) = if let Some(face) = active {
+        let face = if st.pressed { face.shade(-0.12) } else if st.hover { face.shade(0.08) } else { face };
+        (face, face)
+    } else if st.disabled {
         (t.button_disabled, t.button_disabled)
     } else if st.pressed {
         (t.button_pressed, t.button_pressed)

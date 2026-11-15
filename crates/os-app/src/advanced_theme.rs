@@ -14,6 +14,21 @@ use winit::keyboard::{Key, NamedKey};
 
 pub const OPEN: &str = "Open Theme Editor...";
 pub const INSERT_OPEN: &str = "Customize insert knobs...";
+pub const METER_OPEN: &str = "Customize peak meters...";
+pub const METER_VISIBILITY: &str = "visible_theme-traditional-meters";
+pub const METER_SECTION: &str = "Traditional Mixer peak meters";
+pub const MIXER_COLORS: &str = "Mixer labels and buttons";
+pub const PLAYLIST_COLORS: &str = "Playlist bar";
+pub const SETTINGS_COLORS: &str = "Settings colors";
+pub const QUICK_COLORS_VISIBILITY: &str = "visible_theme-quick-colors";
+pub const MIXER_COLORS_OPEN: &str = "Mixer labels and buttons...";
+pub const PLAYLIST_COLORS_OPEN: &str = "Playlist bar colors...";
+pub const SETTINGS_COLORS_OPEN: &str = "Settings colors...";
+pub const PLAYLIST_RECORD_LIGHT: &str = "Playlist record light";
+pub const RACK_RECORD_LIGHT: &str = "Channel Rack record light";
+pub const PLAYLIST_RECORD_OPEN: &str = "Customize Playlist record light...";
+pub const RACK_RECORD_OPEN: &str = "Customize Channel Rack record light...";
+pub const RECORD_LIGHT_VISIBILITY: &str = "visible_theme-record-lights";
 pub const AREA_VISIBILITY: &str = "visible_theme-area-adjustments";
 pub const INSERT_VISIBILITY: &str = "visible_theme-insert-knobs";
 pub const KEYBOARD_SECTION: &str = "Playlist keyboard & activity";
@@ -59,6 +74,7 @@ impl Session {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldFor {
     Search,
+    #[cfg(test)]
     Hex(&'static str),
     Number(usize),
     IdentityValue(&'static str),
@@ -98,6 +114,8 @@ pub enum IdentityHit {
     CursorPack(u8),
     CursorColor,
     ResetCursorColor,
+    IconColor(&'static str),
+    ResetIconColor(&'static str),
     FollowIcons,
     IconFamily(u8, u8),
     CursorFamily(u8, u8),
@@ -139,7 +157,9 @@ pub enum Row {
     Search,
     Preview,
     InsertPreview,
+    MeterPreview,
     KeyboardPreview,
+    RecordPreview(crate::record_light::Surface),
     Color(&'static str),
     Style(usize),
     Reset(&'static str),
@@ -152,7 +172,9 @@ impl Row {
         match self {
             Self::Preview => 76.0,
             Self::InsertPreview => 64.0,
+            Self::MeterPreview => 122.0,
             Self::KeyboardPreview => 100.0,
+            Self::RecordPreview(_) => 63.0,
             Self::Mixer(MixerRow::Preview) => 128.0,
             Self::Mixer(_) => 34.0,
             Self::Identity(IdentityRow::Preview) => 170.0,
@@ -268,10 +290,28 @@ const STYLES: &[StyleField] = &[
         values: Values::Choices(&appearance::Finish::CHOICES),
     },
     StyleField { key: "insert-knob", label: "Insert mix knob style", values: Values::Choices(&["Inherit", "Traditional", "Full Mixer", "Dial", "Ring"]) },
+    StyleField { key: "insert-face-finish", label: "Custom face finish", values: Values::Choices(&appearance::Finish::CHOICES) },
+    StyleField { key: "insert-face-size", label: "Face diameter (6–18 px)", values: Values::Number(18.0) },
+    StyleField { key: "insert-face-edge-width", label: "Face edge width (0–2 px)", values: Values::Number(2.0) },
+    StyleField { key: "insert-pointer-width", label: "Pointer width (0–3 px)", values: Values::Number(3.0) },
+    StyleField { key: "insert-pointer-length", label: "Pointer length (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "insert-track", label: "Unfilled inner track", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "insert-ring", label: "Thin value ring", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "insert-rim", label: "Outer circle", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "insert-ring-width", label: "Value ring width (0–2 px)", values: Values::Number(2.0) },
     StyleField { key: "insert-rim-width", label: "Outer circle width (0–2 px)", values: Values::Number(2.0) },
+    StyleField { key: "insert-ring-radius", label: "Inner ring radius (4–12 px)", values: Values::Number(12.0) },
+    StyleField { key: "insert-rim-radius", label: "Outer circle radius (4–13 px)", values: Values::Number(13.0) },
+    StyleField { key: "trad-meter-fill", label: "Bar fill", values: Values::Choices(&["Inherit", "Gradient", "Solid", "Segments"]) },
+    StyleField { key: "trad-meter-width", label: "Bar width (20–100%)", values: Values::Number(100.0) },
+    StyleField { key: "trad-meter-gap", label: "Stereo gap (0–60%)", values: Values::Number(60.0) },
+    StyleField { key: "trad-meter-edge", label: "Edge shading (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "trad-meter-gradient", label: "Gradient strength (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "trad-meter-radius", label: "Corner radius (0–4 px)", values: Values::Number(4.0) },
+    StyleField { key: "trad-meter-ticks", label: "Scale ticks", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
+    StyleField { key: "trad-meter-hold", label: "Peak hold line", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
+    StyleField { key: "trad-meter-hold-width", label: "Peak hold thickness (0–3 px)", values: Values::Number(3.0) },
+    StyleField { key: "trad-meter-cap", label: "Moving tip", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "knob-ring-visible", label: "Dial value ring", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "knob-track-visible", label: "Dial unfilled track", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "knob-rim-visible", label: "Dial outer border", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
@@ -335,6 +375,12 @@ const STYLES: &[StyleField] = &[
     StyleField { key: "tone-inserts-contrast", label: "Contrast (100 = unchanged)", values: Values::Number(200.0) },
     StyleField { key: "playlist-halo-visible", label: "Channel activity halo", values: Values::Choices(&["Inherit", "Show", "Hide"]) },
     StyleField { key: "playlist-halo-strength", label: "Halo strength % (100 = default)", values: Values::Number(200.0) },
+    StyleField { key: "playlist-record-light", label: "Record light style", values: Values::Choices(&appearance::RecordLightStyle::CHOICES) },
+    StyleField { key: "playlist-record-size", label: "Light size (6–13 px)", values: Values::Number(13.0) },
+    StyleField { key: "playlist-record-glow", label: "Recording glow (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "rack-record-light", label: "Record light style", values: Values::Choices(&appearance::RecordLightStyle::CHOICES) },
+    StyleField { key: "rack-record-size", label: "Light size (6–13 px)", values: Values::Number(13.0) },
+    StyleField { key: "rack-record-glow", label: "Recording glow (0–100%)", values: Values::Number(100.0) },
 ];
 
 use os_theme::regions::{SECTIONS, section};
@@ -353,24 +399,50 @@ fn color_section(key: &str) -> &'static str {
 }
 
 fn color_label(key: &str) -> String {
+    if let Some(role) = key.strip_prefix("playlist_record_").or_else(|| key.strip_prefix("rack_record_")) {
+        return match role {
+            "idle" => "Idle color",
+            "armed" => "Armed color",
+            "live" => "Recording color",
+            _ => "Bezel color",
+        }.into();
+    }
     if let Some(label)=match key {
         "playlist_key_white"=>Some("White keys"), "playlist_key_black"=>Some("Black keys"),
         "playlist_key_white_active"=>Some("Played white keys"), "playlist_key_black_active"=>Some("Played black keys"),
         "playlist_key_frame"=>Some("Keyboard frame"), "playlist_key_separator"=>Some("Key separators"),
+        "mixer_channel_name" => Some("Channel names"),
+        "mixer_channel_number" => Some("Channel numbers"),
+        "mixer_channel_number_selected" => Some("Selected channel number"),
+        "mixer_channel_header" => Some("Channel header background"),
+        "mixer_channel_header_selected" => Some("Selected channel header"),
+        "mixer_action_face" => Some("Mixer action button background"),
+        "mixer_action_text" => Some("Mixer action button text"),
+        "settings_group_title" => Some("Section heading text"),
+        "settings_group_note" => Some("Section note and arrow color"),
+        "playlist_bar_face" => Some("Playlist toolbar background"),
+        "playlist_bar_text" => Some("Playlist toolbar text and icons"),
+        "playlist_overview_thumb" => Some("Overview scrollbar handle"),
+        "insert_knob_face"=>Some("Face color"), "insert_knob_face_edge"=>Some("Face edge color"),
+        "insert_knob_pointer"=>Some("Pointer color"), "insert_knob_track"=>Some("Unfilled inner track color"),
+        "insert_knob_ring"=>Some("Value ring color"), "insert_knob_rim"=>Some("Outer circle color"),
         "playlist_activity_halo"=>Some("Halo color"), "playlist_waveform"=>Some("Idle sample waveform"),
         "playlist_waveform_active"=>Some("Active sample waveform"), _=>None,
     } {return label.into();}
-    let mut label = key.replace('_', " ");
+    let mut label = key.strip_prefix("trad_meter_").unwrap_or(key).replace('_', " ");
     label[..1].make_ascii_uppercase();
     label
 }
 
 fn style_section(key: &str) -> &'static str {
+    if key.starts_with("playlist-record-") { return PLAYLIST_RECORD_LIGHT; }
+    if key.starts_with("rack-record-") { return RACK_RECORD_LIGHT; }
     if key.starts_with("playlist-halo-") { return KEYBOARD_SECTION; }
     if let Some(area) = key.strip_prefix("tone-") {
         return SECTIONS.iter().find(|(id, _, _)| area.starts_with(&format!("{id}-"))).map(|(_, title, _)| *title).unwrap_or("Shape & finish");
     }
     if key.starts_with("insert-") { return INSERT_SECTION; }
+    if key.starts_with("trad-meter-") { return METER_SECTION; }
     if key.starts_with("knob") { return "Shared dial controls"; }
     match key {
         "playlist-lines" | "playlist-buttons" => "Playlist",
@@ -384,17 +456,24 @@ fn style_section(key: &str) -> &'static str {
 pub fn groups(query: &str) -> Vec<(&'static str, Vec<Row>)> {
     let query = query.trim().to_ascii_lowercase();
     let mut result = Vec::new();
-    for title in ["Shape & finish", KEYBOARD_SECTION].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
+    for title in ["Shape & finish", KEYBOARD_SECTION, PLAYLIST_RECORD_LIGHT, RACK_RECORD_LIGHT].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
         if title == INSERT_SECTION && !crate::workspace_visibility::shown(INSERT_VISIBILITY) { continue; }
+        if title == METER_SECTION && !crate::workspace_visibility::shown(METER_VISIBILITY) { continue; }
+        if matches!(title, PLAYLIST_RECORD_LIGHT | RACK_RECORD_LIGHT)
+            && !crate::workspace_visibility::shown(RECORD_LIGHT_VISIBILITY) { continue; }
         let mut rows = STYLES.iter().enumerate()
             .filter(|(_, def)| (!def.key.starts_with("tone-") || crate::workspace_visibility::shown(AREA_VISIBILITY)) && style_section(def.key) == title && matches(&query, def.label, def.key, title))
             .map(|(i, _)| Row::Style(i)).collect::<Vec<_>>();
         rows.extend(Palette::NAMES.iter().copied()
-            .filter(|key| color_section(key) == title && matches(&query, key, Palette::description(key), title))
+            .filter(|key| color_section(key) == title
+                && (matches(&query, key, Palette::description(key), title) || matches(&query, &color_label(key), "", "")))
             .map(Row::Color));
         if !rows.is_empty() {
             if title == INSERT_SECTION { rows.insert(0, Row::InsertPreview); }
+            if title == METER_SECTION { rows.insert(0, Row::MeterPreview); }
             if title == KEYBOARD_SECTION { rows.insert(0, Row::KeyboardPreview); }
+            if title == PLAYLIST_RECORD_LIGHT { rows.insert(0, Row::RecordPreview(crate::record_light::Surface::Playlist)); }
+            if title == RACK_RECORD_LIGHT { rows.insert(0, Row::RecordPreview(crate::record_light::Surface::Rack)); }
             rows.push(Row::Reset(title));
             result.push((title, rows));
         }
@@ -408,6 +487,15 @@ fn color_key(token: &str) -> String {
 
 fn style_key(index: usize) -> String {
     format!("{}{}", appearance::STYLE_PREFIX, STYLES[index].key)
+}
+
+pub(crate) fn set_identity_color(text: &str, key: &str, color: Color) -> String {
+    let text = if key.starts_with("LemonStudioStyle.icon-") && key != "LemonStudioStyle.icon-color" {
+        explicit_icon_mix(text)
+    } else {
+        text.to_owned()
+    };
+    fl::set_key(&text, key, &hex(color))
 }
 
 pub fn set_color(text: &str, token: &str, color: Color) -> String {
@@ -435,6 +523,7 @@ fn value_label(t: &Palette, field: FieldFor, text: &str) -> String {
     match field {
         FieldFor::IdentityValue(key) => fl::get_key(text, key).unwrap_or("").into(),
         FieldFor::Search => "Find a color or style...".into(),
+        #[cfg(test)]
         FieldFor::Hex(token) => t.get(token).map(hex).unwrap_or_default(),
         FieldFor::Number(i) => fl::get_key(text, &style_key(i)).unwrap_or("Inherit").into(),
     }
@@ -502,6 +591,18 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
             text,
         ),
         Row::Preview => preview(ui, r),
+        Row::RecordPreview(surface) => {
+            use crate::record_light::{self, Lamp, Surface};
+            let face = match surface { Surface::Playlist => t.track_header, Surface::Rack => t.rack_row_box };
+            let width = ((r.w - 12.) / 3.).clamp(70., 103.);
+            for (index, lamp) in Lamp::ALL.into_iter().enumerate() {
+                let chip = Rect::new(r.x + index as f32 * (width + 6.), r.y + 5., width, 50.);
+                ui.c.fill_rrect(chip, 4., face);
+                record_light::paint(ui.c, t, Rect::new(chip.cx()-19., chip.y+5., 38., 16.), surface, lamp, false);
+                ui.c.text_center(Font::new(11), Rect::new(chip.x, chip.y+23., chip.w, 22.),
+                    os_ui::kit::lemon::ink_on(face), lamp.label());
+            }
+        }
         Row::KeyboardPreview => {
             for (i,notes) in [0, (1<<0)|(1<<4)|(1<<7)|(1<<10)].into_iter().enumerate() {
                 let face=Rect::new(r.x+i as f32*185.,r.y+4.,170.,88.);
@@ -511,40 +612,60 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
                 ui.c.text(Font::new(12),face.x+30.,face.y+34.,t.text,if notes==0 {"Idle"}else{"Playing chord"});
             }
         },
+        Row::MeterPreview => {
+            ui.c.text_clip(Font::new(12), r.x, r.y + 3.0, r.w, ui.t.text_dim,
+                "Preview · Change the colors at the bottom and top of each level band.");
+            let cfg = &s.mixer.meter_cfg;
+            crate::views::mixer::preview_peak_meter(ui.c, t, Rect::new(r.x + 4.0, r.y + 24.0, 33.0, 88.0),
+                [-15.0, 10.0], cfg);
+            let chips = [
+                ("Clipping", "trad_meter_clip_bottom", "trad_meter_clip_top"),
+                ("High", "trad_meter_hot_bottom", "trad_meter_hot_top"),
+                ("Low", "trad_meter_low_bottom", "trad_meter_low_top"),
+            ];
+            ui.c.text(Font::new(11), r.x + 142.0, r.y + 24.0, ui.t.text_dim, "Bottom");
+            ui.c.text(Font::new(11), r.x + 204.0, r.y + 24.0, ui.t.text_dim, "Top");
+            for (row, (label, bottom, top)) in chips.into_iter().enumerate() {
+                let y = r.y + 41.0 + row as f32 * 23.0;
+                ui.c.text(Font::new(12), r.x + 52.0, y + 2.0, ui.t.text, label);
+                for (side, token) in [bottom, top].into_iter().enumerate() {
+                    let at = Rect::new(r.x + 142.0 + side as f32 * 62.0, y, 44.0, 18.0);
+                    let hot = ui.hit(at, Action::Settings(SAct::ThemeEditor(Hit::Color(token))), Palette::description(token));
+                    ui.c.fill_rrect(at, 3.0, if hot { ui.t.text } else { ui.t.window_border });
+                    ui.c.fill_rrect(at.inset(2.0), 2.0, t.get(token).expect("meter color"));
+                }
+            }
+        },
         Row::InsertPreview => {
-            ui.c.text(Font::new(12), r.x, r.y + 3.0, ui.t.text_dim, "Plugin insert mix — 0%, 50%, 100%. Full Mixer follows Mixer finish / Skin Designer.");
+            ui.c.text(Font::new(12), r.x, r.y + 3.0, ui.t.text_dim, "Dry/wet preview: 0%, 50%, 100%. Set a face finish or color to replace the inherited artwork.");
             let chrome = ui.t;
             ui.t = ui.theme_preview.unwrap_or(ui.t);
+            let chrome_finish = ui.mixer_finish;
+            let chrome_skin = ui.mixer_skin;
+            ui.mixer_finish = crate::views::mixer::Finish::current(ui.t.appearance);
+            ui.mixer_skin = ui.mixer_skins.get(crate::mixer_skin::Scope::from_finish(ui.mixer_finish));
             for (i, value) in [0.0, 0.5, 1.0].into_iter().enumerate() {
                 crate::views::mixer::insert_knob(ui, crate::knobs::KnobId::SlotMix(0, 0), r.x + 25.0 + i as f32 * 56.0, r.y + 40.0, 1.0, value);
             }
             ui.t = chrome;
+            ui.mixer_finish = chrome_finish;
+            ui.mixer_skin = chrome_skin;
         },
         Row::Mixer(row) => paint_mixer(ui, session, row, r),
         Row::Identity(row) => paint_identity(ui, s, row, r),
         Row::Color(token) => {
             let color = t.get(token).expect("palette color");
             label(ui, &color_label(token));
-            let chip = Rect::new(control.x, control.y, 34.0, control.h);
             let hint = Palette::description(token);
-            ui.hit(
-                chip,
-                Action::Settings(SAct::ThemeEditor(Hit::Color(token))),
-                hint,
-            );
-            ui.c.fill_rrect(chip, 3.0, t.window_border);
-            ui.c.fill_rrect(chip.inset(2.0), 2.0, color);
-            field(
-                ui,
-                Rect::new(chip.right() + 6.0, chip.y, 82.0, chip.h),
-                session,
-                FieldFor::Hex(token),
-                text,
-            );
+            let pick = Rect::new(control.x, control.y, 122.0, control.h);
+            button(ui, pick, Hit::Color(token), "Choose color…", hint, false);
+            let chip = Rect::new(pick.x + 6.0, pick.y + 5.0, 14.0, pick.h - 10.0);
+            ui.c.fill_rrect(chip.outset(1.0), 3.0, ui.t.window_border);
+            ui.c.fill_rrect(chip, 2.0, color);
             if fl::get_key(text, &color_key(token)).is_some() {
                 button(
                     ui,
-                    Rect::new(chip.x + 128.0, chip.y, 58.0, chip.h),
+                    Rect::new(pick.right() + 6.0, pick.y, 58.0, pick.h),
                     Hit::ResetColor(token),
                     "Reset",
                     "Use the inherited color",
@@ -566,8 +687,13 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
             match def.values {
                 Values::Choices(choices) => {
                     let mut x = control.x;
+                    let fallback = match def.key {
+                        "playlist-record-light" => t.appearance.playlist_record_light.style.label(),
+                        "rack-record-light" => t.appearance.rack_record_light.style.label(),
+                        _ => "Inherit",
+                    };
                     let current = fl::get_key(text, &style_key(i))
-                        .unwrap_or("Inherit")
+                        .unwrap_or(fallback)
                         .to_string();
                     for &choice in choices {
                         let w = ui.c.text_width(Font::new(12), choice).ceil() + 16.0;
@@ -737,8 +863,11 @@ fn paint_identity(ui: &mut Ui, s: &State, row: IdentityRow, r: Rect) {
                 Hit::Identity(IdentityHit::IconFamily(index as u8, 1)), "Default", "Use this icon's original design", choice == 1);
             button(ui, Rect::new(r.x + 420.0, r.y + 3.0, 55.0, 27.0),
                 Hit::Identity(IdentityHit::IconFamily(index as u8, 0)), "Pack", "Follow the icon pack", choice == 0);
-            if let Some(session) = s.settings.advanced_theme.as_ref() {
-                field(ui, Rect::new(r.x + 485.0, r.y + 3.0, 80.0, 27.0), session, FieldFor::IdentityValue(key), text);
+            let at = Rect::new(r.x + 485.0, r.y + 3.0, 68.0, 27.0);
+            button(ui, at, Hit::Identity(IdentityHit::IconColor(key)), "Color…", "Choose this icon's color", false);
+            if fl::get_key(text, key).is_some() {
+                button(ui, Rect::new(at.right() + 3.0, at.y, 23.0, at.h),
+                    Hit::Identity(IdentityHit::ResetIconColor(key)), "×", "Restore this icon's inherited color", false);
             }
         }
         IdentityRow::Cursor(index) => {
@@ -769,7 +898,14 @@ fn paint_identity(ui: &mut Ui, s: &State, row: IdentityRow, r: Rect) {
             ].into_iter().enumerate() {
                 let y = r.y + i as f32 * 32.0;
                 ui.c.text(Font::new(13), r.x, y + 7.0, ui.t.text, label);
-                if key == "LemonStudioStyle.cursor-color" {
+                if key == "LemonStudioStyle.icon-color" {
+                    let at = Rect::new(r.x + 130.0, y, 150.0, 28.0);
+                    button(ui, at, Hit::Identity(IdentityHit::IconColor(key)), "Choose color…", "Choose an icon color visually", false);
+                    let color = current.icon_color.unwrap_or(theme.glyph);
+                    ui.c.fill_rrect(Rect::new(at.x + 6.0, at.y + 7.0, 14.0, 14.0), 3.0, color);
+                    button(ui, Rect::new(at.right() + 8.0, y, 105.0, 28.0),
+                        Hit::Identity(IdentityHit::ResetIconColor(key)), "Pack color", "Restore the inherited icon color", false);
+                } else if key == "LemonStudioStyle.cursor-color" {
                     let family = current.cursor_family.unwrap_or(current.icon_pack);
                     let color = current.cursor_color.unwrap_or(Color::rgb(os_ui::icon_packs::get(family).tint));
                     let b = Rect::new(r.x + 130.0, y, 150.0, 28.0);
@@ -1066,12 +1202,16 @@ fn paint_mixer(ui: &mut Ui, session: &Session, row: MixerRow, r: Rect) {
 
 impl App {
     pub(crate) fn open_insert_theme_editor(&mut self) {
+        self.open_theme_section(INSERT_SECTION);
+    }
+
+    pub(crate) fn open_theme_section(&mut self, section: &str) {
         self.start_theme_editor();
         let edit = self.state.settings.advanced_theme.as_mut().unwrap();
         edit.mixer_designer = None;
         edit.identity = false;
-        edit.query.set(INSERT_SECTION);
-        edit.groups = groups(INSERT_SECTION);
+        edit.query.set(section);
+        edit.groups = groups(section);
         self.state.settings.scroll = 0.0;
         self.invalidate();
     }
@@ -1239,13 +1379,11 @@ impl App {
                                 self.state.message = Some("Enter a color such as #E8D5A0, or clear to reset.".into());
                                 return true;
                             };
-                            let text = if key.starts_with("LemonStudioStyle.icon-") && key != "LemonStudioStyle.icon-color" {
-                                explicit_icon_mix(&text)
-                            } else { text };
-                            fl::set_key(&text, key, &hex(color))
+                            set_identity_color(&text, key, color)
                         }
                     }
                     FieldFor::Search => return true,
+                    #[cfg(test)]
                     FieldFor::Hex(token) => {
                         let input = input.trim_start_matches('#');
                         if input.len() != 6 || !input.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -1263,12 +1401,13 @@ impl App {
                         let Values::Number(max) = STYLES[i].values else {
                             return true;
                         };
+                        let min = if STYLES[i].key.ends_with("-record-size") { 6.0 } else { 0.0 };
                         let Some(n) = input
                             .parse::<f32>()
                             .ok()
-                            .filter(|n| n.is_finite() && (0.0..=max).contains(n))
+                            .filter(|n| n.is_finite() && (min..=max).contains(n))
                         else {
-                            self.state.message = Some(format!("Enter a number from 0 to {max}"));
+                            self.state.message = Some(format!("Enter a number from {min} to {max}"));
                             return true;
                         };
                         fl::set_key(&text, &style_key(i), &n.to_string())
@@ -1433,6 +1572,13 @@ impl App {
                 return;
             }
             IdentityHit::ResetCursorColor => fl::remove_key(&text, "LemonStudioStyle.cursor-color"),
+            IdentityHit::IconColor(key) => {
+                let color = fl::get_key(&text, key).and_then(|value| Color::parse(&value))
+                    .or(self.theme.colors.appearance.icon_color).unwrap_or(self.theme.colors.glyph);
+                self.open_editor_swatch_color(key, color);
+                return;
+            }
+            IdentityHit::ResetIconColor(key) => fl::remove_key(&text, key),
             IdentityHit::FollowIcons => fl::remove_key(&text, "LemonStudioStyle.cursor-family"),
             IdentityHit::IconFamily(role, family) => {
                 let key = format!("LemonStudioStyle.icon-{role}-family");

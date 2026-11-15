@@ -173,6 +173,47 @@ pub fn from_hsv([h, s, v]: [f32; 3]) -> Color {
     Color { r: f(5.0), g: f(3.0), b: f(1.0), a: 255 }
 }
 
+/// A shared visual picker for both theme colors and project swatches.
+pub(crate) fn paint_color_wheel(canvas: &mut os_ui::Canvas, wheel_rect: Rect, value_rect: Rect, hsv: [f32; 3]) {
+    const WHEEL_SIZE: usize = 120;
+    static WHEEL: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    let wheel = WHEEL.get_or_init(|| {
+        let radius = WHEEL_SIZE as f32 * 0.5;
+        let mut pixels = Vec::with_capacity(WHEEL_SIZE * WHEEL_SIZE * 4);
+        for y in 0..WHEEL_SIZE {
+            for x in 0..WHEEL_SIZE {
+                let (x, y) = (x as f32 + 0.5 - radius, y as f32 + 0.5 - radius);
+                let distance = x.hypot(y);
+                let hue = y.atan2(x).to_degrees().rem_euclid(360.0);
+                let c = from_hsv([hue, (distance / radius).min(1.0), 1.0]);
+                let alpha = ((radius - distance + 0.5).clamp(0.0, 1.0) * 255.0).round() as u8;
+                pixels.extend([c.r, c.g, c.b, alpha]);
+            }
+        }
+        pixels
+    });
+    canvas.image_rgba(wheel_rect, WHEEL_SIZE, WHEEL_SIZE, wheel);
+    let angle = hsv[0].to_radians();
+    let radius = hsv[1] * (wheel_rect.w * 0.5 - 3.0);
+    let (mx, my) = (wheel_rect.cx() + angle.cos() * radius, wheel_rect.cy() + angle.sin() * radius);
+    canvas.stroke_circle(mx, my, 5.0, 1.5, Color::rgb(0));
+    canvas.stroke_circle(mx, my, 4.0, 1.5, Color::rgb(0xffffff));
+    canvas.fill_rect_gradient(value_rect, from_hsv([hsv[0], hsv[1], 1.0]), Color::rgb(0), 2.0);
+    let hy = (value_rect.y + (1.0 - hsv[2]) * value_rect.h).round();
+    canvas.fill_rect(Rect::new(value_rect.x - 2.0, hy - 2.0, value_rect.w + 4.0, 4.0), Color::rgb(0));
+    canvas.fill_rect(Rect::new(value_rect.x - 1.0, hy - 1.0, value_rect.w + 2.0, 2.0), Color::rgb(0xffffff));
+}
+
+pub(crate) fn pick_color_component(hsv: &mut [f32; 3], r: Rect, x: f32, y: f32, brightness: bool) {
+    if brightness {
+        hsv[2] = (1.0 - (y - r.y) / r.h).clamp(0.0, 1.0);
+    } else {
+        let (x, y) = (x - r.cx(), y - r.cy());
+        hsv[0] = y.atan2(x).to_degrees().rem_euclid(360.0);
+        hsv[1] = (x.hypot(y) / (r.w * 0.5)).clamp(0.0, 1.0);
+    }
+}
+
 /// The open colour picker (`SettingsUi::picker`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Picker {
@@ -193,8 +234,8 @@ pub struct PickerRects {
     pub panel: Rect,
     pub close: Rect,
     pub chips: Vec<Rect>,
-    pub sv: Rect,
-    pub hue: Rect,
+    pub wheel: Rect,
+    pub value: Rect,
     /// New colour over old colour.
     pub new: Rect,
     pub old: Rect,
@@ -218,8 +259,8 @@ pub fn picker_rects(p: &Picker, n_parts: usize, win: Rect) -> PickerRects {
         panel,
         close: Rect::new(panel.right() - 26.0, y + 6.0, 20.0, 20.0),
         chips,
-        sv: Rect::new(x + 10.0, by, 150.0, 110.0),
-        hue: Rect::new(x + 168.0, by, 14.0, 110.0),
+        wheel: Rect::new(x + 22.0, by, 110.0, 110.0),
+        value: Rect::new(x + 148.0, by, 32.0, 110.0),
         new: Rect::new(x + 192.0, by, 66.0, 30.0),
         old: Rect::new(x + 192.0, by + 30.0, 66.0, 22.0),
         revert: Rect::new(x + 192.0, by + 88.0, 66.0, 22.0),
@@ -396,8 +437,8 @@ impl App {
         let c = from_hsv(p.hsv);
         if let Some((token, _)) = p.custom {
             let text = self.editor_source_text();
-            let next = if token == "LemonStudioStyle.cursor-color" {
-                fl::set_key(&text, token, &format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b))
+            let next = if token.starts_with("LemonStudioStyle.") {
+                crate::advanced_theme::set_identity_color(&text, token, c)
             } else if let Some(design) = self.state.settings.advanced_theme.as_ref().and_then(|s| s.mixer_designer.as_ref()) {
                 crate::mixer_skin::set_color(&text, design.scope, design.part, token, c)
             } else {
@@ -411,20 +452,18 @@ impl App {
         self.hint = std::borrow::Cow::Owned(format!("{}: #{:02x}{:02x}{:02x}", SWATCHES[p.swatch], c.r, c.g, c.b));
     }
 
-    /// The saturation / brightness square `r` was pressed or dragged to (`x`, `y`): saturation left to right,
-    /// brightness bottom to top.
-    pub(crate) fn picker_sv(&mut self, r: Rect, x: f32, y: f32) {
+    /// Angle selects hue, distance from the center selects saturation.
+    pub(crate) fn picker_wheel(&mut self, r: Rect, x: f32, y: f32) {
         if let Some(p) = &mut self.state.settings.picker {
-            p.hsv[1] = ((x - r.x) / r.w).clamp(0.0, 1.0);
-            p.hsv[2] = (1.0 - (y - r.y) / r.h).clamp(0.0, 1.0);
+            pick_color_component(&mut p.hsv, r, x, y, false);
         }
         self.picker_apply();
     }
 
-    /// The hue strip `r` was pressed or dragged to height `y`: 0° at the top round to 360° at the bottom.
-    pub(crate) fn picker_hue(&mut self, r: Rect, y: f32) {
+    /// Brightness runs from full color at the top to black at the bottom.
+    pub(crate) fn picker_value(&mut self, r: Rect, y: f32) {
         if let Some(p) = &mut self.state.settings.picker {
-            p.hsv[0] = ((y - r.y) / r.h).clamp(0.0, 1.0) * 360.0;
+            pick_color_component(&mut p.hsv, r, r.cx(), y, true);
         }
         self.picker_apply();
     }

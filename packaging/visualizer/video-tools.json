@@ -1,6 +1,7 @@
 {
   "renderer_sha256": "219bee4a9e187dded4a3102fed55cc65b8837eabe31ebda072efc0f8f0ae167f",
   "renderer_size": 6733824,
+  "renderer_source_sha256": "79f2c2a590cccef32a2940de0a5fca7ad564553aa25d68c0b6ff717e2ff9d24a",
   "encoder_url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
   "archive_sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
   "archive_size": 114768076,

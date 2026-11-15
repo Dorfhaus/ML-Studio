@@ -107,7 +107,7 @@ pub struct FlTheme {
     /// theme (spec: ui/theme-presets.md §B).
     pub colors: Option<crate::Design>,
     pub appearance: crate::appearance::Appearance,
-    pub area_tones: [crate::regions::Tone; 14],
+    pub area_tones: [crate::regions::Tone; crate::regions::SECTIONS.len()],
     pub color_overrides: Vec<(&'static str, Color)>,
 }
 

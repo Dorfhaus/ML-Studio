@@ -14,6 +14,8 @@ class PublicSourceTests(unittest.TestCase):
         self.assertEqual(clean["client"][0]["services"], original["client"][0]["services"])
         self.assertEqual(clean["project_info"], original["project_info"])
         self.assertEqual(result, public_source_bytes(name, result))
+        worker_name = "deps/juce/examples/Assets/google-services.json"
+        self.assertEqual(result, public_source_bytes(worker_name, json.dumps(original).encode()))
         with self.assertRaises(ValueError):
             public_source_bytes("unexpected-config.json", json.dumps(original).encode())
         self.assertEqual(public_source_bytes("source.cpp", b"int x = 1;"), b"int x = 1;")

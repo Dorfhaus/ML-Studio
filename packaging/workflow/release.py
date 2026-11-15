@@ -322,8 +322,13 @@ def build_windows(out,cfg):
     linux_bundle=os.environ.get('LEMON_MASTER_LINUX_BUNDLE')
     if not windows_bundle or not linux_bundle: raise RuntimeError('Set LEMON_MASTER_WINDOWS_BUNDLE and LEMON_MASTER_LINUX_BUNDLE to the built native engine archives.')
     env['LEMON_MASTER_BUNDLE']=windows_bundle
+    from builders import visualizer_inputs
+    pipeline = json.loads((PRIVATE/'pipeline.json').read_text(encoding='utf-8-sig'))
+    env['LEMON_VISUALIZER_WORKER'], env['LEMON_VISUALIZER_SOURCE'] = map(str, visualizer_inputs(pipeline))
     run('cargo','build','--locked','--release','-p','os-app',env=env)
-    run(sys.executable,ROOT/'packaging/windows/prepare-update.py','--output',out)
+    run(sys.executable,ROOT/'packaging/windows/prepare-update.py','--output',out,env=env)
+    env.pop('LEMON_VISUALIZER_WORKER')
+    env.pop('LEMON_VISUALIZER_SOURCE')
     site=out/'lemon-studio';v=str(version());payload=out/'payload';payload.mkdir()
     for name in ('lemonstudio.exe','Lemon Studio Source.zip','LICENSE','THIRD-PARTY-NOTICES.txt'):shutil.copy2(site/'updates'/v/name,payload/name)
     shutil.copytree(cfg['runtime'],payload/'runtime')

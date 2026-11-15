@@ -73,16 +73,82 @@ pub enum Mixer {
     Theme,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeakMeterFill {
+    Gradient,
+    Solid,
+    Segments,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TraditionalMeter {
+    pub fill: Option<PeakMeterFill>,
+    pub width: Option<f32>,
+    pub gap: Option<f32>,
+    pub gradient: Option<f32>,
+    pub edge: Option<f32>,
+    pub radius: Option<f32>,
+    pub ticks: Option<bool>,
+    pub hold: Option<bool>,
+    pub hold_width: Option<f32>,
+    pub cap: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RecordLightStyle {
+    #[default]
+    ConsoleLed,
+    BacklitSquare,
+    RecBadge,
+}
+
+impl RecordLightStyle {
+    pub const CHOICES: [&'static str; 3] = ["Console LED", "Backlit square", "REC badge"];
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Console LED" => Some(Self::ConsoleLed),
+            "Backlit square" => Some(Self::BacklitSquare),
+            "REC badge" => Some(Self::RecBadge),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        Self::CHOICES[self as usize]
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RecordLight {
+    pub style: RecordLightStyle,
+    pub size: Option<f32>,
+    pub glow: Option<f32>,
+}
+
 /// Resolved rendering options. Each stays absent until a theme opts in.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Appearance {
     /// Insert-slot controls are independent of shared dials and the Full Mixer finish.
     pub playlist_halo_visible: Option<bool>,
     pub playlist_halo_strength: Option<f32>,
+    pub playlist_record_light: RecordLight,
+    pub rack_record_light: RecordLight,
+    pub traditional_meter: TraditionalMeter,
     pub insert_knob: Option<Knob>,
     pub insert_full_knob: bool,
     pub insert_traditional_knob: bool,
     pub insert_custom: bool,
+    pub insert_decorations_custom: bool,
+    pub insert_face_custom: bool,
+    pub insert_face_finish: Option<Finish>,
+    pub insert_face_size: Option<f32>,
+    pub insert_face_edge_width: Option<f32>,
+    pub insert_pointer_width: Option<f32>,
+    pub insert_pointer_length: Option<f32>,
+    pub insert_track: Option<bool>,
+    pub insert_ring_radius: Option<f32>,
+    pub insert_rim_radius: Option<f32>,
     pub insert_ring: Option<bool>,
     pub insert_rim: Option<bool>,
     pub insert_ring_width: Option<f32>,
@@ -125,6 +191,7 @@ pub struct Appearance {
     pub playlist_lines: Option<f32>,
     pub piano_lines: Option<f32>,
     pub themed_buttons: bool,
+    pub chrome_overrides: u64,
     pub note_groups: u16,
 }
 
@@ -145,16 +212,61 @@ impl Appearance {
         let visible = |key| match option(key).as_str() {
             "Show" => Some(true), "Hide" => Some(false), _ => None,
         };
+        let insert_decorations_custom = [
+            "insert-track", "insert-ring", "insert-rim", "insert-ring-width", "insert-rim-width",
+            "insert-ring-radius", "insert-rim-radius",
+        ].iter().any(|key| option(key).as_str() != "Inherit" && get(key).is_some());
+        let insert_face_finish = Finish::parse(&option("insert-face-finish"));
+        let insert_face_size = num("insert-face-size", 18.0).map(|n| n.max(6.0));
+        let insert_face_edge_width = num("insert-face-edge-width", 2.0);
+        let insert_pointer_width = num("insert-pointer-width", 3.0);
+        let insert_pointer_length = num("insert-pointer-length", 100.0);
+        let insert_face_custom = insert_face_finish.is_some() || insert_face_edge_width.is_some()
+            || insert_pointer_width.is_some() || insert_pointer_length.is_some();
+        let record_light = |style, size, glow| RecordLight {
+            style: RecordLightStyle::parse(&option(style)).unwrap_or_default(),
+            size: num(size, 13.0).map(|n| n.max(6.0)),
+            glow: num(glow, 100.0).map(|n| n / 100.0),
+        };
         Self {
             playlist_halo_visible: visible("playlist-halo-visible"),
             playlist_halo_strength: num("playlist-halo-strength", 200.0).map(|n| n / 100.0),
+            playlist_record_light: record_light("playlist-record-light", "playlist-record-size", "playlist-record-glow"),
+            rack_record_light: record_light("rack-record-light", "rack-record-size", "rack-record-glow"),
+            traditional_meter: TraditionalMeter {
+                fill: match option("trad-meter-fill").as_str() {
+                    "Gradient" => Some(PeakMeterFill::Gradient),
+                    "Solid" => Some(PeakMeterFill::Solid),
+                    "Segments" => Some(PeakMeterFill::Segments),
+                    _ => None,
+                },
+                width: num("trad-meter-width", 100.0).map(|value| (value / 100.0).max(0.2)),
+                gap: num("trad-meter-gap", 60.0).map(|value| value / 100.0),
+                gradient: num("trad-meter-gradient", 100.0).map(|value| value / 100.0),
+                edge: num("trad-meter-edge", 100.0).map(|value| value / 100.0),
+                radius: num("trad-meter-radius", 4.0),
+                ticks: visible("trad-meter-ticks"),
+                hold: visible("trad-meter-hold"),
+                hold_width: num("trad-meter-hold-width", 3.0),
+                cap: visible("trad-meter-cap"),
+            },
             insert_knob: match option("insert-knob").as_str() {
                 "Dial" => Some(Knob::Dial), "Ring" => Some(Knob::Ring), _ => None,
             },
             insert_full_knob: option("insert-knob") == "Full Mixer",
             insert_traditional_knob: option("insert-knob") == "Traditional",
-            insert_custom: ["insert-knob", "insert-ring", "insert-rim", "insert-ring-width", "insert-rim-width"]
-                .iter().any(|key| get(key).is_some()),
+            insert_custom: matches!(option("insert-knob").as_str(), "Traditional" | "Full Mixer" | "Dial" | "Ring")
+                || insert_decorations_custom || insert_face_custom || insert_face_size.is_some(),
+            insert_decorations_custom,
+            insert_face_custom,
+            insert_face_finish,
+            insert_face_size,
+            insert_face_edge_width,
+            insert_pointer_width,
+            insert_pointer_length,
+            insert_track: visible("insert-track"),
+            insert_ring_radius: num("insert-ring-radius", 12.0).map(|n| n.max(4.0)),
+            insert_rim_radius: num("insert-rim-radius", 13.0).map(|n| n.max(4.0)),
             insert_ring: visible("insert-ring"),
             insert_rim: visible("insert-rim"),
             insert_ring_width: num("insert-ring-width", 2.0),
@@ -226,6 +338,7 @@ impl Appearance {
             playlist_lines: num("playlist-lines", 200.0).map(|n| n / 100.0),
             piano_lines: num("piano-lines", 200.0).map(|n| n / 100.0),
             themed_buttons: false,
+            chrome_overrides: 0,
             note_groups: 0,
         }
     }
@@ -268,6 +381,9 @@ impl Appearance {
             palette.playlist_waveform = text;
         }
         for &(name, color) in colors {
+            if let Some(chrome) = crate::chrome::Chrome::for_key(name) {
+                self.chrome_overrides |= chrome.bit();
+            }
             if let Some(slot) = palette.get_mut(name) {
                 *slot = color;
             }
@@ -282,10 +398,22 @@ impl Appearance {
             if name.starts_with("knob_") {
                 self.knob.get_or_insert(Knob::Ring);
             }
-            if name.starts_with("insert_knob_") { self.insert_custom = true; }
+            if name.starts_with("insert_knob_") {
+                self.insert_custom = true;
+                if matches!(name, "insert_knob_face" | "insert_knob_face_edge" | "insert_knob_pointer") {
+                    self.insert_face_custom = true;
+                } else {
+                    self.insert_decorations_custom = true;
+                    if name == "insert_knob_track" && self.insert_track.is_none() {
+                        self.insert_track = Some(true);
+                    }
+                }
+            }
             // Existing exported themes with mixer overrides also need the palette
             // renderer. An explicitly chosen authored finish still takes precedence.
-            if name.starts_with("mixer_") || name.starts_with("slot") || name == "fader_handle" {
+            if (name.starts_with("mixer_") && crate::chrome::Chrome::for_key(name).is_none())
+                || name.starts_with("slot") || name == "fader_handle"
+            {
                 self.mixer.get_or_insert(Mixer::Theme);
             }
             self.themed_buttons |= matches!(

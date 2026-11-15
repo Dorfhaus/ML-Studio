@@ -56,7 +56,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ("Language", &[
         (crate::prefs::INTERFACE_LANGUAGE.label, crate::prefs::language::VISIBILITY),
     ]),
-    ("Theme customization", &[("Traditional insert knob settings", crate::advanced_theme::INSERT_VISIBILITY), ("Area color adjustments", crate::advanced_theme::AREA_VISIBILITY)]),
+    ("Theme customization", &[("Traditional insert knob settings", crate::advanced_theme::INSERT_VISIBILITY), ("Traditional peak meter settings", crate::advanced_theme::METER_VISIBILITY), ("Record light customization", crate::advanced_theme::RECORD_LIGHT_VISIBILITY), ("Quick color settings", crate::advanced_theme::QUICK_COLORS_VISIBILITY), ("Area color adjustments", crate::advanced_theme::AREA_VISIBILITY)]),
     ("Input customization", &[
         ("Typing keyboard octave menu", crate::typing_layout::OCTAVE_VISIBILITY),
         ("MIDI controller setup", crate::controller::VISIBILITY),
@@ -150,6 +150,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ]),
     ("Channel Rack", &[
         ("Step grid", crate::rack::STEP_GRID_VISIBILITY),
+        ("Channel Rack record lights", crate::record_light::RACK_VISIBILITY),
         ("Mixer routing menu", crate::rack_controls::ROUTING_VISIBILITY),
         ("Live MIDI note glow", crate::midi_play::RACK_ACTIVITY),
         ("Loop mode button", "visible_rack-loop"),
@@ -182,6 +183,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Insert Multiple Tracks menu item", crate::mixer::INSERT_MULTIPLE_VISIBILITY),
         ("Delete extra effect slots button", crate::mixer::DELETE_EXTRA_SLOT_VISIBILITY),
         ("Mixer section shortcuts", crate::views::mixer::SECTION_SHORTCUTS),
+        ("Drag to reorder effects", crate::mixer::EFFECT_DRAG_VISIBILITY),
         ("Stereo separation on Full Mixer strips", crate::views::mixer::STEREO_SEPARATION),
         ("Scroll to Drums button", crate::mixer::Section::Drums.visibility()),
         ("Scroll to Instruments button", crate::mixer::Section::Instruments.visibility()),

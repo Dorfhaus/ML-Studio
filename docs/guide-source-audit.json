@@ -1,6 +1,6 @@
 {
-  "generated_articles": 420,
-  "guide_articles": 682,
+  "generated_articles": 425,
+  "guide_articles": 690,
   "records": [
     {
       "title": "Visibility: Host and join sessions (Collaboration)",
@@ -168,6 +168,18 @@
     },
     {
       "title": "Visibility: Traditional insert knob settings (Theme customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Traditional peak meter settings (Theme customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Record light customization (Theme customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Quick color settings (Theme customization)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -531,6 +543,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Channel Rack record lights (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Mixer routing menu (Channel Rack)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -628,6 +644,10 @@
     },
     {
       "title": "Visibility: Mixer section shortcuts (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Drag to reorder effects (Mixer)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {

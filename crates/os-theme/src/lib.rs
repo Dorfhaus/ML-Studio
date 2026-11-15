@@ -23,6 +23,7 @@ pub mod presets;
 pub mod waves;
 pub use design::{Design, Style};
 pub mod appearance;
+pub mod chrome;
 pub mod regions;
 pub use fl::FlTheme;
 
@@ -360,6 +361,14 @@ tokens! {
     playlist_key_frame = 0x282a2c, "Playlist keyboard & activity: Keyboard frame.";
     playlist_key_separator = 0xabaeb3, "Playlist keyboard & activity: Idle key separators.";
     playlist_activity_halo = 0xa8e44a, "Playlist keyboard & activity: Channel activity halo.";
+    playlist_record_idle = 0x793943, "Playlist record light when idle.";
+    playlist_record_armed = 0xff5666, "Playlist record light when armed.";
+    playlist_record_live = 0xff3549, "Playlist record light while recording.";
+    playlist_record_rim = 0x6a7579, "Playlist record light bezel or frame.";
+    rack_record_idle = 0x793943, "Channel Rack record light when idle.";
+    rack_record_armed = 0xff5666, "Channel Rack record light when armed.";
+    rack_record_live = 0xff3549, "Channel Rack record light while recording.";
+    rack_record_rim = 0x6a7579, "Channel Rack record light bezel or frame.";
     playlist_waveform = 0x7e8386, "Playlist keyboard & activity: Idle sample waveform.";
     playlist_waveform_active = 0xa8e44a, "Playlist keyboard & activity: Active sample waveform.";
     key_white = 0xe5e9f0, "Piano keyboard: white keys (right end of the gradient).";
@@ -385,6 +394,53 @@ tokens! {
     knob_ring = 0xf0a34e, "Custom dial value ring.";
     knob_track = 0x222629, "Shared dial unfilled ring track.";
     knob_rim = 0x171a1c, "Shared dial outer border.";
+    active_button_face = 0x2096f3, "Shared active button fill.";
+    active_button_text = 0x101820, "Shared active button text and icons.";
+    mixer_channel_name = 0xaab4bb, "Mixer channel name text, including colored inserts and Master.";
+    mixer_channel_number = 0x939fa5, "Mixer channel numbers and Master headings.";
+    mixer_channel_number_selected = 0x101820, "Selected Mixer channel number.";
+    mixer_channel_header = 0x2b2e30, "Mixer channel number background.";
+    mixer_channel_header_selected = 0x2096f3, "Selected Mixer channel background behind the number.";
+    mixer_action_face = 0x2096f3, "Attach to Playlist and Mix Assistant button background.";
+    mixer_action_hover = 0x45a3eb, "Attach to Playlist and Mix Assistant hover background.";
+    mixer_action_pressed = 0x1885da, "Attach to Playlist and Mix Assistant pressed background.";
+    mixer_action_border = 0x146cae, "Attach to Playlist and Mix Assistant border.";
+    mixer_action_text = 0x101820, "Attach to Playlist and Mix Assistant label color.";
+    settings_group_title = 0xc9d0d4, "Settings section headings, including Workspace Visibility.";
+    settings_group_note = 0x7e8386, "Settings section secondary labels and fold arrows.";
+    settings_group_face = 0x25272a, "Settings section background.";
+    settings_group_border = 0x1c1e21, "Settings section border.";
+    settings_tab_text = 0xc9d0d4, "Inactive Settings tab text.";
+    settings_tab_selected_text = 0x101820, "Active Settings tab text.";
+    settings_tab_face = 0x222425, "Inactive Settings tab background.";
+    settings_tab_selected_face = 0x2096f3, "Active Settings tab background.";
+    playlist_bar_face = 0x292b2c, "Playlist toolbar and title bar background.";
+    playlist_bar_text = 0xbfc7cc, "Playlist toolbar labels, icons and window controls.";
+    playlist_bar_divider = 0x181b1c, "Line between the Playlist toolbar and overview.";
+    playlist_bar_button = 0x35393c, "Inactive Playlist toolbar button background.";
+    playlist_bar_hover = 0x45484d, "Playlist toolbar button hover background.";
+    playlist_bar_selected = 0x2096f3, "Active Playlist toolbar button background.";
+    playlist_bar_selected_text = 0x101820, "Active Playlist toolbar button text and icons.";
+    playlist_overview_track = 0x22282d, "Playlist overview scrollbar track.";
+    playlist_overview_thumb = 0x7ac4ff, "Playlist overview scrollbar handle.";
+    playlist_overview_thumb_edge = 0x7ac4ff, "Playlist overview scrollbar handle edge.";
+    trad_meter_low_bottom = 0xb6db4d, "Traditional meter low band bottom color.";
+    trad_meter_low_top = 0xa0db40, "Traditional meter low band top color.";
+    trad_meter_hot_bottom = 0xfac050, "Traditional meter high band bottom color.";
+    trad_meter_hot_top = 0xeec757, "Traditional meter high band top color.";
+    trad_meter_clip_bottom = 0xf05040, "Traditional meter clipping band bottom color.";
+    trad_meter_clip_top = 0xf05040, "Traditional meter clipping band top color.";
+    trad_meter_well = 0x232729, "Traditional channel meter background.";
+    trad_meter_frame = 0x191d1e, "Traditional meter border color.";
+    trad_meter_ticks = 0x111315, "Traditional meter scale tick color.";
+    trad_meter_hold = 0xe16e2f, "Traditional meter peak hold color.";
+    trad_meter_cap = 0x181c1e, "Traditional meter moving tip color.";
+    trad_meter_scale_bg = 0x222527, "Traditional selected channel scale background.";
+    trad_meter_scale_text = 0x7f8a90, "Traditional meter scale label color.";
+    insert_knob_face = 0x53575c, "Traditional insert knob face color.";
+    insert_knob_face_edge = 0x282c30, "Traditional insert knob face edge color.";
+    insert_knob_pointer = 0xe5e9ed, "Traditional insert knob pointer color.";
+    insert_knob_track = 0x3b4045, "Traditional insert knob unfilled inner track color.";
     insert_knob_ring = 0x2096f3, "Traditional FL-style mixer plugin insert dry/wet mix knob thin value ring.";
     insert_knob_rim = 0x55595c, "Traditional FL-style mixer plugin insert dry/wet mix knob outer circle.";
     mixer_plate = 0x303638, "Themed mixer label and meter surround.";
@@ -444,7 +500,7 @@ impl Palette {
         self.xf.highlight(Color::rgb(hex))
     }
     pub fn tx(&self, hex: u32) -> Color {
-        self.xf.text(Color::rgb(hex))
+        chrome::Chrome::Text.or(self, self.xf.text(Color::rgb(hex)))
     }
     pub fn led(&self, hex: u32) -> Color {
         self.xf.mute(Color::rgb(hex))
@@ -470,7 +526,7 @@ impl Palette {
         self.xf.retint.as_ref().map_or(c, |r| r.surface(c))
     }
     pub fn brand_ink(&self, c: Color) -> Color {
-        self.xf.retint.as_ref().map_or(c, |r| r.text(c))
+        chrome::Chrome::Text.or(self, self.xf.retint.as_ref().map_or(c, |r| r.text(c)))
     }
 }
 

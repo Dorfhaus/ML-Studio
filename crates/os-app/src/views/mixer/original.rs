@@ -158,7 +158,7 @@ pub(super) fn signal_switch(ui: &mut Ui, r: Rect, on: bool, hover: bool, swap: b
         tint.with_alpha(if on {105} else {40}));
     ui.c.pop_clip();
 }
-pub(super) fn knob(ui: &mut Ui, x: f32, y: f32, r: f32, value: f32, cap: Color, hover: bool) {
+pub(super) fn knob(ui: &mut Ui, x: f32, y: f32, r: f32, value: f32, cap: Color, hover: bool, body_only: bool) {
     if !ui.c.visible(Rect::new(x-r-5.,y-r-5.,2.*r+10.,2.*r+10.)) {return;}
     let r = r.max(1.);
     let extent = r * 1.25;
@@ -168,8 +168,8 @@ pub(super) fn knob(ui: &mut Ui, x: f32, y: f32, r: f32, value: f32, cap: Color, 
     let pointer = if custom & 4 != 0 { palette.skin_knob_pointer } else { Color::rgb(0xece0bc) };
     let sprite = super::vintage_cap::for_color(cap);
     ui.c.image_rgba(Rect::new(x-extent,y-extent,2.*extent,2.*extent),sprite.size,sprite.size,&sprite.pixels);
-    if custom & 2 != 0 { ui.c.stroke_circle(x, y, r * 1.06, 1., palette.skin_knob_rim); }
-    if custom & 8 != 0 { ui.c.arc(x, y, r * 1.1, 0.75 * PI, 1.5 * PI * value.clamp(0., 1.), 1., palette.skin_knob_ring); }
+    if !body_only && custom & 2 != 0 { ui.c.stroke_circle(x, y, r * 1.06, 1., palette.skin_knob_rim); }
+    if !body_only && custom & 8 != 0 { ui.c.arc(x, y, r * 1.1, 0.75 * PI, 1.5 * PI * value.clamp(0., 1.), 1., palette.skin_knob_ring); }
     let a = (-225. + 270. * value.clamp(0., 1.)) * PI / 180.;
     let (dx,dy) = (a.cos()*r,a.sin()*r);
     let face_y=y-r*0.12;

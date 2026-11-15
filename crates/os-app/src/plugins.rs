@@ -678,13 +678,14 @@ impl Plugins {
     pub fn remap_fx(&mut self, m: &dyn Fn(u16, u8) -> Option<(u16, u8)>) {
         let keys: Vec<usize> = self.hosted.keys().copied().filter(|&k| k >= FX_KEY).collect();
         let mut moved = Vec::new();
+        let mut moved_presets = Vec::new();
         for k in keys {
             let (t, s) = fx_of(k).unwrap();
             match m(t, s) {
                 Some((nt, ns)) if (nt, ns) == (t, s) => {}
                 Some((nt, ns)) => {
                     if let Some(p) = self.presets.remove(&k) {
-                        self.presets.insert(fx_key(nt, ns), p);
+                        moved_presets.push((fx_key(nt, ns), p));
                     }
                     moved.push((fx_key(nt, ns), self.hosted.remove(&k).unwrap()))
                 }
@@ -694,6 +695,7 @@ impl Plugins {
         for (k, h) in moved {
             self.hosted.insert(k, h);
         }
+        self.presets.extend(moved_presets);
     }
 
     /// The mixer slot instances for the transport: (track, slot, effect).
@@ -1134,7 +1136,7 @@ impl Plugins {
         let size = result?;
         #[cfg(windows)]
         if fx_of(row).is_some() && crate::visualizer::is_managed(&descriptor)
-            && crate::visualizer_video::supported()
+            && crate::visualizer_video::available()
         {
             w.enable_visual_export();
         }

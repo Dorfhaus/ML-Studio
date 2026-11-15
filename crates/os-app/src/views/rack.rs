@@ -108,7 +108,7 @@ pub fn cols(s: &State) -> Cols {
         name_w,
         dx: name_w - STUDIO_NAME_W,
         slot_x: 24.0,
-        step_x: STUDIO_NAME_X + name_w + STUDIO_CONTROLS_W,
+        step_x: STUDIO_NAME_X + name_w + STUDIO_CONTROLS_W + crate::record_light::rack_column(),
         loop_w: if s.rack.loop_mode { rk::LOOP_W } else { 0.0 },
     }
 }

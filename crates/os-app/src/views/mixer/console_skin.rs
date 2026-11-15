@@ -149,7 +149,7 @@ fn knob_impl(ui: &mut Ui, id: KnobId, x: f32, y: f32, r: f32, value: f32,
             return;
         }
         Finish::Original => {
-            original::knob(ui, x, y, r, value, cap, hover);
+            original::knob(ui, x, y, r, value, cap, hover, body_only);
             return;
         }
         Finish::CleanModern => clean::knob(ui, x, y, r, value, cap, hover),
@@ -181,6 +181,16 @@ fn knob_impl(ui: &mut Ui, id: KnobId, x: f32, y: f32, r: f32, value: f32,
     }
 }
 
+/// Complete Full Mixer effect knob, also used by Traditional Mixer when chosen.
+pub(super) fn full_insert_knob(ui: &mut Ui, id: KnobId, x: f32, y: f32, q: f32, value: f32) {
+    full_insert_knob_sized(ui, id, x, y, q, 8.5 * q, value);
+}
+
+fn full_insert_knob_sized(ui: &mut Ui, id: KnobId, x: f32, y: f32, q: f32, radius: f32, value: f32) {
+    knob(ui, id, x, y, radius, value, Color::rgb(0xc2c7c9), false);
+    ui.c.stroke_circle(x, y, 11.8 * q, 1.5, ui.t.s(0x55595c));
+}
+
 /// Traditional insert slots retain their old rendering until explicitly customized.
 /// Cap artwork is shared with Full Mixer; decorations are independent and bounded.
 pub(crate) fn insert_knob(ui: &mut Ui, id: KnobId, x: f32, y: f32, q: f32, value: f32) {
@@ -190,30 +200,69 @@ pub(crate) fn insert_knob(ui: &mut Ui, id: KnobId, x: f32, y: f32, q: f32, value
         ui.c.stroke_circle(x, y, 11.8 * q, 1.5, ui.t.s(0x55595c));
         return;
     }
+    let radius = a.insert_face_size.unwrap_or(17.0) * 0.5 * q;
+    if a.insert_full_knob && !a.insert_decorations_custom && !a.insert_face_custom {
+        full_insert_knob_sized(ui, id, x, y, q, radius, value);
+        return;
+    }
     let hover = ui.hovering(Rect::new(x - 13.0 * q, y - 13.0 * q, 26.0 * q, 26.0 * q));
-    if a.insert_full_knob {
-        knob_impl(ui, id, x, y, 7.5 * q, value, Color::rgb(0xc2c7c9), hover, true);
+    if a.insert_face_custom {
+        custom_insert_face(ui, x, y, radius, q, value, hover);
+    } else if a.insert_full_knob {
+        knob_impl(ui, id, x, y, radius, value, Color::rgb(0xc2c7c9), hover, true);
     } else {
         let mut appearance = a;
         appearance.knob_body_only = true;
         if a.insert_traditional_knob { appearance.knob = None; }
         if let Some(style) = a.insert_knob { appearance.knob = Some(style); }
-        os_ui::kit::knob_appearance(ui.c, ui.t, x, y, 8.5 * q, value, false,
+        os_ui::kit::knob_appearance(ui.c, ui.t, x, y, radius, value, false,
             os_ui::kit::KnobLook::Mixer { halo: 10.0 * q, arc: false }, os_ui::kit::State::hover(hover), &appearance);
         // The legacy Console ball uses its arc as the value indicator. Keep a
         // pointer readable when the user hides that arc and its surround.
         if appearance.knob.is_none() && !ui.t.style.lemon() && !ui.t.style.vintage_2005 {
             let angle = (0.75 + 1.5 * value.clamp(0.0, 1.0)) * PI;
             ui.c.line(x + 2.0 * q * angle.cos(), y + 2.0 * q * angle.sin(),
-                x + 6.5 * q * angle.cos(), y + 6.5 * q * angle.sin(), 1.2 * q, ui.t.glyph);
+                x + 0.76 * radius * angle.cos(), y + 0.76 * radius * angle.sin(), 1.2 * q, ui.t.glyph);
         }
     }
     let ring_width = a.insert_ring_width.unwrap_or(1.0) * q;
+    let ring_radius = a.insert_ring_radius.unwrap_or(10.6) * q;
+    if a.insert_track == Some(true) && ring_width > 0.0 {
+        ui.c.arc(x, y, ring_radius, 0.75 * PI, 1.5 * PI, ring_width, ui.t.insert_knob_track);
+    }
     if a.insert_ring != Some(false) && ring_width > 0.0 && value > 0.0 {
-        ui.c.arc(x, y, 10.6 * q, 0.75 * PI, 1.5 * PI * value.clamp(0.0, 1.0), ring_width, ui.t.insert_knob_ring);
+        ui.c.arc(x, y, ring_radius, 0.75 * PI, 1.5 * PI * value.clamp(0.0, 1.0), ring_width, ui.t.insert_knob_ring);
     }
     let rim_width = a.insert_rim_width.unwrap_or(1.0) * q;
     if a.insert_rim != Some(false) && rim_width > 0.0 {
-        ui.c.stroke_circle(x, y, 12.8 * q, rim_width, ui.t.insert_knob_rim);
+        ui.c.stroke_circle(x, y, a.insert_rim_radius.unwrap_or(12.8) * q, rim_width, ui.t.insert_knob_rim);
+    }
+}
+
+fn custom_insert_face(ui: &mut Ui, x: f32, y: f32, radius: f32, q: f32, value: f32, hover: bool) {
+    use os_theme::appearance::Finish;
+    let t = ui.t;
+    let a = t.appearance;
+    let edge = a.insert_face_edge_width.unwrap_or(1.0) * q;
+    let disc = (radius - edge).max(0.0);
+    if edge > 0.0 {
+        ui.c.fill_circle(x, y, radius, t.insert_knob_face_edge);
+    }
+    let face = t.insert_knob_face.shade(if hover { 0.1 } else { 0.0 });
+    match a.insert_face_finish.unwrap_or(Finish::Beveled) {
+        Finish::Flat => ui.c.fill_circle(x, y, disc, face),
+        finish => {
+            let depth = if finish == Finish::Beveled { 0.24 } else { -0.24 };
+            let bounds = Rect::new(x - disc, y - disc, 2.0 * disc, 2.0 * disc);
+            ui.c.fill_rect_gradient(bounds, face.shade(depth), face.shade(-depth), disc);
+        }
+    }
+    let width = a.insert_pointer_width.unwrap_or(1.4) * q;
+    let length = a.insert_pointer_length.unwrap_or(68.0) / 100.0;
+    if width > 0.0 && length > 0.0 {
+        let angle = (0.75 + 1.5 * value.clamp(0.0, 1.0)) * PI;
+        let (sin, cos) = angle.sin_cos();
+        let end = disc * (1.0 - length);
+        ui.c.line(x + cos * end, y + sin * end, x + cos * disc, y + sin * disc, width, t.insert_knob_pointer);
     }
 }

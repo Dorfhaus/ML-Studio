@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import struct
 import subprocess
 import sys
 import zipfile
@@ -13,6 +14,8 @@ from pathlib import PurePosixPath
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / 'vendor/gridline'
+# Match the minimum supported by packaging/mac/build-release.command.
+MACOS_DEPLOYMENT_TARGET = (12, 0, 0)
 
 
 def cmake_tool():
@@ -49,6 +52,56 @@ def source_digest():
     return digest.hexdigest()
 
 
+def validate_macos_module(data, arch):
+    wanted = {'x86_64': 0x1000007, 'aarch64': 0x100000c}.get(arch)
+    if data[:4] == b'\xca\xfe\xba\xbe':
+        count = int.from_bytes(data[4:8], 'big')
+        if 0 < count <= 16 and len(data) >= 8 + count * 20:
+            for index in range(count):
+                cpu, _, offset, size, _ = struct.unpack_from('>5I', data, 8 + index * 20)
+                if cpu == wanted and offset + size <= len(data):
+                    data = data[offset:offset + size]
+                    break
+    if (len(data) < 32 or data[:4] != b'\xcf\xfa\xed\xfe'
+            or int.from_bytes(data[4:8], 'little') != wanted):
+        raise RuntimeError('ML Plasma native binary does not match the requested macOS architecture')
+
+    count, size = struct.unpack_from('<II', data, 16)
+    end = 32 + size
+    offset = 32
+    minimum = None
+    for _ in range(count):
+        if offset + 8 > end or end > len(data):
+            raise RuntimeError('Invalid ML Plasma Mach-O load commands')
+        command, size = struct.unpack_from('<II', data, offset)
+        if size < 8 or offset + size > end:
+            raise RuntimeError('Invalid ML Plasma Mach-O load command size')
+        if command == 0x32 and size >= 24:  # LC_BUILD_VERSION
+            system, version = struct.unpack_from('<II', data, offset + 8)
+            if system == 1:  # PLATFORM_MACOS
+                minimum = version
+        elif command == 0x24 and size >= 16:  # LC_VERSION_MIN_MACOSX
+            minimum = struct.unpack_from('<I', data, offset + 8)[0]
+        elif command == 0x19 and size >= 72:  # LC_SEGMENT_64
+            protection, sections, flags = struct.unpack_from('<III', data, offset + 60)
+            if 72 + sections * 80 > size:
+                raise RuntimeError('Invalid ML Plasma Mach-O section table')
+            # Ventura may rewrite these references while registering Objective-C protocols.
+            if protection & 2 == 0 or flags & 0x10:  # VM_PROT_WRITE / SG_READ_ONLY
+                for index in range(sections):
+                    start = offset + 72 + index * 80
+                    if data[start:start + 16].rstrip(b'\0') == b'__objc_protorefs':
+                        raise RuntimeError('ML Plasma has read-only Objective-C protocol references')
+        offset += size
+    if not minimum:
+        raise RuntimeError('ML Plasma is missing its minimum macOS version')
+    version = (minimum >> 16, (minimum >> 8) & 255, minimum & 255)
+    if version > MACOS_DEPLOYMENT_TARGET:
+        target = '.'.join(map(str, MACOS_DEPLOYMENT_TARGET))
+        found = '.'.join(map(str, version))
+        raise RuntimeError(f'ML Plasma requires macOS {found}; rebuild it for macOS {target}')
+
+
 def validate_module(data, osname, arch):
     """Check native headers as well as the archive label."""
     valid = False
@@ -59,12 +112,7 @@ def validate_module(data, osname, arch):
     elif osname == 'linux' and data[:6] == b'\x7fELF\x02\x01':
         valid = int.from_bytes(data[18:20], 'little') == {'x86_64': 62, 'aarch64': 183}.get(arch)
     elif osname == 'macos':
-        wanted = {'x86_64': 0x1000007, 'aarch64': 0x100000c}.get(arch)
-        if data[:4] == b'\xcf\xfa\xed\xfe':
-            valid = int.from_bytes(data[4:8], 'little') == wanted
-        elif data[:4] == b'\xca\xfe\xba\xbe':
-            count = int.from_bytes(data[4:8], 'big')
-            valid = 0 < count <= 16 and any(int.from_bytes(data[8 + i * 20:12 + i * 20], 'big') == wanted for i in range(count))
+        return validate_macos_module(data, arch)
     if not valid:
         raise RuntimeError('ML Plasma native binary does not match the requested OS/architecture')
 
@@ -125,6 +173,9 @@ def main():
         # CMake selects the installed MSVC toolchain without requiring a modified user shell.
         configure += ['-G', 'Visual Studio 17 2022', '-A',
                       'ARM64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x64']
+    if args.target_os == 'macos':
+        target = '.'.join(map(str, MACOS_DEPLOYMENT_TARGET[:2]))
+        configure += ['-DCMAKE_OSX_DEPLOYMENT_TARGET=' + target]
     if os.environ.get('CMAKE_OSX_ARCHITECTURES'):
         configure += ['-DCMAKE_OSX_ARCHITECTURES=' + os.environ['CMAKE_OSX_ARCHITECTURES']]
     run(configure)

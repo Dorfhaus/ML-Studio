@@ -223,6 +223,7 @@ mod arpeggiate;
 mod tapper;
 mod touch;
 mod record;
+mod record_light;
 mod record_lead;
 mod recent;
 mod theme_adjust;
@@ -1339,6 +1340,7 @@ impl ApplicationHandler for Shell {
                     self.grab = None;
                     self.unmax = None;
                     self.app.typing_release_all();
+                    self.app.cancel_effect_drag();
                     self.app.cancel_mouse_audition();
                     window.request_redraw();
                 }

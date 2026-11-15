@@ -12,6 +12,10 @@ def environment(config,platform):
     env['CARGO_TARGET_DIR']=str(Path(config['cache'])/platform)
     env['LEMON_MASTER_BUNDLE']=config['engines'][platform]['bundle']
     env['LEMON_JUCE_SOURCE']=config['juce_source']
+    for key in ('LEMON_VISUALIZER_WORKER', 'LEMON_VISUALIZER_SOURCE'):
+        env.pop(key, None)
+    if platform == 'windows':
+        env['LEMON_VISUALIZER_WORKER'], env['LEMON_VISUALIZER_SOURCE'] = map(str, visualizer_inputs(config))
     env.pop('LEMON_SCORE_BUNDLE', None)
     if entry := config.get('score_bundles', {}).get(platform):
         env['LEMON_SCORE_BUNDLE'] = entry['bundle']
@@ -24,6 +28,20 @@ def environment(config,platform):
         env['PATH']=str(Path.home()/'.cargo/bin')+os.pathsep+str(Path.home()/'.lemon-studio-release/tools/bin')+os.pathsep+env.get('PATH','')
     else:env['LIBCLANG_PATH']=r.read_config()['llvm']
     return env
+
+
+def visualizer_inputs(config):
+    """Fail public builds before compiling if the pinned renderer or its source is missing."""
+    entry = config.get('visualizer_worker', {})
+    catalog = json.loads((r.ROOT/'packaging/visualizer/video-tools.json').read_text(encoding='utf-8'))
+    worker = Path(entry.get('binary', ''))
+    source = Path(entry.get('source', ''))
+    if (not worker.is_file() or worker.stat().st_size != catalog['renderer_size']
+            or digest(worker) != catalog['renderer_sha256']):
+        raise RuntimeError('Configure the pinned Windows Visualizer renderer in pipeline.json (visualizer_worker.binary)')
+    if not source.is_file() or digest(source) != catalog['renderer_source_sha256']:
+        raise RuntimeError('Configure the matching Visualizer worker source archive in pipeline.json (visualizer_worker.source)')
+    return worker, source
 
 
 def verify_score_bundle(config, platform):

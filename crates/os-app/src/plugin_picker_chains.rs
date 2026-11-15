@@ -805,7 +805,10 @@ mod tests {
         assert_eq!(mixer::run(&mut app, mixer::MCmd::SaveEffectChain(2)), None);
         assert!(editing(&app.state.plugin_picker));
         clear_name(&mut app.state.plugin_picker);
-        name_input(&mut app.state.plugin_picker, Some("Lead vocal"));
+        use winit::keyboard::{Key, NamedKey};
+        app.key(&Key::Character("Lead".into()), false, false);
+        app.key(&Key::Named(NamedKey::Space), false, false);
+        app.key(&Key::Character("vocal".into()), false, false);
         picker::act(&mut app, Hit::ChainCategory);
         picker::act(&mut app, Hit::ChainSave);
         let c = &app.state.plugin_picker.chains;

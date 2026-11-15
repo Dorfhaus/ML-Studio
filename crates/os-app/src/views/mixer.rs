@@ -13,11 +13,13 @@ mod console_skin;
 mod themed;
 pub use console_skin::Finish;
 pub(crate) use console_skin::insert_knob;
+pub(crate) use traditional::preview_peak_meter;
 mod material;
 
 use std::f32::consts::PI;
 
 use os_ui::kit::lemon as lk;
+use os_theme::{Palette, chrome::Chrome};
 use os_ui::{Color, Font, Glyph, Rect};
 
 use super::{led, resize_zones, window_body, window_buttons, FrameInfo};
@@ -584,16 +586,64 @@ fn vu_bar(ui: &mut Ui, r: Rect, amplitude: f32) {
     }
 }
 
+struct MeterPaint {
+    bands: [(Color, Color); 3],
+    cap: Color,
+    peak: Color,
+    style: os_theme::appearance::TraditionalMeter,
+    vintage: bool,
+}
+
+impl MeterPaint {
+    fn legacy(t: &Palette) -> Self {
+        Self {
+            bands: [
+                (t.a(0xa0db40), t.a(0xb6db4d)),
+                (Color::rgb(0xeec757), Color::rgb(0xfac050)),
+                (t.meter_clip, t.meter_clip),
+            ],
+            cap: t.s(0x181c1e),
+            peak: t.h(0xe16e2f),
+            style: Default::default(),
+            vintage: t.style.vintage_2005,
+        }
+    }
+
+    fn traditional(t: &Palette) -> Self {
+        if t.style.vintage_2005 {
+            return Self::legacy(t);
+        }
+        Self {
+            bands: [
+                (t.trad_meter_low_top, t.trad_meter_low_bottom),
+                (t.trad_meter_hot_top, t.trad_meter_hot_bottom),
+                (t.trad_meter_clip_top, t.trad_meter_clip_bottom),
+            ],
+            cap: t.trad_meter_cap,
+            peak: t.trad_meter_hold,
+            style: t.appearance.traditional_meter,
+            vintage: false,
+        }
+    }
+}
+
 fn meter_bar(ui: &mut Ui, x: f32, w: f32, bottom: f32, db: f32, hold: f32, cfg: &meters::Settings, ys: &dyn Fn(f32) -> f32) {
+    paint_meter_bar(ui.c, x, w, bottom, db, hold, cfg, ys, &MeterPaint::legacy(ui.t));
+}
+
+fn paint_meter_bar(c: &mut os_ui::Canvas, x: f32, w: f32, bottom: f32, db: f32, hold: f32,
+    cfg: &meters::Settings, ys: &dyn Fn(f32) -> f32, paint: &MeterPaint,
+) {
     use meters::k;
-    let t = ui.t;
+    use os_theme::appearance::PeakMeterFill;
     let full_top = ys(12.0);
-    let grad = cfg.v[k::GRADIENT];
-    let edge = cfg.v[k::EDGE];
-    // Zone colours at the zone's top and bottom (measured 0xa0db40 / 0xb6db4d, 0xeec757 / 0xfac050).
-    let green = (ui.t.a(0xa0db40), ui.t.a(0xb6db4d));
-    let yellow = (Color::rgb(0xeec757), Color::rgb(0xfac050));
-    let red = (t.meter_clip, t.meter_clip);
+    let grad = match paint.style.fill {
+        Some(PeakMeterFill::Solid) => 0.0,
+        _ => paint.style.gradient.unwrap_or(cfg.v[k::GRADIENT]),
+    };
+    let edge = paint.style.edge.map(|strength| 1.0 - strength).unwrap_or(cfg.v[k::EDGE]);
+    let segments = paint.vintage || paint.style.fill == Some(PeakMeterFill::Segments);
+    let [green, yellow, red] = paint.bands;
     let y_yel = ys(cfg.v[k::YELLOW_DB]);
     let y_red = ys(cfg.v[k::RED_DB].max(cfg.v[k::YELLOW_DB]));
     if db > meters::SILENT {
@@ -607,36 +657,53 @@ fn meter_bar(ui: &mut Ui, x: f32, w: f32, bottom: f32, db: f32, hold: f32, cfg: 
             let at = |y: f32| mix(ct, mix(ct, cb, grad), (y - z0) / (z1 - z0).max(1.0));
             let (ca, cb2) = (at(a), at(b));
             let r = Rect::new(x, a, w, b - a);
-            if t.style.vintage_2005 {
-                let mut y = bottom - ((bottom - b) / 4.0).ceil() * 4.0;
+            if segments {
+                let rows = (bottom - b) / 4.0;
+                let mut y = bottom - if paint.vintage { rows.ceil() } else { rows.floor() } * 4.0;
                 while y > a {
-                    ui.c.fill_rect(Rect::new(x, (y - 3.0).max(a), w, (y - a).min(3.0)), at(y));
+                    let lo = (y - 3.0).max(a);
+                    let hi = y.min(b);
+                    if hi > lo {
+                        c.fill_rect(Rect::new(x, lo, w, hi - lo), at(hi));
+                    }
                     y -= 4.0;
                 }
                 continue;
             }
-            ui.c.fill_rect_gradient(r, ca, cb2, 0.0);
-            if w >= 4.0 {
-                let hl = |c: Color| mix(c, Color::rgb(0xffffff), 0.04);
-                ui.c.fill_rect_gradient(Rect::new(x + 1.0, a, 1.0, b - a), hl(ca), hl(cb2), 0.0);
-                ui.c.fill_rect_gradient(Rect::new(x + w - 2.0, a, 1.0, b - a), hl(ca), hl(cb2), 0.0);
-                ui.c.fill_rect_gradient(Rect::new(x, a, 1.0, b - a), shade(ca, edge), shade(cb2, edge), 0.0);
-                ui.c.fill_rect_gradient(Rect::new(x + w - 1.0, a, 1.0, b - a), shade(ca, edge), shade(cb2, edge), 0.0);
+            c.fill_rect_gradient(r, ca, cb2, 0.0);
+            if w >= 4.0 && edge < 1.0 {
+                let hl = |color: Color| mix(color, Color::rgb(0xffffff), 0.04);
+                c.fill_rect_gradient(Rect::new(x + 1.0, a, 1.0, b - a), hl(ca), hl(cb2), 0.0);
+                c.fill_rect_gradient(Rect::new(x + w - 2.0, a, 1.0, b - a), hl(ca), hl(cb2), 0.0);
+                c.fill_rect_gradient(Rect::new(x, a, 1.0, b - a), shade(ca, edge), shade(cb2, edge), 0.0);
+                c.fill_rect_gradient(Rect::new(x + w - 1.0, a, 1.0, b - a), shade(ca, edge), shade(cb2, edge), 0.0);
             }
         }
-        if cfg.v[k::CAP] >= 0.5 && top - 1.0 > full_top {
-            ui.c.fill_rect(Rect::new(x, top - 1.0, w, 1.0), ui.t.s(0x181c1e));
+        if paint.style.cap.unwrap_or(cfg.v[k::CAP] >= 0.5) && top - 1.0 > full_top {
+            c.fill_rect(Rect::new(x, top - 1.0, w, 1.0), paint.cap);
         }
     }
-    if cfg.v[k::HOLD_ON] >= 0.5 && hold > meters::SILENT {
-        let y = ys(hold).min(bottom - 1.0);
-        let c = ui.t.h(0xe16e2f);
-        ui.c.fill_rect(Rect::new(x, y, w, 1.0), c);
-        if w >= 4.0 {
-            ui.c.fill_rect(Rect::new(x, y, 1.0, 1.0), shade(c, edge));
-            ui.c.fill_rect(Rect::new(x + w - 1.0, y, 1.0, 1.0), shade(c, edge));
+    let thickness = paint.style.hold_width.unwrap_or(1.0);
+    // The theme can override visibility. Peak timing remains controlled by Mixer meter settings.
+    if paint.style.hold.unwrap_or(cfg.v[k::HOLD_ON] >= 0.5) && hold > meters::SILENT && thickness > 0.0 {
+        let y = ys(hold).clamp(full_top, (bottom - thickness).max(full_top));
+        c.fill_rect(Rect::new(x, y, w, thickness), paint.peak);
+        if w >= 4.0 && edge < 1.0 {
+            let shaded = shade(paint.peak, edge);
+            c.fill_rect(Rect::new(x, y, 1.0, thickness), shaded);
+            c.fill_rect(Rect::new(x + w - 1.0, y, 1.0, thickness), shaded);
         }
     }
+}
+
+fn channel_name_ink(t: &Palette, inherited: Color) -> Color {
+    Chrome::MixerName.or(t, Chrome::Text.or(t, inherited))
+}
+
+fn channel_number_ink(t: &Palette, selected: bool, inherited: Color, face: Option<Color>) -> Color {
+    let base = Chrome::MixerNumber.or(t, Chrome::Text.or(t, inherited));
+    let ink = if selected { Chrome::MixerSelectedNumber.or(t, base) } else { base };
+    face.map_or(ink, |face| os_ui::kit::button_ink_on(face, ink))
 }
 
 fn number_plate(ui: &mut Ui, rect: Rect, tint: Option<Color>) {
@@ -709,25 +776,37 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
         if full && t.style.vintage_2005 {
             vintage_number(ui, hr, n, selected || also);
         } else {
-            if console {
+            let header_override = if selected {
+                Chrome::MixerSelectedHeader.get(t).or_else(|| Chrome::MixerHeader.get(t))
+            } else {
+                Chrome::MixerHeader.get(t)
+            };
+            if let Some(face) = header_override {
+                ui.c.fill_rect(hr, face);
+            } else if console {
                 number_plate(ui, hr, tint);
                 if ui.mixer_finish==Finish::Original {
                     original::screw(ui,hr.x+7.,hr.cy());
                     original::screw(ui,hr.right()-7.,hr.cy());
                 }
             } else {ui.c.fill_rect(hr,header);}
-            if console && selected {
-                if ui.mixer_finish==Finish::Original {
-                    original::button(ui,Rect::new(hr.cx()-14.,hr.y+2.,28.,hr.h-4.),true,false,Color::rgb(0x999c76));
+            if selected && header_override.is_none() {
+                if console {
+                    if ui.mixer_finish == Finish::Original {
+                        original::button(ui, Rect::new(hr.cx()-14., hr.y+2., 28., hr.h-4.), true, false, Color::rgb(0x999c76));
+                    }
+                } else if lemon {
+                    lk::lit_in(ui.c, t, Rect::new(hr.x + 3.0, hr.y + 2.0, hr.w - 6.0, hr.h - 4.0), lk::r_btn(t), false);
+                } else {
+                    ui.c.fill_rect(hr.inset(2.0), t.s(0x414b50));
                 }
-            } else if selected && lemon {
-                lk::lit_in(ui.c, ui.t, Rect::new(hr.x + 3.0, hr.y + 2.0, hr.w - 6.0, hr.h - 4.0), lk::r_btn(t), false);
-            } else if selected {
-                // A quiet solid selection band replaces fourteen decorative hatch strokes.
-                ui.c.fill_rect(hr.inset(2.0), ui.t.s(0x414b50));
             }
             let c = if selected && lemon && !console { lk::ink_on_lit(ui.t) } else if selected || hov { ui.t.tx(0xe1e8eb) } else { ui.t.tx(0x939fa5) };
-            ui.c.text_center(console_font(ui,s,14), Rect::new(left, ly.y(HEAD_Y0), width, 21.0), c, &n.to_string());
+            let face = header_override.or_else(|| (selected && lemon && !console).then(|| {
+                Chrome::ActiveButton.or(t, t.brand_lit(os_theme::design::lemon::MAIN))
+            }));
+            let ink = channel_number_ink(t, selected, c, face);
+            ui.c.text_center(console_font(ui,s,14), Rect::new(left, ly.y(HEAD_Y0), width, 21.0), ink, &n.to_string());
         }
     }
 
@@ -743,7 +822,7 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
         let padding = if width > 110. && ui.mixer_finish == Finish::Original { 11. } else { 3. };
         let font = console_font(ui,s,11);
         fitted_center(ui.c, font, Rect::new(name.x + padding, name.y, name.w - 2. * padding, name.h),
-            ui.t.text, &mx::name(s,n));
+            channel_name_ink(ui.t, ui.t.text), &mx::name(s,n));
         if width>110. && ui.mixer_finish==Finish::Original {original::screw(ui,name.x+5.,name.cy());original::screw(ui,name.right()-5.,name.cy());}
     } else {
     // Dark head panel (name, LED, pan) with a rounded bottom.
@@ -773,7 +852,8 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
         ui.hit(meter, Action::Mix(MHit::Meter(n)), format!("Click to switch VU / peak meter | VU L {:+.1} / R {:+.1}", db[0], db[1]));
     }
     let name = track.and_then(|m| m.name.clone()).unwrap_or_else(|| if n == 0 { "Master".into() } else { format!("Insert {n}") });
-    let name_c = track.and_then(|m| m.color).map(|c| mix(super::rgb(c), ui.t.tx(0xe1e7eb), 0.22)).unwrap_or(if selected || also { ui.t.text } else { ui.t.tx(0xaab2b7) });
+    let name_c = channel_name_ink(t, track.and_then(|m| m.color).map(|c| mix(super::rgb(c), t.tx(0xe1e7eb), 0.22))
+        .unwrap_or(if selected || also { t.text } else { t.tx(0xaab2b7) }));
     if bus && !standard {
         let badge = Rect::new(left + 23.0, meter.bottom() + 23.0, width - 46.0, 9.0);
         let accent = tint.unwrap_or(ui.t.tx(0xa6bbc5));
@@ -1164,7 +1244,6 @@ fn paint_slot_label(
             &placeholder
         }
     };
-    let font = label_font(ui.c, font, name, text.w);
     // Centre the capitals with the chevron and controls using the metrics of the drawn face.
     let y = if super::lemon(ui) {
         (text.cy() + 0.36 * f32::from(font.size) - ui.c.ascent(font)).round()
@@ -1191,12 +1270,20 @@ fn attached_button(ui:&mut Ui,r:Rect,label:&str,action:Action,on:bool) -> Rect {
     let hint = if action == Action::Mix(MHit::MixAssistant) { "Mix Assistant" } else { label };
     let hover=ui.hit(r,action,hint.to_owned());
     if primary {
-        let blue = os_theme::design::lemon::MAIN;
-        let face = if pressed { blue.shade(-0.12) } else if hover { blue.shade(0.12) } else { blue };
+        let t = ui.t;
+        let base = Chrome::MixerAction.or(t, Chrome::ActiveButton.or(t, os_theme::design::lemon::MAIN));
+        let face = if pressed {
+            Chrome::MixerActionPressed.or(t, base.shade(-0.12))
+        } else if hover {
+            Chrome::MixerActionHover.or(t, base.shade(0.12))
+        } else {
+            base
+        };
         let rim = (ui.c.scale.round().max(1.0)) / ui.c.scale;
-        ui.c.fill_rrect(r, 3.0, blue.shade(-0.25));
+        ui.c.fill_rrect(r, 3.0, Chrome::MixerActionEdge.or(t, base.shade(-0.25)));
         ui.c.fill_rrect(r.inset(rim), 3.0 - rim, face);
-        ui.c.text_center(font, r, Color::rgb(0x101820), label);
+        let ink = Chrome::MixerActionInk.or(t, Chrome::ActiveInk.or(t, Color::rgb(0x101820)));
+        ui.c.text_center(font, r, os_ui::kit::button_ink_on(face, ink), label);
         return r;
     }
     ui.c.fill_rrect(r,3.,if on{ui.t.accent}else if hover{ui.t.button_hi}else{ui.t.button});
@@ -1656,11 +1743,22 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
         paint_slot_label(ui, text, plugin.as_deref(), i + 1, font_size, 4.0 * kp);
         let mix = KnobId::SlotMix(n, k);
         ui.hit(Rect::new(row.right() - 46.0, row.y, 26.0, row.h), Action::Knob(mix), s.knob_hint(mix));
-        if mx::view(s)==mx::WIDE {
-            let q=(q*mx::full_size(s).2).min((row.h-2.)/23.6).min(1.05);
-            console_skin::knob(ui,mix,row.right()-33.,row.cy(),8.5*q,s.knob(mix),Color::rgb(0xc2c7c9),false);
-            ui.c.stroke_circle(row.right() - 33.0, row.cy(), 11.8 * q, 1.5, ui.t.s(0x55595c));
-        } else { insert_knob(ui, mix, row.right() - 33.0, row.cy(), if ui.t.appearance.insert_custom { kp } else { q }, s.knob(mix)); }
+        let full_q = (q * mx::full_size(s).2).min((row.h - 2.0) / 23.6).min(1.05);
+        if mx::view(s) == mx::WIDE {
+            console_skin::full_insert_knob(ui, mix, row.right() - 33.0, row.cy(), full_q, s.knob(mix));
+        } else {
+            let appearance = ui.t.appearance;
+            let knob_scale = if appearance.insert_full_knob && !appearance.insert_decorations_custom
+                && !appearance.insert_face_custom
+            {
+                full_q
+            } else if appearance.insert_custom {
+                kp.min((row.h - 2.0) / 28.0).min(26.0 / 28.0)
+            } else {
+                q
+            };
+            insert_knob(ui, mix, row.right() - 33.0, row.cy(), knob_scale, s.knob(mix));
+        }
         ui.hit(Rect::new(row.right() - 18.0, row.y, 18.0, row.h), Action::Mix(MHit::SlotLed(k)), "Mute / solo  (ctrl)0..9");
         led(ui, row.right() - 10.0, row.cy(), s.displayed_slot_on(n,k));
     }

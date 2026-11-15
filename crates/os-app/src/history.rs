@@ -92,6 +92,7 @@ pub enum Snap {
     CutGroups(u16,u32,u32),
     Effects(u16, bool, bool),
     SlotEnabled(u16, u8, bool),
+    EffectOrder(u16, Vec<u8>),
     AllEffects(bool),
     StripProfile(u16,u16),
     StripBypass(u16,bool),
@@ -454,6 +455,7 @@ impl Snap {
             Snap::TrackName(t, _) => Snap::TrackName(*t, crate::mixer::track(s, *t).and_then(|m| m.name.clone())),
             Snap::Fader(t, _) => crate::mixer::track(s, *t).map_or_else(|| self.clone(), |m| Snap::Fader(*t, m.volume)),
             Snap::RackStrips(v) => Snap::RackStrips(v.iter().filter_map(|c|crate::mixer::channel_copy(s,c.track.index)).collect()),
+            Snap::EffectOrder(t, slots) => Snap::EffectOrder(*t, slots.iter().rev().copied().collect()),
             Snap::MixerChannel(c) => crate::mixer::channel_copy(s,c.track.index).map(|c|Snap::MixerChannel(Box::new(c))).unwrap_or_else(||self.clone()),
             Snap::ChannelLayout(t,_) => crate::mixer::track(s,*t).map_or_else(||self.clone(),|m|Snap::ChannelLayout(*t,m.channel_layout)),
             Snap::PeakLinks(_)=>Snap::PeakLinks(s.project.peak_links.clone()),
@@ -586,6 +588,7 @@ impl Snap {
             | Snap::Fader(..)
             | Snap::Ara(..)
             | Snap::RackStrips(..)
+            | Snap::EffectOrder(..)
             | Snap::MixerChannel(..)
             | Snap::StripBypass(..)
             | Snap::StripProfile(..)
@@ -705,6 +708,7 @@ impl Snap {
                 crate::params::set_param_value(s, key, i, v);
             }
             Snap::RackStrips(v) => {for c in v {crate::mixer::put_channel(s,c);}},
+            Snap::EffectOrder(t, slots) => crate::mixer::rotate_effect_slots(s, t, &slots),
             Snap::MixerChannel(c) => crate::mixer::put_channel(s,*c),
             Snap::MixerInsert{n,count,remove,previous,selection}=>{if remove {crate::mixer::undo_insert(s,n,count);}else{crate::mixer::insert_tracks(s,Some(n),count);}s.selected_mixer=previous;s.mixer.sel=selection;},
             Snap::WithMixerInsert{insert,edit}=>{

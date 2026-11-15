@@ -50,27 +50,19 @@ fn catalog() -> &'static Catalog {
     })
 }
 
-fn renderer() -> Option<PathBuf> {
-    #[cfg(test)]
-    if let Some(path) = std::env::var_os("ML_VISUALIZER_VIDEO_TEST_TOOLS") {
-        return Some(PathBuf::from(path).join(WORKER));
-    }
-    if !cfg!(all(windows, target_arch = "x86_64")) {
-        return None;
-    }
+const EMBEDDED_WORKER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/visualizer-worker.exe"));
+
+/// Unbundled developer checkouts can still use their local renderer.
+fn development_renderer() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    if !exe
-        .file_name()
-        .is_some_and(|name| name == "lemonstudio-development.exe")
-    {
+    if exe.file_name()? != "lemonstudio-development.exe" {
         return None;
     }
-    Some(
-        exe.parent()?
-            .parent()?
-            .join("ML Visualizer Video Tools")
-            .join(WORKER),
-    )
+    Some(exe.parent()?.parent()?.join("ML Visualizer Video Tools").join(WORKER))
+}
+
+pub(crate) fn hosted_supported() -> bool {
+    supported() && (!EMBEDDED_WORKER.is_empty() || development_renderer().is_some_and(|p| p.is_file()))
 }
 
 pub fn supported() -> bool {
@@ -78,11 +70,13 @@ pub fn supported() -> bool {
 }
 
 pub fn available() -> bool {
-    renderer().is_some_and(|p| p.is_file()) && crate::workspace_visibility::shown(VISIBILITY)
+    hosted_supported() && crate::workspace_visibility::shown(VISIBILITY)
 }
 
 fn tools_dir() -> Result<PathBuf, String> {
-    if let Some(dir) = renderer().and_then(|p| p.parent().map(Path::to_path_buf)) {
+    if EMBEDDED_WORKER.is_empty()
+        && let Some(dir) = development_renderer().and_then(|p| p.parent().map(Path::to_path_buf))
+    {
         return Ok(dir);
     }
     if !supported() {
@@ -237,7 +231,20 @@ fn mp4_path(path: &Path) -> bool {
 }
 
 fn encoder_present() -> bool {
-    tools_dir().is_ok_and(|root| root.join("ffmpeg.exe").is_file())
+    tools_dir().is_ok_and(|root| {
+        fs::symlink_metadata(root.join("ffmpeg.exe"))
+            .is_ok_and(|m| m.is_file() && m.len() == catalog().encoder_size)
+    })
+}
+
+pub(crate) fn setup_download_size() -> u64 {
+    if hosted_supported() && !encoder_present() { catalog().archive_size } else { 0 }
+}
+
+pub(crate) fn setup_hosted_export(
+    download: bool, cancel: &AtomicBool, report: impl Fn(u64, u64),
+) -> Result<(), String> {
+    ensure_tools(&tools_dir()?, true, download, cancel, report)
 }
 
 fn download_prompt() -> String {
@@ -271,7 +278,7 @@ pub fn accept_file(app: &mut App, mut request: Request, file: PathBuf) {
 
 const SCRATCH_FILES: &[&str] = &[
     "scene.json", "master.wav", "render.mp4", "progress.txt", "renderer.log",
-    "encoder.log", "encoder.zip", "ffmpeg.exe",
+    "encoder.log", "encoder.zip", "ffmpeg.exe", WORKER,
 ];
 const EXPORT_FOLDERS: &str = "visualizer_export_folders";
 
@@ -450,9 +457,6 @@ fn ensure_tools(
 ) -> Result<(), String> {
     let c = catalog();
     check_cancel(cancel)?;
-    if legacy {
-        check_file(&root.join(WORKER), c.renderer_size, &c.renderer_sha256)?;
-    }
     fs::create_dir_all(root).map_err(io_error)?;
     let encoder = root.join("ffmpeg.exe");
     let lock = OpenOptions::new()
@@ -463,8 +467,22 @@ fn ensure_tools(
         .map_err(io_error)?;
     lock.try_lock()
         .map_err(|_| "Another ML Studio instance is setting up the video encoder")?;
-    if encoder.is_file() {
-        return check_file(&encoder, c.encoder_size, &c.encoder_sha256);
+    if legacy {
+        let worker = root.join(WORKER);
+        if check_file(&worker, c.renderer_size, &c.renderer_sha256).is_err() {
+            if EMBEDDED_WORKER.is_empty() {
+                return Err("The Visualizer renderer is unavailable in this build.".into());
+            }
+            let dir = WorkDir::create(root)?;
+            let staged = dir.path().join(WORKER);
+            fs::write(&staged, EMBEDDED_WORKER).map_err(io_error)?;
+            check_file(&staged, c.renderer_size, &c.renderer_sha256)?;
+            check_cancel(cancel)?;
+            fs::rename(staged, worker).map_err(io_error)?;
+        }
+    }
+    if check_file(&encoder, c.encoder_size, &c.encoder_sha256).is_ok() {
+        return Ok(());
     }
     if !download {
         return Err("Open Export visualizer video to download the encoder".into());
@@ -1031,8 +1049,15 @@ mod tests {
     #[ignore = "requires the pinned CLAP, renderer and encoder on a machine with OpenGL"]
     fn visualizer_video_roundtrip() {
         let tools = tools_dir().unwrap();
+        let fixtures = PathBuf::from(std::env::var_os("ML_VISUALIZER_VIDEO_TEST_FIXTURES").expect("fixture path"));
+        let source = fixtures.join("test.wav");
+        assert!(hosted_supported(), "Stock-named build must supply a renderer");
+        assert!(!tools.join(WORKER).exists(), "start with a clean renderer directory");
+        fs::create_dir_all(&tools).unwrap();
         let scratch = WorkDir::create(&tools).unwrap();
-        let source = tools.join("test.wav");
+        fs::copy(fixtures.join("ffmpeg.exe"), tools.join("ffmpeg.exe")).unwrap();
+        setup_hosted_export(false, &AtomicBool::new(false), |_, _| panic!("encoder was already installed")).unwrap();
+        check_file(&tools.join(WORKER), catalog().renderer_size, &catalog().renderer_sha256).unwrap();
         let mut app = App::new(None);
         app.state.project = crate::app::test_project();
         app.state.tempo = 120.;
@@ -1118,7 +1143,7 @@ mod tests {
                     _ => None,
                 })
             );
-            let probe = command(&tools.join("ffprobe.exe"))
+            let probe = command(&fixtures.join("ffprobe.exe"))
                 .args(["-v", "error", "-show_streams", "-of", "json"])
                 .arg(&output)
                 .output()
@@ -1743,7 +1768,7 @@ pub fn from_plugin_window(app: &mut App, key: usize, x: i32, y: i32) {
         activate_main(app);
         error(
             app,
-            "The visualizer renderer is missing. Reinstall the Development video tools.",
+            "Visualizer MP4 export is unavailable in this build or has been hidden in Workspace Visibility.",
         );
         return;
     }

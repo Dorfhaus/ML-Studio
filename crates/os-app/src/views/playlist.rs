@@ -19,6 +19,8 @@ use crate::playlist::{self as pl, Mark, Overlay, PGeom, PickKind, MARKER_H, TITL
 pub const BAR_W: f32 = 60.0;
 
 // Clip colours (spec: ui/playlist.md §2).
+use os_theme::chrome::Chrome;
+
 const CLIP_BORDER: u32 = 0x353c41;
 const TITLE_TOP: u32 = 0x50595e;
 const TITLE_BOTTOM: u32 = 0x3f494d;
@@ -138,7 +140,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let ty=r.y+2.;
     for (x,icon,action,hint) in [(4.,Icon::ArrowRight,Action::PlOptions,"Playlist options".to_string()),(25.,Icon::Magnet,Action::PlSnap,format!("Snap: {}",s.playlist.snap.label()))] {
         let b=Rect::new(r.x+x,ty,18.,18.);let hot=ui.hit(b,action,hint);
-        icons::draw(ui.c,icon,b,if hot {t.glyph}else{t.text});
+        icons::draw(ui.c,icon,b,Chrome::PlaylistBarInk.or(t, if hot {t.glyph}else{t.text}));
     }
     for (i,(tool,icon)) in [(pl::PlTool::Draw,Icon::Pencil),(pl::PlTool::Paint,Icon::Brush),(pl::PlTool::Slice,Icon::Slice),(pl::PlTool::Select,Icon::Select)].into_iter().enumerate() {
         let b=Rect::new(r.x+49.+i as f32*22.,ty,20.,18.);
@@ -173,7 +175,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
             ui.c.text_center(Font::new(10),Rect::new(b.x+15.0,b.y,b.w-15.0,b.h),ink,"COMP");
         }
     }
-    for x in [161.,222.,282.] {ui.c.line(r.x+x,ty+3.,r.x+x,ty+15.,1.,t.text_faint);}
+    for x in [161.,222.,282.] {ui.c.line(r.x+x,ty+3.,r.x+x,ty+15.,1.,Chrome::PlaylistBarDivider.or(t, t.text_faint));}
     if crate::workspace_visibility::shown("visible_playlist-clips") {
         let b=Rect::new(r.x+229.,ty,47.,18.);
         let hot=ui.hit(b,Action::PlClips,"Clips: patterns, audio clips and automation clips");
@@ -319,6 +321,9 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let (_, vbar) = bar_sizes();
     let over = overview_rect(s, grid);
     super::scrollbar(ui, over, false, sx, grid_w, bars * bar_w, crate::app::Scroll::PlaylistX);
+    if let Some(face) = Chrome::PlaylistRail.get(t) {
+        ui.c.fill_rect(over, face);
+    }
     if t.style.vintage_2005 {
         crate::vintage::recess(ui.c, over, Color::rgb(0x252e33));
     }
@@ -340,7 +345,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         if t.style.vintage_2005 {
             crate::vintage::metal(ui.c, window, Color::rgb(0x65767e));
         } else {
-            let thumb = t.text_dim.mix(Color::rgb(0x2096f3), 0.32);
+            let thumb = Chrome::PlaylistThumb.or(t, t.text_dim.mix(Color::rgb(0x2096f3), 0.32));
             ui.c.fill_rrect(window, 2.0, thumb.with_alpha(if show_map { 140 } else { 255 }));
         }
         if show_map {
@@ -350,7 +355,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         let edge = if t.style.vintage_2005 {
             Color::rgb(0xb0c2ca)
         } else {
-            t.text.mix(Color::rgb(0x2096f3), 0.40).with_alpha(255)
+            Chrome::PlaylistThumbEdge.or(t, Chrome::PlaylistThumb.or(t, t.text.mix(Color::rgb(0x2096f3), 0.40))).with_alpha(255)
         };
         for y in [window.y, window.bottom() - 1.0] {
             ui.c.fill_rect(Rect::new(window.x, y, window.w, 1.0), edge);
@@ -359,16 +364,19 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         // Keep clips and markers out of the thumb's lane, even when the arrangement fills the map.
         let rail_h = if show_map { (over.h * 0.42).floor() } else { over.h - 2.0 };
         let rail = Rect::new(over.x, over.y + 1.0, over.w, rail_h);
-        ui.c.fill_rect(rail, Color::rgb(0x22282d));
+        ui.c.fill_rect(rail, Chrome::PlaylistRail.or(t, Color::rgb(0x22282d)));
         let (offset,width)=if crate::elastic_scroll::adaptive(crate::app::Scroll::PlaylistX) {
             let (at,w,_)=crate::elastic_scroll::horizontal(rail.w,sx,grid_w,bars*bar_w);(at,w)
         } else {let (at,w)=os_ui::kit::thumb(rail.w,sx,grid_w,bars*bar_w);crate::elastic_scroll::thumb(&ui.elastic,crate::app::Scroll::PlaylistX,at,w)};
         let thumb = Rect::new(rail.x + offset, rail.y, width, rail.h);
-        let face = if t.style.vintage_2005 { Color::rgb(0xb8c8cf) } else { Color::rgb(0x7ac4ff) };
+        let face = if t.style.vintage_2005 { Color::rgb(0xb8c8cf) } else { Chrome::PlaylistThumb.or(t, Color::rgb(0x7ac4ff)) };
         if t.style.vintage_2005 {
             ui.c.fill_rect_gradient(thumb, face.shade(0.16), face.shade(-0.16), 0.0);
         } else {
             ui.c.fill_rrect(thumb, 1.5, face);
+            if let Some(edge) = Chrome::PlaylistThumbEdge.get(t) {
+                ui.c.stroke_rrect(thumb.inset(0.5), 1.0, 1.0, edge);
+            }
         }
         if show_map {
             let y = rail.bottom() + 1.0;
@@ -1676,15 +1684,19 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
         } else {super::led(ui, led.cx(), led.cy(), on);}
         let expanded = crate::vocal::expanded(s, row);
         let record = crate::attached_mixer::record_button_visible(s,row);
-        let tuning_x = led.x - if record { 43. } else { 19. };
+        let record_width = crate::record_light::playlist_width(t, face.w - 115.);
+        let record_rect = Rect::new(led.x - record_width - 2., led.cy() - 7., record_width, 14.);
+        let tuning_x = if record { record_rect.x - 19. } else { led.x - 19. };
         crate::warp::head(ui,s,row,Rect::new(tuning_x-18.,led.cy()-7.,16.,14.));
         if !editing {
             ui.c.push_clip(face);
-            ui.c.text_clip(if s.vintage_2005 {Font::vintage(11)}else{Font::new(12)}, face.x + if crate::playlist_tracks::buttons(s,row){18.}else{5.}, face.cy() - 6.0, face.w-if crate::playlist_tracks::buttons(s,row){100.}else{62.}, text, &pl::track_name(s, row));
+            let name_x = face.x + if crate::playlist_tracks::buttons(s,row){18.}else{5.};
+            let name_width = (tuning_x - 22. - name_x).max(0.);
+            ui.c.text_clip(if s.vintage_2005 {Font::vintage(11)}else{Font::new(12)}, name_x, face.cy() - 6.0, name_width, text, &pl::track_name(s, row));
             ui.c.pop_clip();
         }
         crate::vocal::head(ui, s, row, Rect::new(tuning_x, led.cy() - 7.0, 17.0, 14.0));
-        crate::attached_mixer::record_button(ui,s,row,Rect::new(led.x-24.,led.cy()-7.,22.,14.));
+        crate::attached_mixer::record_button(ui,s,row,record_rect);
         if crate::playlist_tracks::buttons(s,row){let b=Rect::new(face.x+2.,led.cy()-7.,14.,14.);ui.hit(b,Action::Mix(crate::mixer::MHit::AttachedPiano(row)),"Piano Roll; right-click to insert an instrument");icons::draw(ui.c,Icon::PianoRoll,b,text);}
         if expanded {
             crate::vocal::keys(ui, s, g, row, hr);
@@ -1707,7 +1719,9 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
     ui.hit(led, Action::PlLed(row), "Mute track (right-click / Ctrl+click: solo)");
     crate::vocal::head(ui,s,row,Rect::new(hr.x+27.,led.y,17.,14.));
     crate::warp::head(ui,s,row,Rect::new(hr.x+47.,led.y,14.,14.));
-    crate::attached_mixer::record_button(ui,s,row,Rect::new(led.x-if lead{45.}else{27.},led.cy()-7.,22.,14.));
+    let record_right = led.x - if lead { 23. } else { 5. };
+    let record_width = crate::record_light::playlist_width(t, record_right - hr.x - 64.);
+    crate::attached_mixer::record_button(ui,s,row,Rect::new(record_right-record_width,led.cy()-7.,record_width,14.));
     if !editing {
         let name_w = if toggle.y < hr.y + 18.0 {
             (toggle.x - hr.x - 12.0).max(1.0)
@@ -1756,8 +1770,28 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
 fn tool_face(ui: &mut Ui, b: Rect, on: bool, hov: bool) -> Color {
     let t = ui.t;
     let state = os_ui::kit::State::hover(hov).with_on(on);
+    let active = Chrome::PlaylistActive.get(t);
+    let normal = Chrome::PlaylistButton.get(t);
+    let hovered = Chrome::PlaylistButtonHover.get(t);
+    let face = if on {
+        active.map(|color| if hov { color.shade(0.10) } else { color })
+    } else if hov {
+        hovered.or_else(|| normal.map(|color| color.shade(0.10)))
+    } else {
+        normal
+    };
+    let ink = |fallback| if on {
+        Chrome::PlaylistActiveInk.or(t, fallback)
+    } else {
+        Chrome::PlaylistBarInk.or(t, fallback)
+    };
+    if let Some(face) = face {
+        ui.c.fill_rrect(b, lk::r_btn(t), face);
+        return os_ui::kit::button_ink_on(face, ink(lk::ink_on(face)));
+    }
     if os_ui::kit::custom_button_in(ui.c, t, b, state, t.appearance.playlist_buttons) {
-        return os_ui::kit::ink(t, state);
+        let ink = ink(os_ui::kit::ink(t, state));
+        return if on { os_ui::kit::button_ink_on(Chrome::ActiveButton.or(t, t.on_bottom), ink) } else { ink };
     }
     if super::lemon(ui) {
         if on {
@@ -1765,12 +1799,17 @@ fn tool_face(ui: &mut Ui, b: Rect, on: bool, hov: bool) -> Color {
         } else if hov {
             ui.c.fill_rrect(b.outset(1.0), lk::r_btn(t), t.button_hi);
         }
-        return if on { lk::ink_on_lit(ui.t) } else { t.glyph };
+        return if on {
+            let face = Chrome::ActiveButton.or(t, t.brand_lit(os_theme::design::lemon::MAIN));
+            os_ui::kit::button_ink_on(face, ink(lk::ink_on_lit(t)))
+        } else {
+            ink(t.glyph)
+        };
     }
     if on {
         ui.c.fill_rrect(b.outset(1.0), 3.0, t.glyph.with_alpha(40));
     }
-    if on { t.glyph } else if hov { t.text.shade(0.3) } else { t.text }
+    ink(if on { t.glyph } else if hov { t.text.shade(0.3) } else { t.text })
 }
 
 /// The open playlist popup menu and its submenu, and the inline text box (drawn above everything).

@@ -84,6 +84,17 @@ fn main() {
     } else {
         std::fs::write(score_out, []).unwrap();
     }
+    println!("cargo:rerun-if-env-changed=LEMON_VISUALIZER_WORKER");
+    let worker_out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("visualizer-worker.exe");
+    let windows_x64 = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64");
+    if let Some(path) = std::env::var_os("LEMON_VISUALIZER_WORKER").filter(|_| windows_x64) {
+        let path = PathBuf::from(path);
+        println!("cargo:rerun-if-changed={}", path.display());
+        std::fs::copy(path, worker_out).expect("Could not embed the Visualizer renderer");
+    } else {
+        std::fs::write(worker_out, []).unwrap();
+    }
     factory_presets();
     // `plugin_windows`: plugin editors open in Lemon Studio's frame windows (Win32 on Windows, X11 on Linux, AppKit on
     // macOS).

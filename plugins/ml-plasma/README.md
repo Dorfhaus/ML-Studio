@@ -35,8 +35,10 @@ on native Linux and supply its ZIP through `ML_PLASMA_BUNDLE_LINUX_X86_64` to th
 coordinator's environment. Other native payload overrides follow the same
 `ML_PLASMA_BUNDLE_<OS>_<ARCH>` convention (MACOS/AARCH64, MACOS/X86_64,
 WINDOWS/X86_64). The build validates the archive's checksums, pinned source,
-platform label and actual PE/ELF/Mach-O architecture. Native Windows and Mac
-builds compile their payload automatically. Mac/Linux runtime and packaging
+platform label and actual PE/ELF/Mach-O architecture. Mac payloads target macOS
+12.0, like the DAW. The build rejects a higher minimum macOS version or
+read-only Objective-C protocol references, which can crash the Ventura loader.
+Native Windows and Mac builds compile their payload automatically. Mac/Linux runtime and packaging
 validation are required before publishing; no platform is claimed tested here.
 
 The native adapter also clears voices/tails/buffered audio on host reset and

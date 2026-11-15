@@ -378,6 +378,76 @@ pub fn slot_name(s: &State, t: u16, slot: u8) -> Option<String> {
     Some(s.mixer.slot_names.get(&(t, slot)).cloned().unwrap_or_else(|| crate::project_plugins::slot_title(p)))
 }
 
+pub(crate) const EFFECT_DRAG_VISIBILITY: &str = "visible_mixer-effect-drag";
+
+/// Moves an effect to a visible slot and shifts the intervening slots in order.
+pub(crate) fn move_effect(s: &mut State, track: u16, from: u8, to: u8) {
+    if from == to || locked(s, track) || self::track(s, track).is_none() {
+        return;
+    }
+    let user_slots: Vec<_> = (0..user_slot_capacity(s, track))
+        .map(|i| visible_user_slot(s, track, i))
+        .collect();
+    let Some(start) = user_slots.iter().position(|&slot| slot == from) else { return };
+    let Some(end) = user_slots.iter().position(|&slot| slot == to) else { return };
+    let mut slots = user_slots[start.min(end)..=start.max(end)].to_vec();
+    if start > end {
+        slots.reverse();
+    }
+    crate::history::record(s, "Move mixer effect", crate::history::Snap::EffectOrder(
+        track, slots.iter().rev().copied().collect(),
+    ));
+    rotate_effect_slots(s, track, &slots);
+}
+
+/// Rotate a range in drag order. The reversed range applies the inverse for Undo.
+pub(crate) fn rotate_effect_slots(s: &mut State, track: u16, slots: &[u8]) {
+    let Some((&first, rest)) = slots.split_first() else { return };
+    let Some(&last) = rest.last() else { return };
+    let map_slot = |slot| {
+        if slot == first {
+            last
+        } else {
+            slots.windows(2).find(|pair| pair[1] == slot).map_or(slot, |pair| pair[0])
+        }
+    };
+    let Some(channel) = track_mut(s, track) else { return };
+    for pair in slots.windows(2) {
+        let a = usize::from(pair[0]);
+        let b = usize::from(pair[1]);
+        channel.slots.swap(a, b);
+        channel.slot_on.swap(a, b);
+        channel.slot_mix.swap(a, b);
+    }
+    if let Some(strip) = &mut channel.rack_strip {
+        strip.slot = map_slot(strip.slot);
+    }
+    let names: Vec<_> = slots.iter().filter_map(|&slot| {
+        s.mixer.slot_names.remove(&(track, slot)).map(|name| ((track, map_slot(slot)), name))
+    }).collect();
+    s.mixer.slot_names.extend(names);
+    let retarget = |id| {
+        use os_model::target::{self, Target};
+        match target::decode(id) {
+            Target::SlotParam(t, k, p) if t == track => target::slot_param(t, map_slot(k), p),
+            Target::SlotMix(t, k) if t == track => target::slot(t, map_slot(k), target::SLOT_MIX),
+            Target::SlotOn(t, k) if t == track => target::slot(t, map_slot(k), target::SLOT_ON),
+            _ => id,
+        }
+    };
+    for automation in &mut s.project.automations {
+        for target in &mut automation.targets { *target = retarget(*target); }
+    }
+    for control in &mut s.project.init_controls { control.target = retarget(control.target); }
+    for link in &mut s.project.peak_links { link.target = retarget(link.target); }
+    for pattern in &mut s.project.patterns {
+        for control in &mut pattern.controls { control.kind = retarget(control.kind); }
+    }
+    let remap = slots.iter().map(|&slot| ((track, slot), (track, map_slot(slot)))).collect();
+    s.mixer.pending.push(FxReq::Remap(remap));
+    changed(s);
+}
+
 /// Tesla's "For" index of 5 minutes (Edison's menu: Forever, 1, 3, 5 minutes, ...), the audio logger's length.
 const AUDIO_LOG_5_MINUTES: u8 = 3;
 
@@ -2324,23 +2394,8 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
             if !(0..user_slot_capacity(s,t) as i32).contains(&o) {
                 return None;
             }
-            let (a, b) = (usize::from(slot), visible_user_slot(s,t,o as usize) as usize);
-            for l in &mut s.project.peak_links {if let os_model::target::Target::SlotParam(tr,k,p)=os_model::target::decode(l.target){if tr==t {let k=if k as usize==a{b as u8}else if k as usize==b{a as u8}else{k};l.target=os_model::target::slot_param(t,k,p);}}}
-            if let Some(m) = track_mut(s, t) {
-                if let Some(h)=&mut m.rack_strip{if h.slot as usize==a{h.slot=b as u8;}else if h.slot as usize==b{h.slot=a as u8;}}
-                m.slots.swap(a, b);
-                m.slot_on.swap(a, b);
-                m.slot_mix.swap(a, b);
-            }
-            let (na, nb) = (s.mixer.slot_names.remove(&(t, a as u8)), s.mixer.slot_names.remove(&(t, b as u8)));
-            if let Some(v) = na {
-                s.mixer.slot_names.insert((t, b as u8), v);
-            }
-            if let Some(v) = nb {
-                s.mixer.slot_names.insert((t, a as u8), v);
-            }
-            s.mixer.pending.push(FxReq::Remap(vec![((t, a as u8), (t, b as u8)), ((t, b as u8), (t, a as u8))]));
-            changed(s);
+            let destination = visible_user_slot(s, t, o as usize);
+            move_effect(s, t, slot, destination);
             None
         }
         MCmd::SlotRename(slot) => {

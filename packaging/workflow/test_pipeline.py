@@ -48,11 +48,14 @@ class PipelineTests(unittest.TestCase):
     def test_public_build_overrides_personal_environment_and_isolates_caches(self):
         cfg={'cache':'public-cache','juce_source':'juce','engines':{x:{'bundle':x+'.zip'} for x in p.PLATFORMS},
              'score_bundles':{x:{'bundle':'score-'+x+'.zip'} for x in p.PLATFORMS}}
-        with patch.dict(os.environ,{'LEMON_WAVE_LIBRARY':'personal.lwpack','CARGO_TARGET_DIR':'personal-cache','LEMON_SCORE_BUNDLE':'personal.zip'}),patch.object(b.r,'read_config',return_value={'llvm':'llvm'}):
+        with patch.dict(os.environ,{'LEMON_WAVE_LIBRARY':'personal.lwpack','CARGO_TARGET_DIR':'personal-cache','LEMON_SCORE_BUNDLE':'personal.zip'}),patch.object(b.r,'read_config',return_value={'llvm':'llvm'}), patch.object(b, 'visualizer_inputs', return_value=(Path('renderer.exe'), Path('renderer-source.zip'))):
             environments=[b.environment(cfg,x) for x in p.PLATFORMS]
         self.assertTrue(all(e['LEMON_WAVE_LIBRARY']=='' and e['LEMON_RELEASE']=='1' for e in environments))
         self.assertEqual(len({e['CARGO_TARGET_DIR'] for e in environments}),4)
         self.assertEqual([e['LEMON_SCORE_BUNDLE'] for e in environments],['score-'+x+'.zip' for x in p.PLATFORMS])
+        self.assertEqual(environments[0]['LEMON_VISUALIZER_WORKER'], 'renderer.exe')
+        self.assertEqual(environments[0]['LEMON_VISUALIZER_SOURCE'], 'renderer-source.zip')
+        self.assertTrue(all('LEMON_VISUALIZER_WORKER' not in e and 'LEMON_VISUALIZER_SOURCE' not in e for e in environments[1:]))
 
     def test_mix_reference_download_is_website_only(self):
         self.assertTrue(p.r.permitted(p.r.MIX_REFERENCE_PATH,'website'))

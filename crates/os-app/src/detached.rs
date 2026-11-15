@@ -146,7 +146,10 @@ impl Windows {
                     }}
                 }
             }
-            WindowEvent::Focused(false)=>app.mouse_up(),
+            WindowEvent::Focused(false)=>{
+                app.cancel_effect_drag();
+                app.mouse_up();
+            }
             WindowEvent::CursorMoved{position,..}=>{p.mouse=(position.x as f32/scale,position.y as f32/scale);app.mouse_move(p.mouse.0,p.mouse.1);}
             WindowEvent::ModifiersChanged(m)=>{p.mods=m.state();app.ctrl=crate::ctrl(p.mods);app.shift=p.mods.shift_key();app.alt=p.mods.alt_key();}
             WindowEvent::MouseInput{state,button,..}=>{

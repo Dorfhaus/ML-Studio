@@ -16717,3 +16717,11 @@ Vintage FL Studio artwork and cursor resources
 Original artwork: Image-Line / respective rights holders. Included with
 redistribution permission confirmed by the Lemon Studio publisher. See
 crates/os-app/assets/vintage-2005/README.txt and manifest.json in the source.
+
+Windows x64 Visualizer export
+AudioVisualizer by mtyas is used as a separate offline renderer process under
+the GNU Affero General Public License, version 3 or later. The matching renderer
+and build dependency sources and license notices are included in the Windows
+corresponding source download under packaging/visualizer.
+FFmpeg is a separately installed encoder. Its download and source information
+are described in packaging/visualizer/README.md.

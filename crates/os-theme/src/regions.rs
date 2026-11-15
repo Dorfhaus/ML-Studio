@@ -16,9 +16,27 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
     ("workspace", "Workspace", ""),
     ("dials", "Shared dial controls", ""),
     ("inserts", "Traditional FL-style mixer view", ""),
+    ("trad-meters", "Traditional Mixer peak meters", ""),
+    ("mixer-labels", "Mixer labels and buttons", ""),
+    ("playlist-bar", "Playlist bar", ""),
+    ("settings-colors", "Settings colors", ""),
 ];
 pub fn section(name: &str) -> &'static str {
+    if name.starts_with("playlist_record_") { return "Playlist record light"; }
+    if name.starts_with("rack_record_") { return "Channel Rack record light"; }
     if name.starts_with("playlist_key_") || name.starts_with("playlist_activity_") || name.starts_with("playlist_waveform") { return "Playlist"; }
+    if name.starts_with("mixer_channel_") || name.starts_with("mixer_action_") {
+        return "Mixer labels and buttons";
+    }
+    if name.starts_with("playlist_bar_") || name.starts_with("playlist_overview_") {
+        return "Playlist bar";
+    }
+    if name.starts_with("settings_group_") || name.starts_with("settings_tab_") {
+        return "Settings colors";
+    }
+    if name.starts_with("trad_meter_") {
+        return "Traditional Mixer peak meters";
+    }
     if name.starts_with("insert_knob_") {
         return "Traditional FL-style mixer view";
     }
@@ -80,7 +98,7 @@ impl Tone {
         )
     }
 }
-pub fn parse(get: impl Fn(&str) -> Option<String>) -> [Tone; 14] {
+pub fn parse(get: impl Fn(&str) -> Option<String>) -> [Tone; SECTIONS.len()] {
     std::array::from_fn(|i| {
         let read = |name: &str, default: f32, max: f32| {
             get(&format!("tone-{}-{name}", SECTIONS[i].0))
@@ -97,7 +115,7 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> [Tone; 14] {
         }
     })
 }
-pub fn apply(palette: &mut Palette, tones: &[Tone; 14]) {
+pub fn apply(palette: &mut Palette, tones: &[Tone; SECTIONS.len()]) {
     if !tones.iter().any(|t| t.active()) {
         return;
     }
@@ -131,6 +149,7 @@ pub fn apply(palette: &mut Palette, tones: &[Tone; 14]) {
     }
     if tones[13].active() {
         palette.appearance.insert_custom = true;
+        palette.appearance.insert_decorations_custom = true;
     }
 }
 

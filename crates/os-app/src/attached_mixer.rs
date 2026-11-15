@@ -531,6 +531,12 @@ pub fn record_button(ui:&mut crate::app::Ui,s:&State,row:u16,r:os_ui::Rect){
         "Arm this track for recording, then press Play. Right-click to choose an audio input."
     };
     let hover = ui.hit(r, crate::app::Action::Mix(mixer::MHit::AttachedRecord(row)), hint);
+    if !s.vintage_2005 {
+        use crate::record_light::{self, Lamp, Surface};
+        let lamp = if recording { Lamp::Recording } else if armed { Lamp::Armed } else { Lamp::Idle };
+        record_light::paint(ui.c, ui.t, r, Surface::Playlist, lamp, hover);
+        return;
+    }
     let (ring, fill) = if recording {
         (0xff9395, 0xff292d)
     } else if armed {

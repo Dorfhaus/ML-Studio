@@ -23,7 +23,8 @@ def public_source_bytes(name, data):
     name = name.replace("\\", "/").removeprefix("Source/")
     if separate_mix_reference(name, data):
         raise ValueError("Mix reference pack found in corresponding source: " + name)
-    if name.startswith("plugins/lemon-master-assistant/JUCE/") and name.endswith("/google-services.json"):
+    juce_roots = ("plugins/lemon-master-assistant/JUCE/", "deps/juce/")
+    if name.startswith(juce_roots) and name.endswith("/google-services.json"):
         config = json.loads(data)
         for client in config.get("client", []):
             client["api_key"] = []

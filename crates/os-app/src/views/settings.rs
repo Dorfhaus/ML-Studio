@@ -55,8 +55,8 @@ pub enum SAct {
     PickBody,
     PickClose,
     PickPart(u8),
-    PickSv,
-    PickHue,
+    PickWheel,
+    PickValue,
     PickRevert,
     /// The name panel (`crate::theme_library::NameEdit`): its body (swallows clicks), OK and Cancel.
     NameBody,
@@ -324,7 +324,9 @@ const NO_PERFORMANCE: &str = "ML Studio has no playlist performance mode";
 fn live(key: &str) -> bool {
     LIVE.contains(&key) || crate::prefs::find_check(key).is_some()
         || matches!(key, crate::vintage::LABEL | OPEN_VISIBILITY | crate::workspace_visibility::RESET | crate::menu_layout::OPEN
-            | crate::advanced_theme::INSERT_OPEN | crate::advanced_theme::OPEN | crate::advanced_theme::APPLY | crate::advanced_theme::CANCEL
+            | crate::advanced_theme::INSERT_OPEN | crate::advanced_theme::METER_OPEN | crate::advanced_theme::OPEN
+            | crate::advanced_theme::PLAYLIST_RECORD_OPEN | crate::advanced_theme::RACK_RECORD_OPEN
+            | crate::advanced_theme::MIXER_COLORS_OPEN | crate::advanced_theme::PLAYLIST_COLORS_OPEN | crate::advanced_theme::SETTINGS_COLORS_OPEN | crate::advanced_theme::APPLY | crate::advanced_theme::CANCEL
             | crate::advanced_theme::EXPORT | crate::advanced_theme::WALLPAPER | crate::advanced_theme::CLEAR_WALLPAPER
             | crate::mixer_skin::OPEN | crate::mixer_skin::BACK | crate::mixer_skin::CLOSE | crate::theme_identity::OPEN)
 }
@@ -1087,7 +1089,7 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                 g("Cursor pack — independent of icons", std::iter::once(row(I::FollowIcons))
                     .chain((0..crate::playlist_tools::CURSOR_PACK_COUNT).step_by(5).map(|i| row(I::CursorPacks(i)))).collect()),
                 g("Custom icon and cursor appearance", vec![
-                    txt("Click Choose color for cursors. Icon colors use #RRGGBB. Cursor size is 50–200%."),
+                    txt("Choose colors for icons and cursors with the color wheel. Cursor size is 50–200%."),
                     txt("Default keeps original cursors and system size. Individual choices override the selected pack."),
                     row(I::Appearance),
                 ]),
@@ -1174,8 +1176,18 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
             std::iter::once(featured)
             .chain(scrollbar)
             .chain(crate::workspace_visibility::shown(crate::advanced_theme::INSERT_VISIBILITY).then(|| g(crate::advanced_theme::INSERT_SECTION, vec![
-                txt("Choose Full Mixer insert knobs, or customize the thin value ring and outer circle separately."),
+                txt("Use Full Mixer dry/wet knobs or customize the face, pointer, inner ring and outer circle."),
                 Buttons(vec![(crate::advanced_theme::INSERT_OPEN, 186.0)]),
+            ])))
+            .chain(crate::workspace_visibility::shown(crate::advanced_theme::METER_VISIBILITY).then(|| g(crate::advanced_theme::METER_SECTION, vec![
+                Buttons(vec![(crate::advanced_theme::METER_OPEN, 186.0)]),
+            ])))
+            .chain(crate::workspace_visibility::shown(crate::advanced_theme::RECORD_LIGHT_VISIBILITY).then(|| g("Record lights", vec![
+                Buttons(vec![(crate::advanced_theme::PLAYLIST_RECORD_OPEN, 219.0), (crate::advanced_theme::RACK_RECORD_OPEN, 234.0)]),
+            ])))
+            .chain(crate::workspace_visibility::shown(crate::advanced_theme::QUICK_COLORS_VISIBILITY).then(|| g("Quick color settings", vec![
+                Buttons(vec![(crate::advanced_theme::MIXER_COLORS_OPEN, 176.0),
+                    (crate::advanced_theme::PLAYLIST_COLORS_OPEN, 150.0), (crate::advanced_theme::SETTINGS_COLORS_OPEN, 134.0)]),
             ])))
             .chain([
                 g("Customize", vec![Buttons(vec![(crate::advanced_theme::OPEN, 160.0), (crate::mixer_skin::OPEN, 166.0), (crate::theme_identity::OPEN, 120.0), (crate::advanced_theme::EXPORT, 110.0)])]),
@@ -1444,13 +1456,17 @@ fn paint_window(ui: &mut Ui, s: &State) {
         let label = language.text(label);
         let hov = ui.hit(tr, Action::Settings(SAct::Tab(i)), language.text(title));
         let on = i == st.tab;
-        let body = if on { t.s(0x1d1e1f) } else { t.s(0x222425) };
+        use os_theme::chrome::Chrome;
+        let selected_face = Chrome::SettingsTabSelectedFace.get(t);
+        let tab_face = Chrome::SettingsTabFace.get(t);
+        let body = if on { selected_face.unwrap_or(t.s(0x1d1e1f)) } else { tab_face.unwrap_or(t.s(0x222425)) };
         if lemon {
             let pill = Rect::new(tr.x, tr.y + 2.0, tr.w, tr.h - 6.0);
-            if on {
-                lk::lit_in(ui.c, ui.t, pill, lk::r_btn(t), hov);
+            if on && selected_face.is_none() {
+                lk::lit_in(ui.c, t, pill, lk::r_btn(t), hov);
             } else {
-                ui.c.fill_rrect(pill, lk::r_btn(t), if hov { t.button_hi } else { body });
+                let fill = if hov { if on || tab_face.is_some() { body.shade(0.1) } else { t.button_hi } } else { body };
+                ui.c.fill_rrect(pill, lk::r_btn(t), fill);
             }
         } else {
             ui.c.fill_rect(tr, body);
@@ -1467,6 +1483,14 @@ fn paint_window(ui: &mut Ui, s: &State) {
             t.glyph
         } else {
             t.text
+        };
+        let col = if on {
+            let ink = Chrome::SettingsTabSelected.or(t, selected_face.map_or(col, lk::ink_on));
+            let face = selected_face.or_else(|| lemon.then(|| Chrome::ActiveButton.or(t,
+                t.brand_lit(os_theme::design::lemon::MAIN))));
+            face.map_or(ink, |face| kit::button_ink_on(face, ink))
+        } else {
+            Chrome::SettingsTabText.or(t, col)
         };
         let lh = ui.c.line_height(font);
         let ty = if lemon { tr.cy() - 2.0 } else { tr.cy() };
@@ -1609,32 +1633,10 @@ fn picker(ui: &mut Ui, s: &State, p: &crate::theme_adjust::Picker, win: Rect) {
         let ink = if part.colour.hsl().2 > 0.55 { Color::rgb(0x111111) } else { Color::rgb(0xf2f2f2) };
         ui.c.text_center(Font::new(12), *b, ink, &part.label);
     }
-    // Saturation left to right, brightness bottom to top, at the picked hue; a ring marks the colour.
-    let (w, h) = (48usize, 36usize);
-    let sv: Vec<u32> = (0..h)
-        .flat_map(|y| (0..w).map(move |x| (x, y)))
-        .map(|(x, y)| {
-            let c = from_hsv([p.hsv[0], x as f32 / (w - 1) as f32, 1.0 - y as f32 / (h - 1) as f32]);
-            u32::from(c.r) << 16 | u32::from(c.g) << 8 | u32::from(c.b)
-        })
-        .collect();
-    ui.hit(rr.sv, Action::Settings(SAct::PickSv), "Saturation (left to right) and brightness (bottom to top)");
-    ui.c.image(rr.sv, w, h, &sv);
-    let (mx, my) = (rr.sv.x + p.hsv[1] * rr.sv.w, rr.sv.y + (1.0 - p.hsv[2]) * rr.sv.h);
-    ui.c.stroke_circle(mx, my, 5.0, 1.5, Color::rgb(0));
-    ui.c.stroke_circle(mx, my, 4.0, 1.5, Color::rgb(0xffffff));
-    let hue: Vec<u32> = (0..64)
-        .map(|y| {
-            let c = from_hsv([y as f32 / 63.0 * 360.0, 1.0, 1.0]);
-            u32::from(c.r) << 16 | u32::from(c.g) << 8 | u32::from(c.b)
-        })
-        .collect();
-    ui.hit(rr.hue, Action::Settings(SAct::PickHue), "Hue");
-    ui.c.image(rr.hue, 1, 64, &hue);
-    let hy = (rr.hue.y + p.hsv[0] / 360.0 * rr.hue.h).round();
-    ui.c.fill_rect(Rect::new(rr.hue.x - 2.0, hy - 2.0, rr.hue.w + 4.0, 4.0), Color::rgb(0));
-    ui.c.fill_rect(Rect::new(rr.hue.x - 1.0, hy - 1.0, rr.hue.w + 2.0, 2.0), Color::rgb(0xffffff));
-    // New colour over the old one (a click goes back to it), the hex value, Revert.
+    ui.hit(rr.wheel, Action::Settings(SAct::PickWheel), "Color wheel: choose hue and saturation");
+    ui.hit(rr.value, Action::Settings(SAct::PickValue), "Brightness: full color at the top, black at the bottom");
+    adj::paint_color_wheel(ui.c, rr.wheel, rr.value, p.hsv);
+    // New color above the previous one.
     let new = from_hsv(p.hsv);
     let old = if let Some((_, color)) = p.custom { color } else {
         let before = p.before.clone().unwrap_or_else(|| os_theme::design::default_text(t.style.design));
@@ -1644,8 +1646,8 @@ fn picker(ui: &mut Ui, s: &State, p: &crate::theme_adjust::Picker, win: Rect) {
     ui.hit(rr.old, Action::Settings(SAct::PickRevert), "The colour before: click to go back to it");
     ui.c.fill_rect(rr.old, old);
     ui.c.stroke_rrect(Rect::new(rr.new.x, rr.new.y, rr.new.w, rr.old.bottom() - rr.new.y), 0.0, 1.0, t.s(0x161819));
-    let hex = format!("#{:02x}{:02x}{:02x}", new.r, new.g, new.b);
-    ui.c.text_center(Font::new(13), Rect::new(rr.new.x, rr.old.bottom() + 4.0, rr.new.w, 20.0), t.text, &hex);
+    let brightness = format!("{:.0}% light", p.hsv[2] * 100.0);
+    ui.c.text_center(Font::new(11), Rect::new(rr.new.x, rr.old.bottom() + 4.0, rr.new.w, 20.0), t.text, &brightness);
     let b = rr.revert;
     let hov = ui.hit(b, Action::Settings(SAct::PickRevert), "Back to the colours from before the picker opened");
     if lemon {
@@ -1689,13 +1691,16 @@ fn tab_rects(ui: &mut Ui, r: Rect) -> Vec<(usize, Rect)> {
 }
 
 fn paint_group(ui: &mut Ui, s: &State, gr: &Group, r: Rect, open: bool, clip: Rect) {
+    use os_theme::chrome::Chrome;
     let t = ui.t;
     let lemon = super::lemon(ui);
+    let face = Chrome::SettingsGroup.or(t, t.s(0x25272a));
+    let border = Chrome::SettingsGroupEdge.or(t, t.s(0x1c1e21));
     if lemon {
-        lk::outlined(ui.c, r, lk::r_panel(t) - 2.0, t.s(0x1c1e21), t.s(0x25272a));
+        lk::outlined(ui.c, r, lk::r_panel(t) - 2.0, border, face);
     } else {
-        ui.c.fill_rect(r, t.s(0x1c1e21));
-        ui.c.fill_rect(r.inset(1.0), t.s(0x25272a));
+        ui.c.fill_rect(r, border);
+        ui.c.fill_rect(r.inset(1.0), face);
     }
     let mut y = r.y + 8.0;
     if !gr.title.is_empty() {
@@ -1704,18 +1709,20 @@ fn paint_group(ui: &mut Ui, s: &State, gr: &Group, r: Rect, open: bool, clip: Re
         let tw = ui.c.text_width(f, title);
         if !lemon {
             let hdr = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, 24.0);
-            ui.c.fill_rect(hdr, t.s(0x222427));
+            ui.c.fill_rect(hdr, Chrome::SettingsGroup.or(t, t.s(0x222427)));
         }
-        ui.c.text(f, r.x + if lemon { 8.0 } else { 4.0 }, r.y + 4.0, if lemon { t.accent } else { t.text }, title);
+        let ink = Chrome::SettingsHeading.or(t, Chrome::Text.or(t, if lemon { t.accent } else { t.text }));
+        let note = Chrome::SettingsNote.or(t, t.text_dim);
+        ui.c.text(f, r.x + if lemon { 8.0 } else { 4.0 }, r.y + 4.0, ink, title);
         if !gr.note.is_empty() {
-            ui.c.text(Font::new(13), r.x + if lemon { 8.0 } else { 4.0 } + tw, r.y + 4.0, t.text_dim, Language::current().text(gr.note));
+            ui.c.text(Font::new(13), r.x + if lemon { 8.0 } else { 4.0 } + tw, r.y + 4.0, note, Language::current().text(gr.note));
         }
         if gr.fold {
             let bar = Rect::new(r.x, r.y, r.w, 26.0);
             if clip.contains(bar.cx(), bar.cy()) {
                 ui.hit(bar, Action::Settings(SAct::Group(gr.title)), if open { "Fold" } else { "Unfold" });
             }
-            kit::chevron(ui.c, r.right() - 10.0, r.y + 13.0, 4.0, if open { Dir::Up } else { Dir::Down }, t.text_dim);
+            kit::chevron(ui.c, r.right() - 10.0, r.y + 13.0, 4.0, if open { Dir::Up } else { Dir::Down }, note);
         }
         y = r.y + 30.0;
     }

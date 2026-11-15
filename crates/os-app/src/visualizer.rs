@@ -203,6 +203,7 @@ fn extract(archive: File, stage: &Path, package: &Package) -> Result<(), String>
 enum Update {
     Progress(u64),
     Checking,
+    ExportTools(u64, u64),
     Done(Result<(), String>),
 }
 
@@ -279,6 +280,7 @@ pub struct Target {
     pub slot: u8,
     runtime_id: u64,
     saved: Option<os_model::SlotPlugin>,
+    encoder_download: u64,
 }
 
 pub fn saved_slot(slot: &os_model::SlotPlugin) -> bool {
@@ -294,8 +296,10 @@ pub fn open(app: &mut App, track: u16, slot: u8) {
     if slot == 10 || mx::locked(&app.state, track) || saved.as_ref().is_some_and(|s| !saved_slot(s)) {
         return;
     }
-    let target = Target { track, slot, runtime_id: mixer.runtime_id, saved: saved.clone() };
-    if ready_path().is_some() {
+    let plugin_ready = ready_path().is_some();
+    let encoder_download = crate::visualizer_video::setup_download_size();
+    let target = Target { track, slot, runtime_id: mixer.runtime_id, saved: saved.clone(), encoder_download };
+    if plugin_ready && encoder_download == 0 {
         finish(app, target);
         return;
     }
@@ -310,9 +314,18 @@ pub fn open(app: &mut App, track: u16, slot: u8) {
     let size = package.size as f64 / 1_000_000.;
     let installed = package.files.values().map(|m| m.size).sum::<u64>() as f64 / 1_000_000.;
     let note = if cfg!(target_os = "macos") { "\n\nThe upstream Mac package is unsigned. If macOS blocks it, ML Studio will report the loading error." } else { "" };
-    app.show_msg(Msg::new(DialogKind::Question, LABEL, spans(&[&format!(
-        "Download AudioVisualizer by mtyas? The download is {size:.1} MB from GitHub and uses {installed:.1} MB once installed. You can use it offline after setup.{note}"
-    )]), &[Answer::Yes, Answer::Cancel], Then::VisualizerInstall(target)).labelled(&["Download and install", "Cancel"]));
+    let mut prompt = if plugin_ready {
+        "AudioVisualizer is already installed. Set up MP4 export?".to_owned()
+    } else {
+        format!("Download AudioVisualizer by mtyas from GitHub ({size:.1} MB download, {installed:.1} MB installed)?{note}")
+    };
+    if encoder_download > 0 {
+        prompt.push_str(&format!(" Includes the FFmpeg MP4 encoder ({:.1} MB download from GitHub).",
+            encoder_download as f64 / 1_000_000.0));
+    }
+    prompt.push_str(" You can use it offline after setup.");
+    app.show_msg(Msg::new(DialogKind::Question, LABEL, spans(&[&prompt]), &[Answer::Yes, Answer::Cancel],
+        Then::VisualizerInstall(target)).labelled(&["Download and install", "Cancel"]));
 }
 
 pub struct Job {
@@ -321,12 +334,21 @@ pub struct Job {
     cancel: Arc<AtomicBool>,
     bytes: u64,
     checking: bool,
+    export_tools: Option<(u64, u64)>,
 }
 
 fn progress(job: &Job) -> Msg {
-    let total = package().map_or(0, |p| p.size);
+    let (bytes, total) = job.export_tools.unwrap_or_else(|| (job.bytes, package().map_or(0, |p| p.size)));
     let text = if job.cancel.load(Ordering::Relaxed) {
         "Cancelling visualizer setup...".into()
+    } else if let Some((done, total)) = job.export_tools {
+        if total == 0 {
+            "Preparing MP4 export tools…".into()
+        } else {
+            format!("Downloading FFmpeg for MP4 export
+{:.1} / {:.1} MB",
+                done as f64 / 1_000_000.0, total as f64 / 1_000_000.0)
+        }
     } else if job.checking {
         "Verifying and installing the visualizer...".into()
     } else {
@@ -335,7 +357,7 @@ fn progress(job: &Job) -> Msg {
     };
     let mut msg = Msg::new(DialogKind::Info, "Installing ML Visualizer", spans(&[&text]),
         &[Answer::Yes, Answer::Cancel], Then::VisualizerProgress).labelled(&["Cancel download", "Run in background"]);
-    msg.progress = Some((job.bytes, total));
+    msg.progress = Some((bytes, total));
     msg.focus = 1;
     msg
 }
@@ -346,14 +368,30 @@ pub fn start(app: &mut App, target: Target) {
     let (tx, rx) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = cancel.clone();
+    let encoder_download = target.encoder_download;
     std::thread::spawn(move || {
-        let result = root().and_then(|root| install(&root, package, &worker_cancel, |msg| { let _ = tx.send(msg); },
+        let result = root().and_then(|root| install_with_export(&root, package, encoder_download, &worker_cancel,
+            |msg| { let _ = tx.send(msg); },
             |path| crate::plugin_scan::scan_in_child(path, Format::Clap)));
         let _ = tx.send(Update::Done(result));
     });
-    let job = Job { target: Some(target), rx, cancel, bytes: 0, checking: false };
+    let job = Job { target: Some(target), rx, cancel, bytes: 0, checking: false, export_tools: None };
     app.show_msg(progress(&job));
     app.visualizer_job = Some(job);
+}
+
+fn install_with_export(
+    root: &Path, package: &Package, encoder_download: u64, cancel: &AtomicBool,
+    report: impl Fn(Update), scan: impl Fn(&Path) -> crate::plugin_db::Scanned,
+) -> Result<(), String> {
+    install(root, package, cancel, &report, scan)?;
+    if !crate::visualizer_video::hosted_supported() {
+        return Ok(());
+    }
+    report(Update::ExportTools(0, encoder_download));
+    crate::visualizer_video::setup_hosted_export(encoder_download > 0, cancel, |done, total| {
+        report(Update::ExportTools(done, total));
+    }).map_err(|error| format!("AudioVisualizer is installed. MP4 export setup could not finish: {error}"))
 }
 
 pub fn cancel(app: &mut App) {
@@ -376,6 +414,7 @@ pub fn tick(app: &mut App) {
         match job.rx.try_recv() {
             Ok(Update::Progress(bytes)) => job.bytes = bytes,
             Ok(Update::Checking) => job.checking = true,
+            Ok(Update::ExportTools(done, total)) => job.export_tools = Some((done, total)),
             Ok(Update::Done(result)) => { done = Some(result); break }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -408,8 +447,12 @@ pub fn tick(app: &mut App) {
                 }
             }
         }
-        app.state.message = Some(if job.checking { "Installing ML Visualizer...".into() }
-            else { format!("ML Visualizer download: {}%", job.bytes * 100 / package().unwrap().size) });
+        app.state.message = Some(match job.export_tools {
+            Some((done, total)) if total > 0 => format!("MP4 encoder download: {}%", done * 100 / total),
+            Some(_) => "Preparing MP4 export tools…".into(),
+            None if job.checking => "Installing ML Visualizer…".into(),
+            None => format!("ML Visualizer download: {}%", job.bytes * 100 / package().unwrap().size),
+        });
         app.invalidate();
     }
 }
@@ -502,16 +545,28 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "downloads the pinned upstream package"]
+    #[ignore = "downloads the pinned upstream package and optional encoder in a clean profile"]
     fn visualizer_verified_download_and_effect_roundtrip() {
-        let scratch = PathBuf::from(std::env::var_os("ML_VISUALIZER_TEST_ROOT").unwrap());
+        let scratch = root().unwrap();
         let package = package().unwrap();
+        assert!(!scratch.exists(), "use a clean profile");
         let progressed = std::cell::Cell::new(false);
-        install(&scratch, package, &AtomicBool::new(false), |update| {
+        let encoder_download = crate::visualizer_video::setup_download_size();
+        if crate::visualizer_video::hosted_supported() {
+            assert!(encoder_download > 0, "clean setup must include the encoder");
+        }
+        install_with_export(&scratch, package, encoder_download, &AtomicBool::new(false), |update| {
             if matches!(update, Update::Progress(_)) {
-                println!("Visualizer transfer verified by package installer");
+                progressed.set(true);
+            }
+            if let Update::ExportTools(done, total) = update
+                && total > 0 && done == total
+            {
+                println!("MP4 encoder transfer completed");
             }
         }, |p| crate::plugin_scan::scan_here(p, Format::Clap)).unwrap();
+        assert!(progressed.replace(false), "the initial plugin transfer reports progress");
+        assert_eq!(crate::visualizer_video::setup_download_size(), 0);
         let installed = scratch.join(VERSION);
         assert!(verified(&installed, package));
         let library = crate::plugins::load_file(&installed.join(MODULE), Format::Clap).unwrap();

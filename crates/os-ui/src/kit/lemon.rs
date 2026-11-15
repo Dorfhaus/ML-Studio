@@ -10,7 +10,7 @@
 use std::f32::consts::PI;
 
 use os_theme::design::lemon as brand;
-use os_theme::{Color, Palette};
+use os_theme::{Color, Palette, chrome::Chrome};
 
 use super::{chevron, Dir, KnobLook, State};
 use crate::{Canvas, Font, Rect};
@@ -58,7 +58,9 @@ pub fn ink_on_lemon() -> Color {
 
 /// Text / glyph colour on a lit face (`lit_in`) under the applied theme.
 pub fn ink_on_lit(t: &Palette) -> Color {
-    t.brand_lit(brand::COLORED_DARK)
+    let face = Chrome::ActiveButton.or(t, t.brand_lit(brand::MAIN));
+    let ink = Chrome::ActiveInk.or(t, Chrome::Text.or(t, t.brand_lit(brand::COLORED_DARK)));
+    super::button_ink_on(face, ink)
 }
 
 /// Text colour that reads on `col` (dark on light faces, light on dark ones).
@@ -74,7 +76,11 @@ pub fn lit(c: &mut Canvas, r: Rect, radius: f32, hover: bool) {
 
 /// `lit` in the applied theme's highlight (`Palette::brand_lit`).
 pub fn lit_in(c: &mut Canvas, t: &Palette, r: Rect, radius: f32, hover: bool) {
-    let (h, m) = (t.brand_lit(brand::HIGHLIGHT), t.brand_lit(brand::MAIN));
+    let (h, m) = if let Some(face) = Chrome::ActiveButton.get(t) {
+        (face.shade(0.12), face)
+    } else {
+        (t.brand_lit(brand::HIGHLIGHT), t.brand_lit(brand::MAIN))
+    };
     let (top, bottom) = if hover { (h, m.mix(h, 0.35)) } else { (h.mix(m, 0.45), m) };
     c.fill_rect_gradient(r, top, bottom, radius);
 }

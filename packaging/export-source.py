@@ -2,8 +2,11 @@
 from pathlib import Path
 import subprocess, sys, zipfile, os
 
-from private_build import private_source, public_source_bytes
+from private_build import private_source, public_source_bytes, require_public_artifact
 public = "--public" in sys.argv[2:]
+worker_source = os.environ.get('LEMON_VISUALIZER_SOURCE') if public else None
+if worker_source:
+    require_public_artifact(worker_source)
 
 root = Path(__file__).resolve().parents[1]
 out = Path(sys.argv[1]).resolve()
@@ -26,6 +29,8 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             z.writestr('Source/' + name, public_source_bytes(name, p.read_bytes()))
         else:
             z.write(p, 'Source/' + name)
+    if worker_source:
+        z.write(worker_source, 'Source/packaging/visualizer/AudioVisualizer-worker-source.zip')
     # Corresponding source includes the exact JUCE tree used for the bundled engine.
     if public:
         juce = Path(os.environ.get('LEMON_JUCE_SOURCE', root/'plugins/lemon-master-assistant/JUCE'))

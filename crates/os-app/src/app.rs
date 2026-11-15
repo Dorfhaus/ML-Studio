@@ -691,6 +691,15 @@ pub struct Hit {
     pub reveal: Option<usize>,
 }
 
+fn effect_slot(action: &Action) -> Option<u8> {
+    use crate::mixer::MHit;
+    match *action {
+        Action::Mix(MHit::SlotName(slot) | MHit::SlotArrow(slot) | MHit::AttachedSlot(slot, _)
+            | MHit::SlotLed(slot)) | Action::Knob(crate::knobs::KnobId::SlotMix(_, slot)) => Some(slot),
+        _ => None,
+    }
+}
+
 /// A part of the frame that paints independently: skipped by a repaint whose damage misses where it drew.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Seg {
@@ -949,6 +958,7 @@ const PLUGIN_POPUPS: &str = "Menus of detached plugin windows on Linux (dock the
 
 #[derive(Debug, Clone)]
 pub enum Drag {
+    MixerEffect { track: u16, slot: u8, win: Win, origin: (f32, f32), started: bool },
     StripDivider { index: usize, width: f32, x: f32, start: f32 },
     Scoring(crate::scoring::Gesture),
     ClipPicker { source: os_model::ClipSource, origin: (f32, f32), started: bool, collapse: bool },
@@ -1083,8 +1093,9 @@ pub enum Drag {
     /// Theme ▸ Adjustments knob `i`, pressed at height `y0` at position `p0` (`crate::theme_adjust`).
     ThemeKnob { i: usize, y0: f32, p0: f32 },
     /// The colour picker's saturation / brightness square and hue strip (their rects).
-    PickSv(Rect),
-    PickHue(Rect),
+    PickWheel(Rect),
+    PickValue(Rect),
+    SwatchColor { rect: Rect, brightness: bool },
 }
 
 pub struct State {
@@ -5078,6 +5089,21 @@ impl App {
             },
         };
         let overlays = views::paint(&mut ui, &self.state, &info);
+        if let Some(Drag::MixerEffect { track, slot, win, started: true, .. }) = self.drag
+            && self.state.selected_mixer == track
+            && let Some(hit) = ui.hits.iter().rev().find(|hit| hit.rect.contains(ui.mouse.0, ui.mouse.1))
+            && hit.win == Some(win)
+            && let Some(to) = effect_slot(&hit.action)
+            && to != slot
+            && let Some(name) = ui.hits.iter().rev().find(|hit| {
+                hit.win == Some(win) && matches!(hit.action,
+                    Action::Mix(crate::mixer::MHit::SlotName(k) | crate::mixer::MHit::AttachedSlot(k, _)) if k == to)
+            })
+        {
+            let row = name.rect;
+            let y = if to > slot { row.bottom() - 2.0 } else { row.y };
+            ui.c.fill_rect(Rect::new(row.x, y, row.w, 2.0), ui.t.accent);
+        }
         if let Some(Drag::MixSelect{from,to,started:true,..})=self.drag {
             if let Some(r)=ui.hits.iter().find(|h|h.action==Action::Mix(crate::mixer::MHit::Strip(to))).map(|h|h.rect) {
                 ui.c.fill_rect(Rect::new(if to>from {r.right()-3.}else{r.x},r.y,3.0,r.h),ui.t.accent);
@@ -6010,7 +6036,7 @@ impl App {
             return;
         }
         // A click anywhere but the colour picker and the colour circles closes the picker.
-        if !matches!(a, SAct::Swatch(..) | SAct::PickBody | SAct::PickPart(_) | SAct::PickSv | SAct::PickHue | SAct::PickRevert) {
+        if !matches!(a, SAct::Swatch(..) | SAct::PickBody | SAct::PickPart(_) | SAct::PickWheel | SAct::PickValue | SAct::PickRevert) {
             self.picker_close();
         }
         // A click off the name panel cancels it.
@@ -6037,6 +6063,12 @@ impl App {
             SAct::Button(crate::menu_layout::OPEN) => return self.open_settings(views::settings::MENUS),
             SAct::ThemeEditor(hit) => return self.theme_editor_act(hit),
             SAct::Button(crate::advanced_theme::INSERT_OPEN) => return self.open_insert_theme_editor(),
+            SAct::Button(crate::advanced_theme::METER_OPEN) => return self.open_theme_section(crate::advanced_theme::METER_SECTION),
+            SAct::Button(crate::advanced_theme::PLAYLIST_RECORD_OPEN) => return self.open_theme_section(crate::advanced_theme::PLAYLIST_RECORD_LIGHT),
+            SAct::Button(crate::advanced_theme::RACK_RECORD_OPEN) => return self.open_theme_section(crate::advanced_theme::RACK_RECORD_LIGHT),
+            SAct::Button(crate::advanced_theme::MIXER_COLORS_OPEN) => return self.open_theme_section(crate::advanced_theme::MIXER_COLORS),
+            SAct::Button(crate::advanced_theme::PLAYLIST_COLORS_OPEN) => return self.open_theme_section(crate::advanced_theme::PLAYLIST_COLORS),
+            SAct::Button(crate::advanced_theme::SETTINGS_COLORS_OPEN) => return self.open_theme_section(crate::advanced_theme::SETTINGS_COLORS),
             SAct::Button(crate::advanced_theme::OPEN) => return self.start_theme_editor(),
             SAct::Button(crate::mixer_skin::OPEN) => return self.mixer_designer_open(true),
             SAct::Button(crate::theme_identity::OPEN) => return self.theme_identity_open(),
@@ -6099,17 +6131,17 @@ impl App {
                 return self.picker_open(i, part, at);
             }
             SAct::PickPart(k) => return self.picker_part(usize::from(k)),
-            SAct::PickSv | SAct::PickHue => {
+            SAct::PickWheel | SAct::PickValue => {
                 let r = self.hits.iter().rev().find(|h| h.action == Action::Settings(a.clone())).map(|h| h.rect);
                 let Some(r) = r else { return };
                 self.theme_mark(crate::theme_library::Step::Other);
                 let (x, y) = self.mouse;
-                if a == SAct::PickSv {
-                    self.picker_sv(r, x, y);
-                    self.drag = Some(Drag::PickSv(r));
+                if a == SAct::PickWheel {
+                    self.picker_wheel(r, x, y);
+                    self.drag = Some(Drag::PickWheel(r));
                 } else {
-                    self.picker_hue(r, y);
-                    self.drag = Some(Drag::PickHue(r));
+                    self.picker_value(r, y);
+                    self.drag = Some(Drag::PickValue(r));
                 }
                 return;
             }
@@ -6765,6 +6797,13 @@ impl App {
                         self.invalidate();
                     }
                 }
+                Drag::MixerEffect { track, slot, win, origin, started } => {
+                    if started || (x - origin.0).hypot(y - origin.1) >= 5.0 {
+                        self.armed = None;
+                        self.drag = Some(Drag::MixerEffect { track, slot, win, origin, started: true });
+                        self.damage_win(win);
+                    }
+                }
                 Drag::Fader { track, y0, v0, group, per_px } => {
                     let delta=-f64::from(y-y0)*per_px;
                     let v=crate::mixer::move_faders(&mut self.state,&group,track,v0,delta);
@@ -6886,8 +6925,14 @@ impl App {
                 Drag::PrefSlider { label, x: x0, w } => self.pref_slider_drag(label, x0, w),
                 Drag::Ppi { x0, n0 } => self.ppi_set(crate::ppi::dragged(n0, x - x0, self.px_scale)),
                 Drag::ThemeKnob { i, y0, p0 } => self.theme_knob_drag(i, y0, p0, y),
-                Drag::PickSv(r) => self.picker_sv(r, x, y),
-                Drag::PickHue(r) => self.picker_hue(r, y),
+                Drag::PickWheel(r) => self.picker_wheel(r, x, y),
+                Drag::PickValue(r) => self.picker_value(r, y),
+                Drag::SwatchColor { rect, brightness } => {
+                    if let Some((_, hsv)) = self.state.pat_ui.name_box.as_mut().and_then(|b| b.custom.as_mut()) {
+                        crate::theme_adjust::pick_color_component(hsv, rect, x, y, brightness);
+                        self.invalidate();
+                    }
+                }
                 Drag::Vocal(_)=>crate::vocal::drag(self,x,y),
                 Drag::InspectorResize { full, section, y0, height, limit, changed } => {
                     let size = section.constrain(f32::from(height) + y - y0, limit);
@@ -7409,7 +7454,18 @@ impl App {
             return;
         }
         if let Some(a) = action {
-            if let Some(drag) = crate::rack_drag::RowDrag::begin(self, &a) {
+            use crate::mixer::{self as mx, MHit};
+            let track = self.state.selected_mixer;
+            if matches!(a, Action::Mix(MHit::SlotName(_) | MHit::AttachedSlot(..)))
+                && crate::workspace_visibility::shown(mx::EFFECT_DRAG_VISIBILITY)
+                && !mx::locked(&self.state, track)
+                && let Some(slot) = effect_slot(&a)
+                && mx::slot_name(&self.state, track, slot).is_some()
+                && let Some(win) = self.top_hit(x, y).and_then(|hit| hit.win)
+            {
+                self.drag = Some(Drag::MixerEffect { track, slot, win, origin: self.mouse, started: false });
+                self.armed = Some(a);
+            } else if let Some(drag) = crate::rack_drag::RowDrag::begin(self, &a) {
                 self.drag = Some(Drag::RackRows(drag));
                 self.armed = Some(a);
             } else if self.acts_on_release(&a) {
@@ -8158,6 +8214,14 @@ impl App {
         true
     }
 
+    pub(crate) fn cancel_effect_drag(&mut self) {
+        if let Some(Drag::MixerEffect { win, .. }) = self.drag {
+            self.drag = None;
+            self.clear_binding_press();
+            self.damage_win(win);
+        }
+    }
+
     pub fn mouse_up(&mut self) {
         crate::notation::finish_drag(self);
         if crate::scoring::finish(self, true) { self.release(); return; }
@@ -8178,6 +8242,22 @@ impl App {
     }
 
     fn release(&mut self) {
+        if let Some(Drag::MixerEffect { track, slot, win, started, .. }) = self.drag {
+            self.drag = None;
+            if started {
+                let (x, y) = self.mouse;
+                if self.state.selected_mixer == track
+                    && let Some(to) = self.top_hit(x, y)
+                        .filter(|hit| hit.win == Some(win))
+                        .and_then(|hit| effect_slot(&hit.action))
+                {
+                    crate::mixer::move_effect(&mut self.state, track, slot, to);
+                }
+                self.clear_binding_press();
+                self.damage_win(win);
+                return;
+            }
+        }
         if let Some(Drag::ClipPicker { source, started, collapse, .. }) = self.drag.clone() {
             self.drag = None;
             self.pressed = None;
@@ -8314,7 +8394,7 @@ impl App {
             Some(Drag::BarEdge { .. }) => self.state.piano.bar_span = None,
             Some(Drag::InspectorResize { full, changed: true, .. }) => self.state.playlist.inspector_layouts.save(full),
             Some(Drag::PlaylistBrightness { .. }) => self.finish_playlist_brightness(),
-            Some(Drag::ThemeKnob { .. } | Drag::PickSv(_) | Drag::PickHue(_)) => self.theme_store(),
+            Some(Drag::ThemeKnob { .. } | Drag::PickWheel(_) | Drag::PickValue(_)) => self.theme_store(),
             _ => {}
         }
         if had_overlay {
@@ -8676,6 +8756,28 @@ impl App {
     }
 
     pub fn wheel(&mut self, dx: f32, dy: f32, shift: bool, ctrl: bool) {
+        if let Some(Drag::MixerEffect { track, win, started, .. }) = self.drag {
+            use crate::mixer::MHit;
+            let delta = dx + dy;
+            let (x, y) = self.mouse;
+            if started && delta != 0.0 && track == self.state.selected_mixer
+                && self.top_hit(x, y).is_some_and(|hit| hit.win == Some(win)
+                    && (effect_slot(&hit.action).is_some()
+                        || matches!(hit.action, Action::Mix(MHit::SlotScroll | MHit::AttachedSlotScroll(_)))))
+                && let Some(visible) = self.hits.iter().rev().find_map(|hit| {
+                    if hit.win != Some(win) || !hit.rect.contains(x, y) { return None; }
+                    match hit.action {
+                        Action::Mix(MHit::SlotScroll) => Some(10),
+                        Action::Mix(MHit::AttachedSlotScroll(rows)) => Some(rows),
+                        _ => None,
+                    }
+                })
+            {
+                crate::mixer::scroll_slots_count(&mut self.state, delta, visible);
+                self.damage_win(win);
+            }
+            return;
+        }
         if crate::plugin_picker::wheel(self,dy) { return; }
         if self.modal_open() {
             return self.dialog_wheel(dy);
@@ -9126,6 +9228,12 @@ impl App {
 
     pub fn key(&mut self, key: &winit::keyboard::Key, ctrl: bool, alt: bool) {
         self.invalidate();
+        if matches!(self.drag, Some(Drag::MixerEffect { .. })) {
+            if *key == Key::Named(NamedKey::Escape) {
+                self.cancel_effect_drag();
+            }
+            return;
+        }
         if *key == Key::Named(NamedKey::Escape) && self.state.playlist.popup.is_none() && !self.modal_open()
             && self.state.shown(Win::Mixer) && crate::strip_layout::active(&self.state).is_some()
         {
@@ -10479,6 +10587,16 @@ impl App {
                     views::band_rect(s, Rect::new(crate::patterns::PLUS_BOX_AT.0, crate::patterns::PLUS_BOX_AT.1, 0.0, 0.0))
                 };
                 crate::patterns::run(s, crate::patterns::Cmd::FindFirst, (at.x, at.y));
+            }
+            Action::Pat(h @ (crate::patterns::Hit::SwatchWheel | crate::patterns::Hit::SwatchBrightness)) => {
+                let (x, y) = self.mouse;
+                if let Some(rect) = self.hits.iter().rev().find(|hit| hit.action == Action::Pat(h) && hit.rect.contains(x, y)).map(|hit| hit.rect)
+                    && let Some((_, hsv)) = s.pat_ui.name_box.as_mut().and_then(|b| b.custom.as_mut())
+                {
+                    let brightness = h == crate::patterns::Hit::SwatchBrightness;
+                    crate::theme_adjust::pick_color_component(hsv, rect, x, y, brightness);
+                    self.drag = Some(Drag::SwatchColor { rect, brightness });
+                }
             }
             Action::Pat(h) => crate::patterns::hit(s, h),
             Action::Mpe(crate::mpe::Hit::Command(c))=>crate::mpe::command(self,c),
@@ -12561,23 +12679,26 @@ mod tests {
         let swatch = hit_rect(&app, &Action::Pat(Hit::CustomSwatch(0)));
         click(&mut app, &mut canvas, swatch);
         let name = app.state.pat_ui.name_box.as_ref().unwrap().text.clone();
-        app.key(&Key::Character("#A060F0".into()), false, false);
+        let wheel = hit_rect(&app, &Action::Pat(Hit::SwatchWheel));
+        app.mouse_move(wheel.right() - 0.01, wheel.cy());
+        app.mouse_down();
+        app.mouse_up();
         app.key(&Key::Named(NamedKey::Enter), false, false);
-        assert_eq!(crate::patterns::custom_swatch(0), Some(0xA060F0));
+        assert_eq!(crate::patterns::custom_swatch(0), Some(0xFF0000));
         assert_eq!(app.state.pat_ui.name_box.as_ref().unwrap().text, name);
         frame(&mut app, &mut canvas, None);
         if let Some(dir) = std::env::var_os("LEMON_QUICK_PREVIEW") {
             canvas.pixmap.save_png(std::path::Path::new(&dir).join("community-custom-swatches.png")).unwrap();
         }
         click(&mut app, &mut canvas, swatch);
-        assert_eq!(pl::source_color(&app.state, source), Some(os_model::Rgb::new(0xA0, 0x60, 0xF0)));
+        assert_eq!(pl::source_color(&app.state, source), Some(os_model::Rgb::new(0xff, 0, 0)));
         crate::history::undo(&mut app.state).unwrap();
         assert_eq!(pl::source_color(&app.state, source), None);
         app.state.pat_ui.name_box = None;
         workspace_visibility::toggle("visible_playlist-custom-swatches");
         let menu = pl::clip_menu(&app.state, 0, 0., 0.);
         assert!(!menu.items.iter().any(|i| i.label == "Change color..."));
-        assert_eq!(crate::patterns::custom_swatch(0), Some(0xA060F0));
+        assert_eq!(crate::patterns::custom_swatch(0), Some(0xFF0000));
 
         app.state.z = vec![Win::PianoRoll];
         frame(&mut app, &mut canvas, None);
@@ -13904,17 +14025,21 @@ mod tests {
         app.key(&Key::Character("toolbar rows".into()), false, false);
         app.key(&Key::Named(NamedKey::Enter), false, false);
         frame(&mut app, &mut canvas, None);
-        let field = hit_rect(&app, &hit(Hit::Field(FieldFor::Hex("toolbar"))));
-        click(&mut app, &mut canvas, field);
-        app.key(&Key::Character("#61735C".into()), false, false);
-        app.key(&Key::Named(NamedKey::Enter), false, false);
-        assert_eq!(app.theme.colors.toolbar, Color::rgb(0x61735c));
+        let choose = hit_rect(&app, &hit(Hit::Color("toolbar")));
+        click(&mut app, &mut canvas, choose);
+        let value = hit_rect(&app, &Action::Settings(SAct::PickValue));
+        app.mouse_move(value.cx(), value.cy());
+        app.mouse_down();
+        app.mouse_move(value.cx(), value.bottom());
+        app.mouse_up();
+        assert_eq!(app.theme.colors.toolbar, Color::rgb(0));
+        app.settings_act(SAct::PickClose);
         assert!(!saved.exists(), "live preview must stay in memory");
 
         app.settings_act(SAct::Button(views::settings::THEME_UNDO));
         assert_eq!(app.theme.colors, original.colors);
         app.settings_act(SAct::Button(views::settings::THEME_REDO));
-        assert_eq!(app.theme.colors.toolbar, Color::rgb(0x61735c));
+        assert_eq!(app.theme.colors.toolbar, Color::rgb(0));
         app.settings_act(SAct::Button(editor::CANCEL));
         assert_eq!(app.theme, original);
         assert!(!saved.exists());
@@ -13977,7 +14102,7 @@ mod tests {
         let color_button = reveal(&mut app, &mut canvas, &hit(Hit::Identity(editor::IdentityHit::CursorColor)));
         click(&mut app, &mut canvas, color_button);
         assert_eq!(app.state.settings.picker.as_ref().unwrap().custom.unwrap().0, "LemonStudioStyle.cursor-color");
-        let square = hit_rect(&app, &Action::Settings(SAct::PickSv));
+        let square = hit_rect(&app, &Action::Settings(SAct::PickWheel));
         click(&mut app, &mut canvas, square);
         assert_ne!(app.theme.colors.appearance.cursor_color, Some(Color::rgb(0x80ddaa)));
         app.settings_act(SAct::PickRevert);
@@ -13987,7 +14112,7 @@ mod tests {
         assert_eq!(app.theme.colors.appearance.cursor_color, None);
         app.settings_act(SAct::ThemeEditor(Hit::Identity(editor::IdentityHit::CursorColor)));
         frame(&mut app, &mut canvas, None);
-        let square = hit_rect(&app, &Action::Settings(SAct::PickSv));
+        let square = hit_rect(&app, &Action::Settings(SAct::PickWheel));
         click(&mut app, &mut canvas, square);
         app.settings_act(SAct::PickClose);
         frame(&mut app, &mut canvas, None);
@@ -14378,19 +14503,22 @@ mod tests {
         app.mouse_move(knob.cx(), knob.cy());
         app.mouse_down_middle();
         assert!(app.state.fl_theme().same_colours(&FlTheme::parse(base)), "back to the theme as chosen");
-        // Meters: the picker opens on its first colour; the square's top right corner is full saturation and brightness.
+        // Meters: the picker opens on its first band, and the wheel's right edge selects red.
         frame(&mut app, &mut c, None);
         let r = hit_rect(&app, &Action::Settings(SAct::Swatch(METERS as u8, 0)));
         click(&mut app, &mut c, r);
         assert_eq!(app.state.settings.picker.as_ref().map(|p| (p.swatch, p.part)), Some((METERS, 0)));
         let r = hit_rect(&app, &Action::Settings(SAct::PickPart(2)));
         click(&mut app, &mut c, r);
-        let sv = hit_rect(&app, &Action::Settings(SAct::PickSv));
-        let h = app.state.settings.picker.as_ref().unwrap().hsv[0];
-        app.mouse_move(sv.right() - 0.01, sv.y);
+        let wheel = hit_rect(&app, &Action::Settings(SAct::PickWheel));
+        app.mouse_move(wheel.right() - 0.01, wheel.cy());
         app.mouse_down();
         app.mouse_up();
-        assert_eq!(app.state.fl_theme().meters[2], crate::theme_adjust::from_hsv([h, 1.0, 1.0]));
+        let value = hit_rect(&app, &Action::Settings(SAct::PickValue));
+        app.mouse_move(value.cx(), value.y + 0.01);
+        app.mouse_down();
+        app.mouse_up();
+        assert_eq!(app.state.fl_theme().meters[2], os_theme::Color::rgb(0xff0000));
         // Revert, then Esc closes the picker and leaves the window open.
         frame(&mut app, &mut c, None);
         let r = hit_rect(&app, &Action::Settings(SAct::PickRevert));
@@ -21163,6 +21291,73 @@ LemonStudioStyle.button-radius=8
 
 
     #[test]
+    fn drag_mixer_effect_moves_chain_once_and_supports_cancel_and_undo() {
+        use winit::keyboard::{Key, NamedKey};
+        use crate::mixer::{self as mx, MCmd, MHit};
+        use os_model::target;
+        let mut canvas = Canvas::new(1920, 1080, 1.0).unwrap();
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.startup_layout_pending = false;
+        app.state.z = vec![Win::Mixer];
+        mx::select(&mut app.state, 1, false);
+        mx::set_layout(&mut app.state, mx::TRADITIONAL + 3);
+        app.plugins.effects = ["FX A", "FX B"].into_iter()
+            .map(|name| crate::plugin_db::fake(name, os_host::Kind::Effect)).collect();
+        mx::run(&mut app, MCmd::AddEffect(8, 0));
+        mx::run(&mut app, MCmd::AddEffect(9, 1));
+        // The next user slot is 11. Physical slot 10 is reserved for EQ.
+        app.state.mixer.slots_shown.insert(1, 11);
+        let first_target = target::slot_param(1, 8, 0);
+        app.state.project.automations.push(os_flp::project::new_automation(100, first_target, 0.5, 4.0));
+        let chain = mx::track_mut(&mut app.state, 1).unwrap();
+        chain.slot_on[8] = false;
+        chain.slot_mix[8] = 0.4;
+        let eq = chain.slots[10].clone();
+        frame(&mut app, &mut canvas, None);
+        let from = hit_rect(&app, &Action::Mix(MHit::SlotName(8)));
+        let to = hit_rect(&app, &Action::Mix(MHit::SlotName(9)));
+        let old = app.state.project.clone();
+
+        // An ordinary click opens an effect, and a canceled drag opens nothing.
+        app.state.mixer.pending.clear();
+        app.mouse_move(from.cx(), from.cy());
+        app.mouse_down();
+        app.mouse_up();
+        assert!(app.state.mixer.pending.iter().any(|request|
+            matches!(request, mx::FxReq::Toggle { track: 1, slot: 8 })));
+        app.state.mixer.pending.clear();
+        app.mouse_down();
+        app.mouse_move(to.cx(), to.cy());
+        app.key(&Key::Named(NamedKey::Escape), false, false);
+        app.mouse_up();
+        assert_eq!(app.state.project, old);
+        assert!(app.state.mixer.pending.is_empty());
+
+        app.mouse_move(from.cx(), from.cy());
+        app.mouse_down();
+        app.mouse_move(to.cx(), to.cy());
+        app.wheel(0.0, -1.0, false, false);
+        frame(&mut app, &mut canvas, None);
+        let last = hit_rect(&app, &Action::Mix(MHit::SlotName(11)));
+        app.mouse_move(last.cx(), last.cy());
+        assert_eq!(app.state.project, old, "before dropping");
+        app.mouse_up();
+        assert_eq!(mx::slot_name(&app.state, 1, 8).as_deref(), Some("FX B"));
+        assert_eq!(mx::slot_name(&app.state, 1, 11).as_deref(), Some("FX A"));
+        let chain = mx::track(&app.state, 1).unwrap();
+        assert!(!chain.slot_on[11]);
+        assert_eq!(chain.slot_mix[11], 0.4);
+        assert_eq!(chain.slots[10], eq);
+        assert_eq!(app.state.project.automations[0].target(), Some(target::slot_param(1, 11, 0)));
+        let moved = app.state.project.clone();
+        assert_eq!(crate::history::undo(&mut app.state), Some("Move mixer effect"));
+        assert_eq!(app.state.project, old);
+        assert_eq!(crate::history::redo(&mut app.state), Some("Move mixer effect"));
+        assert_eq!(app.state.project, moved);
+    }
+
+    #[test]
     fn expanded_mixer_slots_scroll_add_and_delete_without_moving_effects() {
         use crate::mixer::{self as mx,MHit,MCmd};
         let Ok(mut c)=Canvas::new(1920,1080,1.0) else{return;};
@@ -26881,6 +27076,7 @@ LemonStudioStyle.button-radius=8
         let knob = style("insert-knob");
         let ring = style("insert-ring thin");
         let rim = style("insert-rim outer circle");
+        let face = style("insert-face-finish");
         let sat = style("tone-playlist-saturation");
         let action = |hit| SAct::ThemeEditor(hit);
         app.settings_act(action(Hit::Choice(knob, "Full Mixer")));
@@ -26910,6 +27106,12 @@ LemonStudioStyle.button-radius=8
         assert_eq!(app.theme, original);
         app.open_insert_theme_editor();
         app.settings_act(action(Hit::Choice(knob, "Full Mixer")));
+        app.settings_act(action(Hit::Choice(face, "Flat")));
+        app.settings_act(action(Hit::Field(FieldFor::Hex("insert_knob_face"))));
+        app.key(&Key::Character("#ED38AF".into()), false, false);
+        app.key(&Key::Named(NamedKey::Enter), false, false);
+        assert!(app.theme.colors.appearance.insert_face_custom);
+        assert_eq!(app.theme.colors.insert_knob_face, os_theme::Color::rgb(0xed38af));
         app.settings_act(action(Hit::Field(FieldFor::Hex("insert_knob_ring"))));
         app.key(&Key::Character("#F205C7".into()), false, false);
         app.key(&Key::Named(NamedKey::Enter), false, false);
@@ -26929,6 +27131,202 @@ LemonStudioStyle.button-radius=8
         crate::settings_file::write(e::INSERT_VISIBILITY, "1");
         crate::settings_file::write(e::AREA_VISIBILITY, "1");
         THEME_DIR.with(|d| *d.borrow_mut() = None);
+    }
+
+    #[test]
+    fn theme_record_lights_preview_and_save_independent_styles() {
+        use crate::advanced_theme as editor;
+        use crate::views::settings::{self, SAct};
+        use os_theme::{Color, appearance::RecordLightStyle as Style, fl};
+        use winit::keyboard::{Key, NamedKey};
+        let mut app = App::new(None);
+        app.state.startup_layout_pending = false;
+        app.state.show_browser = false;
+        app.set_design(Design::Lemon, false);
+        app.open_settings(settings::THEME);
+        let mut c = Canvas::new(1600, 1000, 1.0).unwrap();
+        frame(&mut app, &mut c, None);
+        let shortcut = hit_rect(&app, &Action::Settings(SAct::Button(editor::RACK_RECORD_OPEN)));
+        click(&mut app, &mut c, shortcut);
+        frame(&mut app, &mut c, None);
+        assert_eq!(app.state.settings.advanced_theme.as_ref().unwrap().query.text, editor::RACK_RECORD_LIGHT);
+        let choose = app.hits.iter().find(|h| matches!(h.action,
+            Action::Settings(SAct::ThemeEditor(editor::Hit::Choice(_, "REC badge"))))).unwrap().rect;
+        click(&mut app, &mut c, choose);
+        assert_eq!(app.theme.colors.appearance.rack_record_light.style, Style::RecBadge);
+        assert_eq!(app.theme.colors.appearance.playlist_record_light.style, Style::ConsoleLed);
+        app.settings_act(SAct::ThemeEditor(editor::Hit::Field(editor::FieldFor::Hex("rack_record_live"))));
+        app.key(&Key::Character("#F91739".into()), false, false);
+        app.key(&Key::Named(NamedKey::Enter), false, false);
+        app.finish_theme_editor(true);
+        let text = app.state.fl_text.as_deref().unwrap();
+        assert_eq!(fl::get_key(text, "LemonStudioStyle.rack-record-light"), Some("REC badge"));
+        assert_eq!(app.theme.colors.rack_record_live, Color::rgb(0xf91739));
+
+        app.open_theme_section(editor::PLAYLIST_RECORD_LIGHT);
+        frame(&mut app, &mut c, None);
+        let choose = app.hits.iter().find(|h| matches!(h.action,
+            Action::Settings(SAct::ThemeEditor(editor::Hit::Choice(_, "Backlit square"))))).unwrap().rect;
+        click(&mut app, &mut c, choose);
+        assert_eq!(app.theme.colors.appearance.playlist_record_light.style, Style::BacklitSquare);
+        app.finish_theme_editor(false);
+        assert_eq!(app.theme.colors.appearance.playlist_record_light.style, Style::ConsoleLed);
+        assert_eq!(app.theme.colors.appearance.rack_record_light.style, Style::RecBadge);
+        crate::settings_file::set_flag(editor::RECORD_LIGHT_VISIBILITY, false);
+        assert!(editor::groups("record light").is_empty());
+        assert_eq!(app.theme.colors.appearance.rack_record_light.style, Style::RecBadge);
+    }
+
+    #[test]
+    fn theme_chrome_colors_reach_mixer_settings_and_playlist() {
+        use crate::advanced_theme as editor;
+        use crate::mixer::{self as mx, MHit};
+        use crate::views::settings::{self, SAct};
+        use os_theme::{Color, fl};
+        let mut app = App::new(None);
+        app.state.startup_layout_pending = false;
+        app.state.show_browser = false;
+        app.state.project = test_project();
+        mx::track_mut(&mut app.state, 1).unwrap().color = Some(os_model::Rgb::new(220, 220, 150));
+        app.set_design(Design::Lemon, false);
+        let base = os_theme::design::default_text(Design::Lemon);
+        let style = [
+            ("mixer_channel_name", Color::rgb(0x11bb74)),
+            ("mixer_channel_number", Color::rgb(0xd51869)),
+            ("mixer_action_face", Color::rgb(0xa235d6)),
+            ("mixer_action_text", Color::rgb(0x000000)),
+            ("settings_group_face", Color::rgb(0xe6dad7)),
+            ("settings_group_title", Color::rgb(0x004b14)),
+            ("playlist_bar_face", Color::rgb(0x629944)),
+            ("playlist_bar_divider", Color::rgb(0x885719)),
+            ("playlist_overview_thumb", Color::rgb(0xe437a6)),
+            ("playlist_overview_track", Color::rgb(0x9b7122)),
+        ];
+        let theme = style.into_iter().fold(base, |text, (key, color)| editor::set_color(&text, key, color));
+        app.theme_edit(theme);
+        let mut c = Canvas::new(1600, 1000, 1.0).unwrap();
+        let contains = |c: &Canvas, color: Color| c.pixmap.data().chunks_exact(4)
+            .any(|p| p[..3] == [color.r, color.g, color.b]);
+        let label_ink = |c: &Canvas, color: Color| c.pixmap.data().chunks_exact(4).map(|p|
+            p[0].abs_diff(color.r).max(p[1].abs_diff(color.g)).max(p[2].abs_diff(color.b)))
+            .min().unwrap_or(255);
+        app.state.z = vec![Win::Mixer];
+        app.state.wins[Win::Mixer.slot().unwrap()].maxed = true;
+        for layout in [mx::TRADITIONAL, mx::TRADITIONAL + 2, mx::WIDE] {
+            mx::set_layout(&mut app.state, layout);
+            frame(&mut app, &mut c, None);
+            for action in [MHit::AttachPlaylist, MHit::MixAssistant] {
+                let rect = hit_rect(&app, &Action::Mix(action));
+                let (x, y) = ((rect.x + 5.0) as usize, (rect.y + 4.0) as usize);
+                let at = 4 * (y * c.pixmap.width() as usize + x);
+                assert_eq!(&c.pixmap.data()[at..at + 3], &[0xa2, 0x35, 0xd6], "layout {layout}, {action:?}");
+            }
+            let name_diff = label_ink(&c, Color::rgb(0x11bb74));
+            let number_diff = label_ink(&c, Color::rgb(0xd51869));
+            assert!(name_diff <= 24, "antialiased channel names in layout {layout}, difference {name_diff}");
+            assert!(number_diff <= 24, "antialiased channel numbers in layout {layout}, difference {number_diff}");
+        }
+
+        app.state.z = vec![Win::Playlist];
+        app.state.wins[Win::Playlist.slot().unwrap()].maxed = true;
+        for mode in [0, 1] {
+            crate::prefs::set_choice(&crate::prefs::PLAYLIST_SCROLLBAR_STYLE, mode);
+            frame(&mut app, &mut c, None);
+            for color in [0x629944, 0x885719, 0xe437a6, 0x9b7122] {
+                assert!(contains(&c, Color::rgb(color)), "Playlist scrollbar style {mode}: {color:06x}");
+            }
+        }
+        crate::prefs::set_choice(&crate::prefs::PLAYLIST_SCROLLBAR_STYLE, 1);
+        app.open_settings(settings::VISIBILITY);
+        frame(&mut app, &mut c, None);
+        assert!(contains(&c, Color::rgb(0xe6dad7)));
+        assert!(label_ink(&c, Color::rgb(0x004b14)) <= 24);
+        app.open_settings(settings::THEME);
+        frame(&mut app, &mut c, None);
+        let shortcut = hit_rect(&app, &Action::Settings(SAct::Button(editor::PLAYLIST_COLORS_OPEN)));
+        click(&mut app, &mut c, shortcut);
+        assert_eq!(app.state.settings.advanced_theme.as_ref().unwrap().query.text, editor::PLAYLIST_COLORS);
+    }
+
+    #[test]
+    fn traditional_meter_theme_live_bars_and_visibility() {
+        use crate::advanced_theme as editor;
+        use crate::views::settings::{self, SAct};
+        use os_theme::{Color, fl};
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.startup_layout_pending = false;
+        app.state.show_browser = false;
+        app.state.selected_mixer = 1;
+        app.state.z = vec![Win::Mixer];
+        app.state.wins[Win::Mixer.slot().unwrap()].maxed = true;
+        app.set_design(Design::Lemon, false);
+        crate::settings_file::set_flag(editor::METER_VISIBILITY, true);
+        app.open_settings(settings::THEME);
+        let mut c = Canvas::new(1600, 1000, 1.0).unwrap();
+        frame(&mut app, &mut c, None);
+        let button = hit_rect(&app, &Action::Settings(SAct::Button(editor::METER_OPEN)));
+        click(&mut app, &mut c, button);
+        frame(&mut app, &mut c, None);
+        let chip = hit_rect(&app, &Action::Settings(SAct::ThemeEditor(editor::Hit::Color("trad_meter_clip_top"))));
+        assert!(chip.w > 0.0);
+        app.settings_act(SAct::ThemeEditor(editor::Hit::Field(editor::FieldFor::Hex("trad_meter_clip_top"))));
+        app.key(&winit::keyboard::Key::Character("#ED48A6".into()), false, false);
+        app.key(&winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter), false, false);
+        assert_eq!(app.theme.colors.trad_meter_clip_top, Color::rgb(0xed48a6));
+        app.finish_theme_editor(false);
+        app.state.settings.open = false;
+
+        let base = os_theme::design::default_text(Design::Lemon);
+        let custom = [
+            ("LemonStudioColor.trad_meter_low_top", "#1590F7"),
+            ("LemonStudioColor.trad_meter_hot_top", "#F7C115"),
+            ("LemonStudioColor.trad_meter_clip_top", "#ED48A6"),
+            ("LemonStudioColor.trad_meter_hold", "#23DD90"),
+            ("LemonStudioStyle.trad-meter-fill", "Solid"),
+            ("LemonStudioStyle.trad-meter-edge", "0"),
+            ("LemonStudioStyle.trad-meter-width", "80"),
+            ("LemonStudioStyle.trad-meter-gap", "12"),
+            ("LemonStudioStyle.trad-meter-ticks", "Hide"),
+        ].into_iter().fold(base.clone(), |text, (key, value)| fl::set_key(&text, key, value));
+        let level = crate::meters::Meter { db: [9.0, -3.0], hold: [11.0, 4.0], ..Default::default() };
+        app.state.mixer.meters = vec![level; app.state.project.mixer.len()];
+        app.state.mixer.layout = crate::mixer::WIDE;
+        app.theme_edit(base);
+        frame(&mut app, &mut c, None);
+        let full = c.pixmap.data().to_vec();
+        let project = app.state.project.clone();
+        app.theme_edit(custom.clone());
+        frame(&mut app, &mut c, None);
+        assert_eq!(c.pixmap.data(), &full, "Traditional styling must stay out of Full Mixer");
+        for i in 0..8 {
+            app.state.mixer.layout = crate::mixer::TRADITIONAL + i;
+            app.state.mixer.traditional_layout = i;
+            frame(&mut app, &mut c, None);
+            let regions: Vec<_> = app.live.iter().filter_map(|&(kind, rect)|
+                matches!(kind, Live::Meter(0 | 1)).then_some(rect)).collect();
+            assert_eq!(regions.len(), 3, "Master, Insert 1, and selected channel scale");
+            for rect in regions {
+                let rect = c.device_rect(rect);
+                let contains = |rgb: [u8; 3]| {
+                    (rect.1..rect.1+rect.3).any(|y| (rect.0..rect.0+rect.2).any(|x| {
+                        let offset = (y * c.pixmap.width() as usize + x) * 4;
+                        c.pixmap.data()[offset..offset + 3] == rgb
+                    }))
+                };
+                for color in [[0x15, 0x90, 0xf7], [0xf7, 0xc1, 0x15], [0xed, 0x48, 0xa6], [0x23, 0xdd, 0x90]] {
+                    assert!(contains(color), "Layout {i}: {color:?} missing from {rect:?}");
+                }
+            }
+        }
+        assert_eq!(app.state.project, project);
+        crate::settings_file::set_flag(editor::METER_VISIBILITY, false);
+        assert!(editor::groups(editor::METER_SECTION).is_empty());
+        assert_eq!(app.theme.colors.trad_meter_clip_top, Color::rgb(0xed48a6));
+        crate::settings_file::set_flag(editor::METER_VISIBILITY, true);
+        let standard = fl::set_key(&custom, "Meter0", &fl::colour_value("Meter0", Color::rgb(0x12bc45)).to_string());
+        let imported = os_theme::design::palette(Design::Lemon, Some(&os_theme::FlTheme::parse(&standard)));
+        assert_eq!(imported.trad_meter_low_bottom, Color::rgb(0x12bc45));
     }
 
     #[test]
@@ -26983,13 +27381,39 @@ LemonStudioStyle.button-radius=8
                     }
                 }
                 }
+                let custom = [
+                    ("LemonStudioStyle.insert-face-finish", "Flat"),
+                    ("LemonStudioStyle.insert-face-size", "16"),
+                    ("LemonStudioStyle.insert-face-edge-width", "2"),
+                    ("LemonStudioStyle.insert-pointer-width", "3"),
+                    ("LemonStudioStyle.insert-pointer-length", "100"),
+                    ("LemonStudioStyle.insert-track", "Show"),
+                    ("LemonStudioStyle.insert-ring-radius", "10"),
+                    ("LemonStudioStyle.insert-rim-radius", "13"),
+                    ("LemonStudioColor.insert_knob_face", "#ED38AF"),
+                    ("LemonStudioColor.insert_knob_face_edge", "#10CF84"),
+                    ("LemonStudioColor.insert_knob_pointer", "#FAF149"),
+                    ("LemonStudioColor.insert_knob_track", "#24CEE9"),
+                ].into_iter().fold(text.clone(), |theme, (key, value)| fl::set_key(&theme, key, value));
+                crate::mixer::track_mut(&mut app.state, 0).unwrap().slot_mix[0] = 0.5;
+                app.theme_edit(custom.clone());
+                frame(&mut app, &mut canvas, None);
+                assert_eq!(hit_rect(&app, &action), bounds);
+                for color in [0xed38af, 0x10cf84, 0xfaf149, 0x24cee9] {
+                    assert!(count(&canvas, bounds, Color::rgb(color)) > 0, "{design:?} {finish}: color {color:06x}");
+                }
+                app.theme_edit(fl::set_key(&custom, "LemonStudioStyle.insert-pointer-width", "0"));
+                frame(&mut app, &mut canvas, None);
+                assert_eq!(count(&canvas, bounds, Color::rgb(0xfaf149)), 0);
+                crate::mixer::track_mut(&mut app.state, 0).unwrap().slot_mix[0] = 1.0;
+
                 // These overrides must not alter Full Mixer or its input targets.
                 app.state.mixer.layout = crate::mixer::WIDE;
                 app.theme_edit(base);
                 frame(&mut app, &mut canvas, None);
                 let full_bounds = hit_rect(&app, &action);
                 let full = canvas.pixmap.data().to_vec();
-                app.theme_edit(text);
+                app.theme_edit(custom);
                 frame(&mut app, &mut canvas, None);
                 assert_eq!(hit_rect(&app, &action), full_bounds);
                 assert_eq!(canvas.pixmap.data(), full, "Traditional overrides leaked into Full Mixer");

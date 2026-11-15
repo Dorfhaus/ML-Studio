@@ -98,6 +98,8 @@ pub enum Hit {
     Swatch(usize),
     CustomSwatch(usize),
     EditSwatch(usize),
+    SwatchWheel,
+    SwatchBrightness,
     SaveSwatch,
     ClearSwatch,
     CancelSwatch,
@@ -128,7 +130,7 @@ pub struct NameBox {
     pub at: (f32, f32),
     pub suggestions: bool,
     pub palette: bool,
-    pub custom: Option<(usize, crate::dialog::Field)>,
+    pub custom: Option<(usize, [f32; 3])>,
     /// Opened for a new pattern (find empty, insert one): accepting it makes the pattern the playlist's clip
     /// source, listed in the picker even while empty, so it can be placed at once.
     pub created: bool,
@@ -762,27 +764,24 @@ fn apply_swatch(s: &mut State, c: u32) {
 
 fn edit_swatch(s: &mut State, i: usize) {
     if let Some(b) = &mut s.pat_ui.name_box {
-        let mut field = crate::dialog::Field::default();
-        field.set(&custom_swatch(i).map_or_else(|| "#".into(), |c| format!("#{c:06X}")));
-        field.select_all();
-        b.custom = Some((i, field));
+        let color = custom_swatch(i).map(os_ui::Color::rgb).unwrap_or(os_ui::Color::rgb(0xffffff));
+        b.custom = Some((i, crate::theme_adjust::hsv(color)));
     }
 }
 
 fn save_swatch(s: &mut State, clear: bool) {
     let Some(b) = &mut s.pat_ui.name_box else { return };
-    let Some((i, field)) = &b.custom else { return };
+    let Some((i, hsv)) = b.custom else { return };
     if clear {
         crate::prefs::set_text(&format!("clip_custom_swatch_{i}"), "");
-    } else if let Some(color) = hex_color(&field.text) {
+    } else {
+        let c = crate::theme_adjust::from_hsv(hsv);
+        let color = (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b);
         crate::prefs::set_text(&format!("clip_custom_swatch_{i}"), &format!("{color:06X}"));
         if matches!(b.target, BoxTarget::MixerTrack(_)) {
             apply_swatch(s, color);
             return;
         }
-    } else {
-        s.message = Some("Enter six hex digits, for example FF8844".into());
-        return;
     }
     b.custom = None;
 }
@@ -821,7 +820,7 @@ pub fn hit(s: &mut State, h: Hit) {
         Hit::ConfirmOk => delete_current(s),
         Hit::ConfirmCancel => cancel_confirm(s),
         Hit::ConfirmRemember => s.pat_ui.remember = !s.pat_ui.remember,
-        Hit::Inside => {}
+        Hit::Inside | Hit::SwatchWheel | Hit::SwatchBrightness => {}
     }
 }
 
@@ -837,11 +836,11 @@ pub fn key(s: &mut State, key: &winit::keyboard::Key, ctrl: bool) -> bool {
         return true;
     }
     let Some(b) = s.pat_ui.name_box.as_mut() else { return false };
-    if let Some((_, field)) = &mut b.custom {
+    if b.custom.is_some() {
         match key {
             Key::Named(NamedKey::Enter) => save_swatch(s, false),
             Key::Named(NamedKey::Escape) => b.custom = None,
-            _ => { field.key(key, ctrl, false); }
+            _ => {}
         }
         return true;
     }

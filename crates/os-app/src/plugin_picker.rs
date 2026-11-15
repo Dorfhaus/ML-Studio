@@ -285,6 +285,9 @@ pub fn key(app:&mut App,key:&Key,ctrl:bool,alt:bool)->bool{
     if floating(&app.state) && (app.state.playlist.popup.is_some() || app.state.menu_open.is_some()) { return false; }
     if !app.state.plugin_picker.open || app.state.plugin_picker.minimized{return false;}
     if !app.state.plugin_picker.chains.focused { return false; }
+    // Winit reports the space bar as a named key on some platforms.
+    let space = Key::Character(" ".into());
+    let key = if matches!(key, Key::Named(NamedKey::Space)) { &space } else { key };
     if chains::editing(&app.state.plugin_picker) {
         match key {
             Key::Named(NamedKey::Escape) => act(app, Hit::ChainCancel),
@@ -507,6 +510,12 @@ mod tests{
         assert!(choices(&a.state).contains(&(false,e.index)));
         assert!(entries(&a.state,false).iter().all(|e|e.favorite));
         act(&mut a,Hit::Filter(0));
+        a.key(&Key::Character("ML".into()), false, false);
+        a.key(&Key::Named(NamedKey::Space), false, false);
+        a.key(&Key::Character("Sampler".into()), false, false);
+        assert_eq!(a.state.plugin_picker.query, "ML Sampler");
+        assert!(entries(&a.state,false).iter().any(|entry| entry.name == crate::plugins::LEMON_SAMPLER));
+        act(&mut a,Hit::Clear);
         let channels=a.state.project.channels.len();
         a.key(&Key::Character("unlikely plugin xyz".into()),false,false);
         assert!(choices(&a.state).is_empty());a.key(&Key::Named(NamedKey::Enter),false,false);

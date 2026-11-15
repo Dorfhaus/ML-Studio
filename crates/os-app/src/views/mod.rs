@@ -400,30 +400,42 @@ pub fn window_frame_ex(ui: &mut Ui, win: Win, r: Rect, title: &str, title_x: f32
     let t = ui.t;
     ui.c.fill_rect(r, t.window_title);
     let bar = Rect::new(r.x, r.y, r.w, 23.0);
+    use os_theme::chrome::Chrome;
+    let playlist = win == Win::Playlist;
+    let bar_face = playlist.then(|| Chrome::PlaylistBar.get(t)).flatten();
+    let divider = if playlist { Chrome::PlaylistBarDivider.or(t, t.splitter_dark) } else { t.splitter_dark };
     if t.style.vintage_2005 {
         crate::vintage::window_caption(ui.c,bar);
+    } else if let Some(face) = bar_face {
+        ui.c.fill_rect(bar, face);
+        ui.c.fill_rect(Rect::new(r.x, r.y + 22.0, r.w, 1.0), divider);
     } else if kit::panel_finish(ui.c, t, bar, t.window_title) {
         // The finish stays inside the same draggable title rectangle.
     } else if kit::lemon::on(t) {
         // Lemon (spec: ui/lemon-design.md §3): a flat bar, a hairline under it.
         if !flat {
-            ui.c.fill_rect(Rect::new(r.x, r.y + 22.0, r.w, 1.0), t.splitter_dark);
+            ui.c.fill_rect(Rect::new(r.x, r.y + 22.0, r.w, 1.0), divider);
         }
     } else if !flat {
         ui.c.fill_rect_gradient(bar, t.window_title.shade(0.04), t.window_title.shade(-0.03), 0.0);
-        ui.c.fill_rect(Rect::new(r.x, r.y + 22.0, r.w, 1.0), t.splitter_dark);
+        ui.c.fill_rect(Rect::new(r.x, r.y + 22.0, r.w, 1.0), divider);
     }
+    if playlist && let Some(color) = Chrome::PlaylistBarDivider.get(t) {
+        ui.c.fill_rect(Rect::new(r.x, r.y + 22.0, r.w, 1.0), color);
+    }
+    let title_ink = if playlist { Chrome::PlaylistBarInk.or(t, t.text) } else { t.text };
     let font = if t.style.vintage_2005 {os_ui::Font::vintage(12)}else{kit::title_font(t, os_ui::Font::new(17))};
     if t.appearance.title_text.is_some() {
         let width = (r.w - title_x - if buttons { 66.0 } else { 4.0 }).max(0.0);
-        ui.c.text_clip(font, r.x + title_x, r.y + 1.0, width, t.text, title);
+        ui.c.text_clip(font, r.x + title_x, r.y + 1.0, width, title_ink, title);
     } else {
-        ui.c.text(font, r.x + title_x, r.y + 1.0, t.text, title);
+        ui.c.text(font, r.x + title_x, r.y + 1.0, title_ink, title);
     }
     ui.hit(bar, Action::WinDrag(win), "Drag to move");
     // Minimize / maximize / close glyphs at the right (1862, 1881, 1901 at full width).
     if buttons {
-        window_buttons(ui, win, r.right() - 64.0, r.y, t.text_dim.mix(t.glyph, 0.6), t.glyph);
+        let ink = |fallback| if playlist { Chrome::PlaylistBarInk.or(t, fallback) } else { fallback };
+        window_buttons(ui, win, r.right() - 64.0, r.y, ink(t.text_dim.mix(t.glyph, 0.6)), ink(t.glyph));
     }
     Rect::new(r.x, r.y + 23.0, r.w, r.h - 23.0)
 }

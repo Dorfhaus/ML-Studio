@@ -4,7 +4,7 @@ Usage: python packaging/windows/prepare-update.py --output ABSOLUTE_STAGING_FOLD
 Build and test the app first. Review output before publishing a new release.
 """
 from pathlib import Path
-import argparse, hashlib, json, re, shutil, subprocess, zipfile, sys
+import argparse, hashlib, json, mmap, os, re, shutil, subprocess, zipfile, sys
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PublicFormat
 
 root = Path(__file__).resolve().parents[2]
@@ -30,6 +30,19 @@ if args.notes is None:
     args.notes=(section['title']+' — '+' '.join(section['changes'][:2]))[:3000]
 exe = args.binary or root/'target/release/lemonstudio.exe'
 require_public_binary(exe)
+tools = json.loads((root/'packaging/visualizer/video-tools.json').read_text(encoding='utf-8'))
+worker = Path(os.environ.get('LEMON_VISUALIZER_WORKER', ''))
+source = Path(os.environ.get('LEMON_VISUALIZER_SOURCE', ''))
+if not worker.is_file() or not source.is_file():
+    raise SystemExit('Provide LEMON_VISUALIZER_WORKER and LEMON_VISUALIZER_SOURCE to package Windows.')
+worker_bytes = worker.read_bytes()
+if len(worker_bytes) != tools['renderer_size'] or hashlib.sha256(worker_bytes).hexdigest() != tools['renderer_sha256']:
+    raise SystemExit('Visualizer worker failed size or checksum verification.')
+with exe.open('rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as image:
+    if image.find(worker_bytes) < 0:
+        raise SystemExit('The Windows build is missing its Visualizer renderer. Rebuild before packaging.')
+if hashlib.sha256(source.read_bytes()).hexdigest() != tools['renderer_source_sha256']:
+    raise SystemExit('Visualizer worker source archive failed checksum verification.')
 actual = subprocess.check_output([str(exe),'--update-version'],text=True).strip()
 if actual != str(version): raise SystemExit('Rebuild the executable after changing its version.')
 key = load_pem_private_key(args.key.read_bytes(),None)

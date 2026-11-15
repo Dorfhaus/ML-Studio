@@ -92,6 +92,12 @@ If you cannot see the red record button, check **Settings > Visibility > Playlis
 Look in the track header beside the lane's mute/solo light, not in the top-right of the Playlist. Ordinary folder rows have no recording button. In the attached view, use a source lane with a Mixer channel; group separators do not have this button. Master and buses are shown in the inspector rather than as recording lanes.
 The nearby piano/keyboard icon opens the Piano Roll or instrument picker. It is not an audio-record button. Once the actual record button is visible, right-click it to choose an audio input, click it to arm, then press transport Play. A locked or frozen lane can prevent arming even when the button is visible.
 
+### Customize Playlist and Channel Rack record lights
+Keywords: record arm light red LED glow REC badge backlit square theme channel rack playlist
+In the standard workspace, open **Settings > Theme > Record lights**. Choose **Customize Playlist record light** or **Customize Channel Rack record light**. Select **Console LED**, **Backlit square**, or **REC badge**. The preview shows idle, armed, and recording states. Change each state's color, the bezel color, the light size, or the recording glow. Apply saves the appearance with the theme. Cancel discards the preview. Reset section restores the default appearance.
+Playlist buttons still arm their track and open input choices on right-click. The Channel Rack light shows note-recording status for the selected channel. Arm Notes with the transport Record button and start playback to see its recording state. The Rack light appears with or without the step grid. Hide it under **Settings > Visibility > Channel Rack > Channel Rack record lights**. **Visibility > Theme customization > Record light customization** hides the appearance editors while preserving saved styles.
+Related: Record audio directly in the Playlist | Record notes from a MIDI keyboard
+
 ### Prevent feedback and choose a recording input
 Keywords: record dry mono stereo left right input monitoring bleed
 Guide: mixer-input
@@ -516,7 +522,7 @@ Keywords: mixer volume pan master signal flow insert route
 ![mixer | Mixer with insert inspector, channel strips and meters](assets/guide/mixer.jpg)
 Guide: mixer-level
 Route a Channel Rack instrument or audio clip to a named Mixer insert. Use its fader and pan controls to balance it, and check its meter.
-Right-click a Mixer channel to rename it or choose Change color > Custom color. The custom swatches accept six-digit hex colors. Settings > General > Input offers optional double-click reset for faders and knobs and opening main menus on hover. Double-click reset starts off; Open menus on hover starts on for new profiles. Saved choices are preserved.
+Right-click a Mixer channel to rename it or choose Change color > Custom color. Use the color wheel and brightness slider to create a custom swatch. Settings > General > Input offers optional double-click reset for faders and knobs and opening main menus on hover. Double-click reset starts off; Open menus on hover starts on for new profiles. Saved choices are preserved.
 Effects in the insert's slots run in order. Check that the track reaches Master through a direct route or a bus. Avoid clipping the Master if you are exporting a mix.
 
 ### Send a Mixer track to an interface output
@@ -586,8 +592,8 @@ Click the padlock on a Mixer channel to protect its configuration from accidenta
 Playback and existing automation continue while it is locked. If the icon is missing, look under Settings > Visibility > Mixer.
 
 ### Rename, color and group mixer channels
-Keywords: rename mixer channel custom color hex separator channels
-Right-click an insert and choose Rename or Change color. In the color menu, choose a swatch or open Custom color to enter a six-digit hex color. Attached Playlist lanes use their corresponding mixer channel colors.
+Keywords: rename mixer channel custom color wheel separator channels
+Right-click an insert and choose Rename or Change color. In the color menu, choose a swatch or open Custom color and choose a color with the wheel. Attached Playlist lanes use their corresponding mixer channel colors.
 Use separators to mark mixer sections visually. The mixer shortcuts scroll to the corresponding sections. Use buses to sum audio and sends to feed parallel effects.
 
 ### Add, reorder and bypass effects
@@ -714,7 +720,7 @@ Upstream platform and license details are in the [AudioVisualizer manual](https:
 
 #### Export a Mixer scene
 
-In Windows Development, open your ML Visualizer plugin and click **Export MP4** at the top of its window. The **Export visualizer video** command is also available in the Mixer slot menu. Choose landscape (1920 × 1080) or vertical (1080 × 1920), then choose **Whole song** or **Playlist selection**. To make the selection option available, first select a time range in the Playlist ruler. Choose where to save the MP4. The export uses the scene in that plugin instance and the Master mix for the picture response and sound. It renders at 30 frames per second.
+On 64-bit Windows, open your ML Visualizer plugin and click **Export MP4** at the top of its window. The **Export visualizer video** command is also available in the Mixer slot menu. Choose landscape (1920 × 1080) or vertical (1080 × 1920), then choose **Whole song** or **Playlist selection**. To make the selection option available, first select a time range in the Playlist ruler. Choose where to save the MP4. The export uses the scene in that plugin instance and the Master mix for the picture response and sound. It renders at 30 frames per second. The initial plugin setup includes the MP4 tools. If you installed the plugin before that update, **Export MP4** will offer to install the encoder if needed. Existing encoder downloads are reused.
 
 Your first export offers an optional 114.8 MB FFmpeg download. Later exports can run offline. The preview supports still-image backgrounds and constant-tempo projects. For songs with Skip markers, select a continuous Playlist range. Press Escape to cancel while the Master mix is rendering. Live webcam input, video backgrounds, and sidechain inputs require a different scene for export. The export command can be hidden in **Settings > Visibility > Mixer**.
 
@@ -1379,8 +1385,21 @@ Related: Project data, time and credits | Send a project with its audio files | 
 
 ### Customize Traditional Mixer insert knobs
 Keywords: theme traditional FL style mixer plugin insert slot mix dry wet knob ring outline circle color full mixer
-Open Settings > Theme > Traditional FL-style mixer view > Customize insert knobs. Choose **Full Mixer** to use the same knob-cap artwork as the Full Mixer finish, including Mixer Skin Designer artwork. Traditional, Dial and Ring are also available. Inherit restores the theme's original choice.
-The **Thin value ring** shows the wet/dry amount. **Outer circle** is the separate surround. Show or hide each independently, choose each color, and set widths from 0 to 2 pixels. The live examples show 0%, 50% and 100%. These settings affect Traditional insert slots; routing, wet/dry values, automation and Full Mixer styling stay intact.
+Open Settings > Theme > Traditional FL-style mixer view > Customize insert knobs. Choose **Full Mixer** to use the Full Mixer dry/wet knob, including the active finish and Mixer Skin Designer artwork. Traditional, Dial and Ring are also available. Inherit restores the theme's original choice.
+Customize the face diameter, finish, color and edge, plus the pointer color, width and length. A custom finish, face or pointer setting uses a custom drawn face in place of the inherited artwork. Set pointer width or length to 0 to hide it.
+The **Thin value ring** shows the wet/dry amount. The **Unfilled inner track** shows the available range behind it. The **Outer circle** is the separate surround. Choose the colors, show or hide each part, and adjust the inner and outer radius and width. Ring overrides replace the inherited surrounding rings. The live examples show 0%, 50% and 100%. These settings affect the Traditional Mixer appearance only.
+
+### Customize text, buttons and the Playlist bar
+
+Open **Settings > Theme > Quick color settings**. **Mixer labels and buttons** edits channel names, numbers, headers, and the **Attach to Playlist** and **Mix Assistant** button colors. **Playlist bar colors** edits the toolbar background, text, tools and overview scrollbar. For the ruler itself, search for **Ruler** in the Theme Editor. **Settings colors** edits section labels, panel backgrounds and tabs. Use **Text** in **Toolbar & shared controls** for the shared text color.
+
+Click **Choose color** for a visual wheel. The wheel sets hue and saturation. Move the brightness slider down to make the color darker, or all the way down for black. Use **Reset** on a row to restore the color inherited from the theme. Choose **Apply theme** to keep the changes, then save or export the theme to reuse it. Icon and cursor colors and custom project swatches also use the wheel.
+
+### Customize Traditional Mixer peak meters
+
+In **Settings > Theme > Traditional Mixer peak meters**, click **Customize peak meters**. Click the preview chips to set separate bottom and top colors for the low, high and clipping bands. Choose gradient, solid or segmented bars. You can also set bar width, stereo spacing, edge shading, gradient strength and corner radius. Set the meter frame, background, scale labels and ticks, moving tip and peak hold colors individually. Hide ticks, the moving tip or the peak hold line from the same editor.
+
+The changes apply to inserts, Master and the selected channel scale in the Traditional Mixer. They save with the theme. Imported FL Studio theme meter colors also apply to the Traditional bars. Use the existing Mixer meter settings for thresholds and peak hold timing. To hide the editor shortcut, use **Settings > Visibility > Theme customization > Traditional peak meter settings**.
 Use Apply theme to keep your edits, Cancel edits to restore the starting appearance, and Undo/Redo while experimenting. Reset section restores this area's controls together. Save a preset or Export theme to reuse the look.
 Settings > Visibility > Theme customization can hide the Traditional insert knob settings without erasing their saved appearance.
 Related: Themes, icons, cursor and mixer design
@@ -1755,6 +1774,8 @@ Related: Duck a track with Quick Sidechain | ML Limiter | Route multiple Mixer c
 ### Expand and navigate a long Mixer effect chain
 Keywords: mixer effects slots 63 add slot scroll move alt wheel EQ bypass wet dry
 Filling the final visible user-effect slot reveals another empty slot. Use + Add slot to reveal one explicitly. A Mixer channel supports 63 user effects, separate from the dedicated mini EQ. The effects panel displays ten rows at a time and indicates the visible range.
+Click and hold a plugin's name in the Mixer's effect list, then drag it up or down. The line shows where it will land. Drop it on another slot on the same insert to move the plugin and shift the slots in between. You can scroll the list while dragging, press Escape to cancel, or use Undo after dropping. A regular click still opens the plugin editor. **Settings > Visibility > Mixer > Drag to reorder effects** controls this gesture.
+
 Wheel over the effect list to reach additional slots. Alt+wheel or an effect's Move up/down menu changes its processing order. The small slot mix knob keeps its own wheel behavior. Slot moves skip the reserved EQ; the mini EQ pre/post setting remains relative to the entire user chain.
 Save the project to retain expanded slots, plugin states, bypass and mix. Older builds limited to ten slots cannot play the additional effects correctly; use a compatible newer build when transferring such a project.
 Related: Add, reorder and bypass effects | Use the Mixer mini EQ before or after effects
@@ -2283,6 +2304,21 @@ Keywords: visibility: traditional insert knob settings (theme customization) ref
 To show or hide **Traditional insert knob settings**, open **Settings > Visibility > Theme customization > Traditional insert knob settings**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Traditional peak meter settings (Theme customization)
+Keywords: visibility: traditional peak meter settings (theme customization) reference controls options settings
+To show or hide **Traditional peak meter settings**, open **Settings > Visibility > Theme customization > Traditional peak meter settings**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Record light customization (Theme customization)
+Keywords: visibility: record light customization (theme customization) reference controls options settings
+To show or hide **Record light customization**, open **Settings > Visibility > Theme customization > Record light customization**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Quick color settings (Theme customization)
+Keywords: visibility: quick color settings (theme customization) reference controls options settings
+To show or hide **Quick color settings**, open **Settings > Visibility > Theme customization > Quick color settings**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Area color adjustments (Theme customization)
 Keywords: visibility: area color adjustments (theme customization) reference controls options settings
 To show or hide **Area color adjustments**, open **Settings > Visibility > Theme customization > Area color adjustments**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2733,6 +2769,11 @@ Keywords: visibility: step grid (channel rack) reference controls options settin
 To show or hide **Step grid**, open **Settings > Visibility > Channel Rack > Step grid**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Channel Rack record lights (Channel Rack)
+Keywords: visibility: channel rack record lights (channel rack) reference controls options settings
+To show or hide **Channel Rack record lights**, open **Settings > Visibility > Channel Rack > Channel Rack record lights**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Mixer routing menu (Channel Rack)
 Keywords: visibility: mixer routing menu (channel rack) reference controls options settings
 To show or hide **Mixer routing menu**, open **Settings > Visibility > Channel Rack > Mixer routing menu**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2856,6 +2897,11 @@ Turning on visibility exposes the control where that feature is supported; it do
 ### Visibility: Mixer section shortcuts (Mixer)
 Keywords: visibility: mixer section shortcuts (mixer) reference controls options settings
 To show or hide **Mixer section shortcuts**, open **Settings > Visibility > Mixer > Mixer section shortcuts**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Drag to reorder effects (Mixer)
+Keywords: visibility: drag to reorder effects (mixer) reference controls options settings
+To show or hide **Drag to reorder effects**, open **Settings > Visibility > Mixer > Drag to reorder effects**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: Stereo separation on Full Mixer strips (Mixer)
@@ -4738,6 +4784,8 @@ Keywords: patterns view - control hints 1 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
 - Edit or clear this swatch
+- Color wheel: choose hue and saturation
+- Brightness
 - Name suggestions
 - Use this name
 - Set the colour
@@ -4885,7 +4933,8 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Drag Settings
 - Close (Esc)
 - Pick this colour
-- Saturation (left to right) and brightness (bottom to top)
+- Color wheel: choose hue and saturation
+- Brightness: full color at the top, black at the bottom
 - The colour before: click to go back to it
 - Back to the colours from before the picker opened
 - Switch the workspace appearance
@@ -4897,12 +4946,12 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Remove this folder
 - Listed when a plugin is found in several formats
 - Sort by this column
-- Find: type to keep the plugins whose name, vendor or file contain the text (Esc clears)
 
 ### Settings view - control hints 2
 Keywords: settings view - control hints 2 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
+- Find: type to keep the plugins whose name, vendor or file contain the text (Esc clears)
 - Display PPI: drag, or turn the mouse wheel
 
 ### Strum view - control hints 1

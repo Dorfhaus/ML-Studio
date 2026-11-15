@@ -64,6 +64,7 @@ def probe(mac=False):
         if not all(t in targets for t in ['aarch64-apple-darwin','x86_64-apple-darwin']):raise RuntimeError('Both Mac Rust targets must be installed')
         r.check_connection()
     else:
+        b.visualizer_inputs(c)
         mix_reference_pack(c)
         cfg=r.read_config()
         for k in ('llvm','nsis','runtime'):

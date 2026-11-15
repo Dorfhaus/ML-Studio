@@ -137,9 +137,17 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let bottom = r.bottom();
 
     // Header row: "C" (scale) and "M" (master) on a lighter band.
-    ui.c.fill_rect(Rect::new(r.x + 1.0, ly.y(HEAD_Y0), 44.0+width, HEAD_Y1 - HEAD_Y0 + 1.0), ui.t.s(0x2b2e30));
-    ui.c.text_center(Font::new(17), Rect::new(r.x + 12.0, ly.y(HEAD_Y0), 20.0, 21.0), ui.t.s(0x6d7275), "C");
-    ui.c.text_center(Font::new(17), Rect::new(r.x + 44.0, ly.y(HEAD_Y0), width, 21.0), ui.t.s(0x6d7275), "M");
+    let master_selected = s.selected_mixer == 0;
+    let header = Chrome::MixerHeader.or(ui.t, ui.t.s(0x2b2e30));
+    let selected_header = master_selected.then(|| Chrome::MixerSelectedHeader.get(ui.t)).flatten();
+    ui.c.fill_rect(Rect::new(r.x + 1.0, ly.y(HEAD_Y0), 44.0+width, HEAD_Y1 - HEAD_Y0 + 1.0), header);
+    if let Some(face) = selected_header {
+        ui.c.fill_rect(Rect::new(r.x + 44.0, ly.y(HEAD_Y0), width, HEAD_Y1 - HEAD_Y0 + 1.0), face);
+    }
+    let ink = ui.t.s(0x6d7275);
+    ui.c.text_center(Font::new(17), Rect::new(r.x + 12.0, ly.y(HEAD_Y0), 20.0, 21.0), channel_number_ink(ui.t, false, ink, Some(header)), "C");
+    ui.c.text_center(Font::new(17), Rect::new(r.x + 44.0, ly.y(HEAD_Y0), width, 21.0),
+        channel_number_ink(ui.t, master_selected, ink, selected_header.or(Some(header))), "M");
 
     // "C" column: the level scale with the current track's meter (spec: ui/mixer.md §9).
     let col = Rect::new(r.x + 9.0, ly.y(METER_Y0), 28.0, bottom - 156.0 - ly.y(METER_Y0));
@@ -159,11 +167,18 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     };
     ui.hit(col, Action::Mix(MHit::Scale), hint);
     let lemon = crate::views::lemon(ui);
+    let paint = MeterPaint::traditional(ui.t);
+    let palette = ui.t;
+    let frame_color = if paint.vintage { palette.s(0x191d1e) } else { palette.trad_meter_frame };
+    let scale_bg = if paint.vintage { palette.s(0x222527) } else { palette.trad_meter_scale_bg };
+    let scale_text = if paint.vintage { palette.s(0x7f8a90) } else { palette.trad_meter_scale_text };
+    let ticks = if paint.vintage { palette.s(0x111315) } else { palette.trad_meter_ticks };
+    let radius = paint.style.radius.unwrap_or(if lemon { lk::r_btn(palette) } else { 3.0 });
     if lemon {
-        lk::outlined(ui.c, col, lk::r_btn(ui.t), ui.t.s(0x191d1e), ui.t.s(0x222527));
+        lk::outlined(ui.c, col, radius, frame_color, scale_bg);
     } else {
-        ui.c.fill_rrect(col, 3.0, ui.t.s(0x191d1e));
-        ui.c.fill_rrect(col.inset(1.0), 2.5, ui.t.s(0x222527));
+        ui.c.fill_rrect(col, radius, frame_color);
+        ui.c.fill_rrect(col.inset(1.0), (radius - 0.5).max(0.0), scale_bg);
     }
     // Marks closer than a label height are skipped when the window is squished: "0" always shows, "+3" only with room
     // above it, the rest downward from "0". The alternate scale has no "+3".
@@ -184,23 +199,23 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         }
     }
     for (m, y) in marks {
-        ui.c.text_center(Font::new(12), Rect::new(col.x, y - 8.0, col.w, 15.0), ui.t.s(0x7f8a90), m);
-        ui.c.fill_rect(Rect::new(col.x + 4.0, y + 7.0, col.w - 8.0, 1.0), ui.t.s(0x111315));
+        ui.c.text_center(Font::new(12), Rect::new(col.x, y - 8.0, col.w, 15.0), scale_text, m);
+        if paint.style.ticks != Some(false) {
+            ui.c.fill_rect(Rect::new(col.x + 4.0, y + 7.0, col.w - 8.0, 1.0), ticks);
+        }
     }
     // Four unlabelled ticks below 45 (the alternate scale has none below its 30).
     for k in (0..4).filter(|_| !alt) {
         let y = cy(893.0 + 7.5 * k as f32);
-        if y - last >= 10.0 {
-            ui.c.fill_rect(Rect::new(col.x + 4.0, y, col.w - 8.0, 1.0), ui.t.s(0x111315));
+        if paint.style.ticks != Some(false) && y - last >= 10.0 {
+            ui.c.fill_rect(Rect::new(col.x + 4.0, y, col.w - 8.0, 1.0), ticks);
         }
     }
     // The bars cover the labels (measured: two 13 px bars filling the column inside its 1 px border).
     ui.live(Live::Meter(s.selected_mixer), col);
     if let Some(m) = s.mixer.meters.get(usize::from(s.selected_mixer)) {
         let ys = |db: f32| cy(meters::law_y(db, floor, alt)).min(col.bottom() - 1.0);
-        for i in 0..2 {
-            meter_bar(ui, col.x + 1.0 + 13.0 * i as f32, 13.0, col.bottom() - 1.0, m.db[i], m.hold[i], cfg, &ys);
-        }
+        stereo_meter(ui.c, col.inset(1.0), m, cfg, &ys, &paint);
     }
 
     // Inserts scroll; the master strip and the scale stay put.
@@ -370,15 +385,20 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     // Header number (insert strips only; the master's "M" sits in the fixed header band).
     if n != 0 {
         let hr = Rect::new(left, ly.y(HEAD_Y0), width, ly.y(HEAD_Y1) - ly.y(HEAD_Y0) + 1.0);
+        let header = if selected {
+            Chrome::MixerSelectedHeader.get(t).or_else(|| Chrome::MixerHeader.get(t))
+        } else {
+            Chrome::MixerHeader.get(t)
+        };
         if t.style.vintage_2005 {
             crate::vintage::metal(ui.c, hr, t.mixer_strip.mix(body, 0.35));
             crate::vintage::mixer_digits(ui.c, hr, n);
         } else {
-            ui.c.fill_rect(hr, tint.map_or(ui.t.s(0x2b2e30),|c|ui.t.s(0x2b2e30).mix(c,0.35)));
+            ui.c.fill_rect(hr, header.unwrap_or_else(|| tint.map_or(t.s(0x2b2e30), |c| t.s(0x2b2e30).mix(c, 0.35))));
         }
-        if !t.style.vintage_2005 && selected && lemon {
+        if !t.style.vintage_2005 && selected && lemon && header.is_none() {
             lk::lit_in(ui.c, ui.t, Rect::new(hr.x + 3.0, hr.y + 2.0, hr.w - 6.0, hr.h - 4.0), lk::r_btn(t), false);
-        } else if !t.style.vintage_2005 && selected {
+        } else if !t.style.vintage_2005 && selected && header.is_none() {
             // Hatched header for the selected strip.
             ui.c.push_clip(hr);
             for k in 0..14 {
@@ -389,7 +409,11 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         }
         if !t.style.vintage_2005 {
             let c = if selected && lemon { lk::ink_on_lit(ui.t) } else if selected || hov { ui.t.tx(0x9aa1a5) } else { ui.t.s(0x6d7275) };
-            ui.c.text_center(Font::new(17), Rect::new(left, ly.y(HEAD_Y0), width, 21.0), c, &n.to_string());
+            let face = header.or_else(|| (selected && lemon).then(|| {
+                Chrome::ActiveButton.or(t, t.brand_lit(os_theme::design::lemon::MAIN))
+            }));
+            let ink = channel_number_ink(t, selected, c, face);
+            ui.c.text_center(Font::new(17), Rect::new(left, ly.y(HEAD_Y0), width, 21.0), ink, &n.to_string());
         }
     }
 
@@ -405,20 +429,25 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     // Meter slot with its tick marks.
     let alt=matches!(layout_index(s),2|6);
     let meter = Rect::new(mx - 7.5, ly.y(METER_Y0), 16.0, ly.y(METER_Y1) - ly.y(METER_Y0)-if alt {20.} else {0.});
-    if lemon {
-        ui.c.fill_rrect(meter, lk::r_small(t), ui.t.s(0x191d1e));
-        ui.c.fill_rrect(Rect::new(meter.x + 2.0, meter.y + 2.0, 12.0, meter.h - 4.0), 2.5, ui.t.s(0x232729));
+    let paint = MeterPaint::traditional(t);
+    let frame_color = if paint.vintage { t.s(0x191d1e) } else { t.trad_meter_frame };
+    let well_color = if paint.vintage { t.s(0x232729) } else { t.trad_meter_well };
+    let radius = paint.style.radius.unwrap_or(if lemon { lk::r_small(t) } else { 2.0 });
+    ui.c.fill_rrect(meter, radius, frame_color);
+    let well = meter.inset(2.0);
+    if lemon || paint.style.radius.is_some() {
+        ui.c.fill_rrect(well, paint.style.radius.map_or(2.5, |r| (r - 1.0).max(0.0)), well_color);
     } else {
-        ui.c.fill_rrect(meter, 2.0, ui.t.s(0x191d1e));
-        ui.c.fill_rect(Rect::new(meter.x + 2.0, meter.y + 2.0, 11.0, meter.h - 4.0), ui.t.s(0x232729));
+        ui.c.fill_rect(Rect::new(well.x, well.y, well.w - 1.0, well.h), well_color);
     }
     if t.style.vintage_2005 && crate::workspace_visibility::shown("visible_mixer-meters") {
         for side in 0..2 {
             crate::vintage::meter_idle(ui.c, Rect::new(meter.x + 2.0 + 6.0 * side as f32, meter.y + 2.0, 5.0, meter.h - 4.0));
         }
-    } else {
+    } else if paint.style.ticks != Some(false) {
+        let ticks = if paint.vintage { t.s(0x111315) } else { t.trad_meter_ticks };
         for y in [181.0, 230.0, 278.0, 327.0, 375.0, 423.0] {
-            ui.c.fill_rect(Rect::new(meter.x + 3.0, ly.y(y), 9.0, 1.0), ui.t.s(0x111315));
+            ui.c.fill_rect(Rect::new(meter.x + 3.0, ly.y(y), 9.0, 1.0), ticks);
         }
     }
     // Per-track peak meter (spec: ui/mixer.md §9): two 6 px bars on the same scale as the "C" column.
@@ -429,9 +458,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         let floor = cfg.v[meters::k::FLOOR_DB];
         let alt = crate::prefs::check(&crate::prefs::ALTERNATE_METER_SCALE);
         let ys = |db: f32| bot - meters::frac(db, floor, alt) * (bot - top);
-        for i in 0..2 {
-            meter_bar(ui, meter.x + 2.0 + 6.0 * i as f32, 6.0, bot, m.db[i], m.hold[i], cfg, &ys);
-        }
+        stereo_meter(ui.c, well, m, cfg, &ys, &paint);
     }
     if selected && t.style.vintage_2005 {
         ui.c.stroke_rrect(Rect::new(meter.x - 1.0, meter.y - 2.0, meter.w + 2.0, meter.h + 4.0), 1.0, 2.0, t.accent);
@@ -445,6 +472,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         .map_or(if selected { ui.t.tx(0xaab2b7) } else if also { ui.t.tx(0xe4e8ea) } else { ui.t.s(0x7f868a) }, |c| {
             if also { c.mix(ui.t.tx(0xffffff), 0.5) } else { c.mix(ui.t.s(0x7f868a), 0.4) }
         });
+    let name_c = channel_name_ink(t, name_c);
     if alt {
         let name_width = width - 4.;
         let font = label_font(ui.c, Font::new(11), &name, name_width);
@@ -602,6 +630,41 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         let r = Rect::new(left, ly.y(HEAD_Y0), 4.0, bottom - ly.y(HEAD_Y0) - 16.0);
         crate::vintage::mixer_divider(ui.c, r);
     }
+}
+
+fn stereo_meter(c: &mut os_ui::Canvas, area: Rect, levels: &meters::Meter,
+    cfg: &meters::Settings, ys: &dyn Fn(f32) -> f32, paint: &MeterPaint,
+) {
+    if area.is_empty() || !c.visible(area) {
+        return;
+    }
+    let gap = area.w * paint.style.gap.unwrap_or(0.0);
+    let available = (area.w - gap) * 0.5;
+    let width = available * paint.style.width.unwrap_or(1.0);
+    let inset = (available - width) * 0.5;
+    for lane in 0..2 {
+        let x = area.x + inset + lane as f32 * (available + gap);
+        paint_meter_bar(c, x, width, area.bottom(), levels.db[lane], levels.hold[lane], cfg, ys, paint);
+    }
+}
+
+pub(crate) fn preview_peak_meter(c: &mut os_ui::Canvas, t: &Palette, rect: Rect,
+    db: [f32; 2], cfg: &meters::Settings,
+) {
+    let paint = MeterPaint::traditional(t);
+    let radius = paint.style.radius.unwrap_or(2.0);
+    c.fill_rrect(rect, radius, t.trad_meter_frame);
+    let well = rect.inset(2.0);
+    c.fill_rrect(well, (radius - 1.0).max(0.0), t.trad_meter_well);
+    let floor = cfg.v[meters::k::FLOOR_DB];
+    let y = |db| well.bottom() - meters::frac(db, floor, false) * well.h;
+    if paint.style.ticks != Some(false) {
+        for db in [-36.0, -24.0, -12.0, -6.0, 0.0, 6.0] {
+            c.fill_rect(Rect::new(well.x, y(db), well.w, 1.0), t.trad_meter_ticks);
+        }
+    }
+    let levels = meters::Meter { db, hold: db.map(|value| value + 3.0), ..Default::default() };
+    stereo_meter(c, well, &levels, cfg, &y, &paint);
 }
 
 /// The number header is square and the strip face rounds into the bottom edge.
