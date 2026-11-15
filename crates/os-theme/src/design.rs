@@ -425,7 +425,17 @@ fn skin_palette(design: Design, theme: Option<&FlTheme>) -> Palette {
     }
     p.style = design.style();
     if let Some(th) = theme.filter(|t| !t.is_stock()) {
-        retint(&mut p, th);
+        static LEMON_DEFAULT: std::sync::OnceLock<FlTheme> = std::sync::OnceLock::new();
+        let base = LEMON_DEFAULT.get_or_init(|| FlTheme::parse(&default_text(Design::Lemon)));
+        let own_colours = th.same_colours(&FlTheme {
+            appearance: th.appearance,
+            area_tones: th.area_tones,
+            color_overrides: th.color_overrides.clone(),
+            ..base.clone()
+        });
+        if !own_colours {
+            retint(&mut p, th);
+        }
     }
     p
 }

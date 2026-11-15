@@ -16,8 +16,8 @@ struct Pane {
     guide_scroll: Option<(f32, f32, f32)>,
     motion:Option<(f32,f32)>, hover:Option<Action>, refresh_editors:bool, frame:MainWin, mouse:(f32,f32), mods:ModifiersState, last:Instant, painted:Instant,
 }
-fn key(w:Win)-> &'static str {match w {Win::Guide=>"native_user_guide",Win::Browser=>"native_browser",Win::Mixer=>"native_mixer",Win::PianoRoll=>"native_piano",_=>"native_playlist"}}
-fn title(w:Win)-> &'static str {match w {Win::Guide=>"ML Studio - User Guide",Win::Browser=>"ML Studio - Browser",Win::Mixer=>"ML Studio - Mixer",Win::PianoRoll=>"ML Studio - Piano roll",_=>"ML Studio - Playlist"}}
+fn key(w:Win)-> &'static str {match w {Win::Guide=>"native_user_guide",Win::Visualizer=>"native_visualizer",Win::Score=>"native_score_editor",Win::Browser=>"native_browser",Win::Mixer=>"native_mixer",Win::PianoRoll=>"native_piano",_=>"native_playlist"}}
+fn title(w:Win)-> &'static str {match w {Win::Guide=>"ML Studio - User Guide",Win::Visualizer=>"ML Studio - Visualizer",Win::Score=>"ML Studio - Score Editor",Win::Browser=>"ML Studio - Browser",Win::Mixer=>"ML Studio - Mixer",Win::PianoRoll=>"ML Studio - Piano roll",_=>"ML Studio - Playlist"}}
 impl Windows {
     pub fn flush_stems(&mut self,app:&mut App){
         if let Some((row,paths))=self.header_samples.take(){crate::playlist_tracks::drops::samples(app,paths,row);self.changed=true;}
@@ -84,6 +84,10 @@ impl Windows {
         if std::mem::take(&mut app.state.guide.focus_window)
             && let Some(pane) = self.panes.iter().find(|pane| pane.kind == Win::Guide)
         {
+            pane.window.set_minimized(false);
+            pane.window.focus_window();
+        }
+        if std::mem::take(&mut app.state.playlist.visuals.focus) && let Some(pane) = self.panes.iter().find(|pane| pane.kind == Win::Visualizer) {
             pane.window.set_minimized(false);
             pane.window.focus_window();
         }

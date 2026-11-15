@@ -222,6 +222,8 @@ impl Generator {
 // The effect
 
 pub struct Chorus {
+    hq: bool,
+    unity_dry: bool,
     applied: [i32; PARAMS],
     rate: u32,
     w: Working,
@@ -239,6 +241,8 @@ impl Chorus {
     /// seed.
     pub fn with_settings(rate: u32, s: &Settings) -> Chorus {
         let mut c = Chorus {
+            hq: false,
+            unity_dry: false,
             applied: s.v,
             rate,
             w: Working::new(&s.v, rate),
@@ -296,6 +300,11 @@ impl Chorus {
         self.w = Working::new(&self.applied, rate);
     }
 
+    pub fn set_quality(&mut self, hq: bool, unity_dry: bool) {
+        self.hq = hq;
+        self.unity_dry = unity_dry;
+    }
+
     /// The working values (tests and the editor).
     pub fn working(&self) -> &Working {
         &self.w
@@ -312,12 +321,24 @@ impl Chorus {
         (f64::from(a) + f64::from(d) * f64::from(f) * (1.0 / 4096.0)) as f32
     }
 
+    #[inline]
+    fn read_hq(line: &[f32; LINE], p: u32, current: usize) -> f32 {
+        let delay = ((current as u32) << 12).wrapping_sub(p);
+        if !((2 << 12)..((LINE as u32 - 2) << 12)).contains(&delay) {
+            return Self::read(line, p);
+        }
+        let j = ((p >> 12) & MASK) as usize;
+        let at = |offset: usize| line[j.wrapping_add(offset) & MASK as usize];
+        super::interpolation::cubic(at(usize::MAX), at(0), at(1), at(2), (p & MASK) as f32 / 4096.0)
+    }
+
     /// One sample of both sides (spec "Per sample").
     #[inline]
     fn sample(&mut self, l: f32, r: f32) -> (f32, f32) {
         let w = &self.w;
         let t = tables();
-        let x = [(f64::from(l) * 0.7) as f32, (f64::from(r) * 0.7) as f32];
+        let input = [l, r];
+        let x = input.map(|sample| (f64::from(sample) * 0.7) as f32);
         let mut off = [[0u32; 3]; 2];
         for k in 0..3 {
             let table = &t[w.shape[k]];
@@ -334,10 +355,14 @@ impl Chorus {
             self.before[s] = x[s];
             let line = &mut self.line[s];
             line[self.at] = if w.low_band { low } else { x[s] - low };
-            let [a, b, c] = off[s].map(|o| Chorus::read(line, base.wrapping_sub(o)));
+            let [a, b, c] = off[s].map(|o| {
+                let position = base.wrapping_sub(o);
+                if self.hq { Self::read_hq(line, position, self.at) } else { Self::read(line, position) }
+            });
             let sum = a + b + c;
             let wet = (f64::from(sum) * 0.6) as f32;
-            out[s] = if w.wet_only { wet } else { wet + x[s] };
+            let dry = if self.unity_dry { input[s] } else { x[s] };
+            out[s] = if w.wet_only { wet } else { wet + dry };
         }
         self.at = (self.at + 1) & MASK as usize;
         (out[0], out[1])

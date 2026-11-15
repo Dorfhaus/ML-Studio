@@ -26,6 +26,8 @@ const CHANNEL_RACK: TablerIcon = TablerIcon {
 const VOTE: TablerIcon = TablerIcon {filled:false,d:"M 5 12 L 5 21 L 21 21 L 21 12 M 3 12 L 9 12 M 17 12 L 23 12 M 8 5 L 13 2 L 19 10 L 14 14 Z M 11 7 L 14 8 L 15 5"};
 const DOWNLOAD: TablerIcon = TablerIcon { filled: false, d: "M 12 3 L 12 15 M 7 10 L 12 15 L 17 10 M 4 16 L 4 21 L 20 21 L 20 16" };
 
+pub(super) const SCORE_PATH: &str = "M 3 7 L 21 7 M 3 12 L 21 12 M 3 17 L 21 17 M 11 16 L 11 5 L 18 3 L 18 12 M 11 16 C 11 20 5 21 5 18 C 5 15 11 13 11 16 Z M 18 12 C 18 16 13 17 13 14 C 13 11 18 9 18 12 Z";
+
 pub(crate) fn default_shape(icon: Icon) -> &'static TablerIcon {
     match icon {
         Icon::Pause => &TablerIcon { filled: true, d: "M 5 4 L 9 4 L 9 20 L 5 20 Z M 15 4 L 19 4 L 19 20 L 15 20 Z" },
@@ -69,6 +71,7 @@ pub(crate) fn default_shape(icon: Icon) -> &'static TablerIcon {
         Icon::Magnet => &tb::MAGNET,
         Icon::Playlist => &tb::PLAYLIST,
         Icon::PianoRoll => &tb::PIANO,
+        Icon::Score => &TablerIcon { filled: false, d: SCORE_PATH },
         Icon::ChannelRack => &CHANNEL_RACK,
         Icon::Mixer => &tb::ADJUSTMENTS,
         Icon::Browser => &tb::FOLDERS,

@@ -2,8 +2,18 @@
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub(super) struct Page {pub left:f32,pub right:f32}
 impl Page {pub(super) fn width(self)->f32{self.right-self.left}}
-#[derive(Clone,Copy)]pub(super) enum Profile{Whole,Scheps,SslClassic,SslEv2,Tg12345}
+#[derive(Clone,Copy,PartialEq,Eq)]pub(super) enum Profile{Whole,Scheps,SslClassic,SslEv2,SslLink,Tg12345}
+impl Profile {
+    pub(super) fn visible(self) -> Self {
+        if self == Self::SslLink && !crate::workspace_visibility::shown(crate::rack_mixer::LINK_PAGER_VISIBILITY) {
+            Self::Whole
+        } else {
+            self
+        }
+    }
+}
 pub(super) fn profile(d:&os_host::Descriptor)->Profile{
+    if crate::rack_mixer::ssl_link(d){return Profile::SslLink;}
     if !d.vendor.eq_ignore_ascii_case("Waves"){return Profile::Whole;}
     if d.name.starts_with("Scheps Omni Channel 2"){Profile::Scheps}
 
@@ -14,8 +24,7 @@ pub(super) fn profile(d:&os_host::Descriptor)->Profile{
 }
 pub(super) fn pages(profile:Profile,size:(u32,u32))->Vec<Page>{
     let ratio=size.0 as f32/size.1.max(1) as f32;
-    // Geometry from the installed Waves V15 GUIXML. Unknown aspect/layout falls
-    // back to the complete original editor, never equal-width guessed pages.
+    // Unknown layouts fall back to the complete original editor.
     let spec:Option<(f32,&[f32])>=match profile{
         Profile::Scheps if (1.26..=1.42).contains(&ratio)=>Some((840.,&[0.,115.,227.,339.,451.,601.,840.])),
         Profile::SslClassic if (0.49..=0.55).contains(&ratio)=>Some((357.,&[0.,180.,357.])),
@@ -32,11 +41,57 @@ pub(super) fn pages(profile:Profile,size:(u32,u32))->Vec<Page>{
     if matches!(profile,Profile::SslEv2)&&(0.72..=0.80).contains(&ratio){
         return [(0.,155.),(155.,310.),(310.,465.)].into_iter().map(|(l,r)|Page{left:l*size.0 as f32/465.,right:r*size.0 as f32/465.}).collect();
     }
+    // Link's native UC1 faceplate places the fader between two quarter-width
+    // modules. The expanded Configure Link panel adds a fourth column. Keep that
+    // editor and other layouts whole so plug-in selection and mapping stay usable.
+    if profile == Profile::SslLink && (0.94..=1.08).contains(&ratio) {
+        let width = size.0 as f32;
+        let eq_end = width * 0.25;
+        let dynamics_start = width * 0.75;
+        return vec![
+            Page { left: 0., right: eq_end },
+            Page { left: dynamics_start, right: width },
+            Page { left: eq_end, right: dynamics_start },
+        ];
+    }
     if let Some((width,cuts))=spec{cuts.windows(2).map(|p|Page{left:p[0]*size.0 as f32/width,right:p[1]*size.0 as f32/width}).collect()}
     else{vec![Page{left:0.,right:size.0 as f32}]}
 }
 
 #[cfg(test)] mod tests {
+    use super::*;
+
+    #[test]
+    fn ssl_link_pages_keep_eq_dynamics_and_fader_sections_intact() {
+        // SSL's compact faceplate and the guide's expanded setup alternatives.
+        for (width, height) in [(756, 737), (1520, 1540), (378, 369), (1134, 1106)] {
+            let width_px = width as f32;
+            let parts = pages(Profile::SslLink, (width, height));
+            assert_eq!(parts, [
+                Page { left: 0., right: width_px * 0.25 },
+                Page { left: width_px * 0.75, right: width_px },
+                Page { left: width_px * 0.25, right: width_px * 0.75 },
+            ]);
+        }
+        for (width, height) in [(2074, 1540), (1100, 480), (400, 900)] {
+            assert_eq!(pages(Profile::SslLink, (width, height)), [
+                Page { left: 0., right: width as f32 },
+            ]);
+        }
+    }
+
+    #[test]
+    fn ssl_link_section_visibility_restores_the_whole_editor() {
+        let key = crate::rack_mixer::LINK_PAGER_VISIBILITY;
+        let size = (756, 737);
+        assert_eq!(pages(Profile::SslLink.visible(), size).len(), 3);
+        crate::settings_file::set_flag(key, false);
+        assert_eq!(pages(Profile::SslLink.visible(), size), [Page { left: 0., right: 756. }]);
+        assert_eq!(pages(Profile::SslEv2.visible(), (465, 614)).len(), 3);
+        crate::settings_file::set_flag(key, true);
+        assert_eq!(pages(Profile::SslLink.visible(), size).len(), 3);
+    }
+
     #[test]fn section_pages_stop_at_complete_module_boundaries(){
         for factor in [0.5,1.,1.5,2.] {let p=super::pages(super::Profile::Scheps,((840.*factor) as u32,(614.*factor) as u32));assert_eq!(p.len(),6);for (page,pair) in p.iter().zip([0.,115.,227.,339.,451.,601.,840.].windows(2)){assert!((page.left-pair[0]*factor).abs()<0.01);assert!((page.right-pair[1]*factor).abs()<0.01);}assert_eq!(p.last().unwrap().right,840.*factor);}
         for (profile,size,cuts) in [(super::Profile::SslClassic,(357,675),vec![0.,180.,357.])]{let p=super::pages(profile,size);assert_eq!(p.len()+1,cuts.len());for (p,c) in p.iter().zip(cuts.windows(2)){assert_eq!((p.left,p.right),(c[0],c[1]));}}

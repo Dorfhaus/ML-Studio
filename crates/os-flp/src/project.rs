@@ -859,10 +859,12 @@ pub fn load(file: &FlpFile) -> Result<Project, ProjectError> {
     read_instrument_lanes(file,&mut p);
     read_pattern_speeds(file,&mut p);
     read_marker_colors(file,&mut p);
+    read_timeline(file, &mut p);
     read_clip_appearance(file, &mut p);
     read_clip_picker_order(file, &mut p);
     read_clip_fx_owners(file,&mut p);
     read_note_drive(file,&mut p);read_mpe(file,&mut p);
+    read_staff_notation(file, &mut p);
     for c in &file.chunks {if c.tag==Tag(*b"LSHK") {if let ChunkBody::Raw(d)=&c.body {if d.len()==4&&d[0]==1&&d[1]<12&&(67..=88).contains(&d[2]) {p.harmony=Some((d[1],d[2],d[3]&31));}}}}
     Ok(p)
 }
@@ -1373,6 +1375,7 @@ fn decode_note(r: &[u8]) -> Note {
     let u16_at = |o: usize| u16::from_le_bytes([r[o], r[o + 1]]);
     let u32_at = |o: usize| u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
     Note {
+        notation: Default::default(),
         drive:0,expression:0,
         position: u32_at(0),
         channel: u16_at(6),
@@ -3309,10 +3312,12 @@ pub fn apply(project: &Project, file: &mut FlpFile) -> Result<(), ProjectError> 
     write_instrument_lanes(project,file);
     write_pattern_speeds(project,file);
     write_marker_colors(project,file);
+    write_timeline(project, file);
     write_clip_appearance(project, file);
     write_clip_picker_order(project, file);
     write_clip_fx_owners(project,file);
     write_note_drive(project,file);write_mpe(project,file);
+    write_staff_notation(project, file);
     Ok(())
 }
 
@@ -3855,10 +3860,12 @@ pub fn create(project: &Project) -> Result<FlpFile, ProjectError> {
     write_instrument_lanes(project,&mut file);
     write_pattern_speeds(project,&mut file);
     write_marker_colors(project,&mut file);
+    write_timeline(project, &mut file);
     write_clip_appearance(project, &mut file);
     write_clip_picker_order(project, &mut file);
     write_clip_fx_owners(project,&mut file);
     write_note_drive(project,&mut file);write_mpe(project,&mut file);
+    write_staff_notation(project, &mut file);
     Ok(file)
 }
 
@@ -6938,6 +6945,40 @@ fn read_clip_appearance(file: &FlpFile, project: &mut Project) {
     }
 }
 
+const TIMELINE: Tag = Tag(*b"LSTL");
+
+type TimelineRecord = (u16, os_model::timeline::Timeline, Vec<(usize, u64)>);
+
+fn write_timeline(project: &Project, file: &mut FlpFile) {
+    file.chunks.retain(|c| c.tag != TIMELINE);
+    let records: Vec<_> = project.arrangements.iter().filter_map(|a| {
+        let linear: Vec<_> = a.markers.iter().enumerate().filter_map(|(i, m)| m.linear_us.map(|us| (i, us))).collect();
+        if a.timeline == Default::default() && linear.is_empty() { return None; }
+        Some((a.number, &a.timeline, linear))
+    }).collect();
+    if !records.is_empty() && let Ok(data) = serde_json::to_vec(&(1u8, records)) {
+        file.chunks.push(Chunk { tag: TIMELINE, body: ChunkBody::Raw(data) });
+    }
+}
+
+fn read_timeline(file: &FlpFile, project: &mut Project) {
+    for chunk in file.chunks.iter().filter(|c| c.tag == TIMELINE) {
+        let ChunkBody::Raw(data) = &chunk.body else { continue };
+        if data.len() > 4 * 1024 * 1024 { continue; }
+        let Ok((1, records)) = serde_json::from_slice::<(u8, Vec<TimelineRecord>)>(data) else { continue };
+        for (number, mut timeline, linear) in records {
+            let Some(a) = project.arrangements.iter_mut().find(|a| a.number == number) else { continue };
+            timeline.normalize();
+            a.timeline = timeline;
+            for (i, us) in linear {
+                if let Some(m) = a.markers.get_mut(i).filter(|m| m.kind == TimeMarker::PLAIN) {
+                    m.linear_us = Some(us.min(86_400_000_000));
+                }
+            }
+        }
+    }
+}
+
 const MARKER_COLORS:Tag=Tag(*b"LSMC");
 fn write_marker_colors(p:&Project,file:&mut FlpFile){
     file.chunks.retain(|c|c.tag!=MARKER_COLORS);let mut data=vec![1];
@@ -7017,6 +7058,46 @@ fn read_note_drive(file: &FlpFile, p: &mut Project) {
 }
 
 const MPE_DATA:Tag=Tag(*b"LSME");
+const STAFF_NOTATION: Tag = Tag(*b"LSNT");
+
+type WrittenNotes = Vec<(u16, usize, os_model::notation::NoteMarks)>;
+type WrittenStaves = Vec<(u16, Vec<os_model::notation::StaffChange>)>;
+
+fn write_staff_notation(project: &Project, file: &mut FlpFile) {
+    file.chunks.retain(|chunk| chunk.tag != STAFF_NOTATION);
+    let notes: WrittenNotes = project.patterns.iter().flat_map(|p| {
+            p.notes.iter().enumerate().filter_map(|(i, n)| {
+                (n.notation != Default::default()).then_some((p.number, i, n.notation))
+            })
+        }).collect();
+    let staves: WrittenStaves = project.arrangements.iter().filter(|a| !a.staff_notation.is_empty())
+        .map(|a| (a.number, a.staff_notation.clone())).collect();
+    if (!notes.is_empty() || !staves.is_empty())
+        && let Ok(mut data) = serde_json::to_vec(&(notes, staves))
+    {
+        data.insert(0, 1);
+        file.chunks.push(Chunk { tag: STAFF_NOTATION, body: ChunkBody::Raw(data) });
+    }
+}
+
+fn read_staff_notation(file: &FlpFile, project: &mut Project) {
+    let Some((notes, staves)) = file.chunks.iter().rev().filter(|c| c.tag == STAFF_NOTATION).find_map(|c| {
+        let ChunkBody::Raw(data) = &c.body else { return None };
+        let (1, payload) = data.split_first()? else { return None };
+        serde_json::from_slice::<(WrittenNotes, WrittenStaves)>(payload).ok()
+    }) else { return };
+    let mut patterns: BTreeMap<_, _> = project.patterns.iter_mut().map(|p| (p.number, p)).collect();
+    for (number, index, marks) in notes {
+        if let Some(note) = patterns.get_mut(&number).and_then(|p| p.notes.get_mut(index)) {
+            note.notation = marks;
+        }
+    }
+    for (number, changes) in staves {
+        if let Some(arr) = project.arrangements.iter_mut().find(|a| a.number == number) {
+            arr.staff_notation = changes;
+        }
+    }
+}
 fn write_mpe(p:&Project,file:&mut FlpFile){
  file.chunks.retain(|c|c.tag!=MPE_DATA);
  if p.mpe.channels.is_empty()&&p.patterns.iter().all(|p|p.notes.iter().all(|n|n.expression==0)){return;}

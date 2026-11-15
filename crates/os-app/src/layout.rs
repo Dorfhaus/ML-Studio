@@ -21,9 +21,9 @@ use crate::app::{State, Win, WinState};
 use crate::settings_file::{get, write};
 use crate::views;
 
-/// The Playlist, Mixer and Piano roll (`State::wins`) and their keys.
-const WINS: [(Win, &str); 3] = [(Win::Playlist, "window_playlist"), (Win::Mixer, "window_mixer"), (Win::PianoRoll, "window_piano_roll")];
-const DETACHABLE: [(Win, &str); 4] = [WINS[0], WINS[1], WINS[2], (Win::Browser,"window_browser")];
+/// The framed editor windows (`State::wins`) and their keys.
+const WINS: [(Win, &str); 5] = [(Win::Playlist, "window_playlist"), (Win::Mixer, "window_mixer"), (Win::PianoRoll, "window_piano_roll"), (Win::Visualizer, "window_visualizer"), (Win::Score, "window_score_editor")];
+const DETACHABLE: [(Win, &str); 6] = [WINS[0], WINS[1], WINS[2], (Win::Browser,"window_browser"), WINS[3], WINS[4]];
 const RACK: &str = "window_channel_rack";
 const PERF: &str = "window_plugin_performance";
 const TAPPER: &str = "window_tempo_tapper";
@@ -236,7 +236,7 @@ mod tests {
         save(&app.state);
 
         let mut next = App::new(None);
-        assert!(next.state.wins.iter().all(|w| w.maxed), "a new App starts with the defaults");
+        assert_ne!(next.state.wins[0].rect, app.state.wins[0].rect, "window layout is applied by restore");
         restore(&mut next.state);
         assert!(next.state.shown(Win::ChannelRack));
         let (a, b) = (&app.state, &next.state);
@@ -329,15 +329,15 @@ mod preview_reset_tests {
 // Project-specific window positions. An optional private chunk leaves legacy projects unchanged.
 const PROJECT_LAYOUT_TAG:os_flp::Tag=os_flp::Tag(*b"LMUI");
 pub fn project_snapshot(s:&State,plugins:&crate::plugins::Plugins)->serde_json::Value {
-    let wins:Vec<_>=WINS.iter().map(|(w,_)|{let v=s.wins[w.slot().unwrap()];serde_json::json!([v.rect.x,v.rect.y,v.rect.w,v.rect.h,v.maxed,v.mini,s.shown(*w)])}).collect();
+    let wins:Vec<_>=WINS.iter().take(4).map(|(w,_)|{let v=s.wins[w.slot().unwrap()];serde_json::json!([v.rect.x,v.rect.y,v.rect.w,v.rect.h,v.maxed,v.mini,s.shown(*w)])}).collect();
     let mut editors:Vec<serde_json::Value>=Vec::new();
     #[cfg(windows)] for (&key,h) in &plugins.hosted {
         let pos=h.window.as_ref().and_then(|w|w.position()).or(h.placed);
         if let (Some(pos),Some(d))=(pos,plugins.descriptor(key)){editors.push(serde_json::json!({"key":key,"uid":d.uid(),"position":[pos.0,pos.1],"detached":h.window.as_ref().map_or(h.detached,|w|w.detached()),"open":h.window.is_some()}));}
     }
     #[cfg(not(windows))] let _=plugins;
-    let detached:Vec<_>=DETACHABLE.iter().map(|(w,_)|s.native_detached.contains(w)).collect();
-    let frames:Vec<_>=DETACHABLE.iter().map(|(w,_)|s.native_frames.iter().find(|(k,_)|k==w).map(|(_,f)|serde_json::json!([f.pos.0,f.pos.1,f.size.0,f.size.1,f.max]))).collect();
+    let detached:Vec<_>=DETACHABLE.iter().take(5).map(|(w,_)|s.native_detached.contains(w)).collect();
+    let frames:Vec<_>=DETACHABLE.iter().take(5).map(|(w,_)|s.native_frames.iter().find(|(k,_)|k==w).map(|(_,f)|serde_json::json!([f.pos.0,f.pos.1,f.size.0,f.size.1,f.max]))).collect();
     serde_json::json!({"version":1,"attached_mixer":s.playlist.attached,"windows":wins,"rack":[s.rack_pos.0,s.rack_pos.1,s.rack_size.0,s.rack_size.1,s.shown(Win::ChannelRack)],"editors":editors,"detached":detached,"frames":frames})
 }
 pub fn write_project_layout(file:&mut os_flp::FlpFile,value:serde_json::Value){
@@ -355,10 +355,12 @@ pub fn restore_project_layout(s:&mut State){
     s.playlist.attached=None;
     let Some(v)=project_layout(s)else{return};
     s.playlist.attached=serde_json::from_value(v["attached_mixer"].clone()).ok();
-    if let Some(flags)=v["detached"].as_array().filter(|a|a.len()==WINS.len() || a.len()==DETACHABLE.len()) {
+    if let Some(flags)=v["detached"].as_array().filter(|a|(3..=DETACHABLE.len()).contains(&a.len())) {
         s.native_layout_generation=s.native_layout_generation.wrapping_add(1);
+        let score = s.native_detached.contains(&Win::Score);
         s.native_detached=DETACHABLE.iter().zip(flags).filter(|(_,on)|on.as_bool()==Some(true)).map(|((w,_),_)|*w).collect();
-        s.native_frames.clear();
+        if score && !s.native_detached.contains(&Win::Score) { s.native_detached.push(Win::Score); }
+        s.native_frames.retain(|(win, _)| *win == Win::Score);
         for (i,(w,_)) in DETACHABLE.iter().enumerate(){let a=&v["frames"][i];
             let pos=|n:usize|a[n].as_i64().and_then(|v|i32::try_from(v).ok()).filter(|v|v.unsigned_abs()<100000);
             let size=|n:usize|a[n].as_u64().filter(|v|*v>0&&*v<=32768).map(|v|v as u32);

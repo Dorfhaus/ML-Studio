@@ -11,6 +11,40 @@ pub fn save_routes(b:&mut Vec<u8>,r:[u8;7],spare:bool){
  b[STATE_LEN..STATE_LEN+4].copy_from_slice(b"LSER");
  for (k,v) in r.into_iter().enumerate(){b[STATE_LEN+4+usize::from(spare)*7+k]=v.min(4);}
 }
+const KEY_OFFSET: usize = super::dynamic::STATE_END;
+const KEY_TAG: &[u8; 4] = b"LEQK";
+
+/// The optional external key shared by the ordinary dynamic bands.
+pub fn sidechain_port(bytes: &[u8]) -> usize {
+    if bytes.get(KEY_OFFSET..KEY_OFFSET + 4) == Some(KEY_TAG) {
+        usize::from(bytes.get(KEY_OFFSET + 4).copied().unwrap_or(0))
+    } else {
+        0
+    }
+}
+
+pub fn set_sidechain_port(bytes: &mut Vec<u8>, port: usize) {
+    if port == 0 {
+        if bytes.get(KEY_OFFSET..KEY_OFFSET + 4) == Some(KEY_TAG) {
+            if bytes.len() == KEY_OFFSET + 5 {
+                bytes.truncate(KEY_OFFSET);
+            } else if let Some(value) = bytes.get_mut(KEY_OFFSET + 4) {
+                *value = 0;
+            }
+        }
+        return;
+    }
+    // Initialize the earlier extension before growing through its reserved area.
+    if bytes.len() < KEY_OFFSET {
+        super::dynamic::Config::load(bytes, false).save(bytes, false);
+    }
+    if bytes.len() < KEY_OFFSET + 5 {
+        bytes.resize(KEY_OFFSET + 5, 0);
+    }
+    bytes[KEY_OFFSET..KEY_OFFSET + 4].copy_from_slice(KEY_TAG);
+    bytes[KEY_OFFSET + 4] = port.min(255) as u8;
+}
+
 #[derive(Default)]
 struct DryDelay {line:Vec<f32>,at:usize}
 impl DryDelay {
@@ -23,10 +57,11 @@ fn component(eq:&mut Equalizer,mask:u8,pad:&mut DryDelay,gain:f32,l:&mut[f32],r:
 pub struct RoutedEq {
  eq:[Equalizer;4], params:[i32;PARAMS],opts:Options,routes:[u8;7],ms:bool,split:bool,
  dynamics:super::dynamic::Processor, scratch:[Vec<f32>;2],masks:[u8;4],dry:[DryDelay;4],gain:f32,
+ key_pad:[DryDelay;2], key_scratch:[Vec<f32>;2],
 }
 impl RoutedEq {
  pub fn new(rate:f64,p:&[i32;PARAMS],opts:Options)->Self{
-  let mut s=Self{dynamics:super::dynamic::Processor::new(rate),eq:std::array::from_fn(|_|Equalizer::new(rate,p,opts)),params:*p,opts,routes:[0;7],ms:false,split:false,masks:[0;4],dry:std::array::from_fn(|_|DryDelay::default()),gain:1.,scratch:std::array::from_fn(|_|Vec::with_capacity(8192))};s.refresh();s
+  let mut s=Self{dynamics:super::dynamic::Processor::new(rate),eq:std::array::from_fn(|_|Equalizer::new(rate,p,opts)),params:*p,opts,routes:[0;7],ms:false,split:false,masks:[0;4],dry:std::array::from_fn(|_|DryDelay::default()),gain:1.,key_pad:std::array::from_fn(|_|DryDelay::default()),key_scratch:std::array::from_fn(|_|Vec::with_capacity(8192)),scratch:std::array::from_fn(|_|Vec::with_capacity(8192))};s.refresh();s
  }
  pub fn from_state(b:&[u8],rate:f64)->Option<Self>{
   if b.len()<148{return None;}let p=std::array::from_fn(|i|i32::from_le_bytes(b[4+4*i..8+4*i].try_into().unwrap()));
@@ -45,13 +80,27 @@ impl RoutedEq {
   self.masks=masks;self.gain=(f64::from(self.params[MAIN] as f32*0.01*super::design::db_unit())).exp() as f32;
   self.split=masks[0]!=masks[1];self.ms=masks[2]!=0||masks[3]!=0;
   for(c,e)in self.eq.iter_mut().enumerate(){e.set_options(Options{mask:masks[c],..self.opts});e.set_param(MAIN,if c<2{self.params[MAIN]}else{0});self.dry[c].resize(e.latency());}
+  let latency = self.static_latency();
+  for key in &mut self.key_pad { key.resize(latency); }
  }
- pub fn latency(&self)->usize{self.eq[0].latency()*(if self.ms{2}else{1})+self.dynamics.latency()}
- pub fn reset(&mut self){self.dynamics.reset();for e in &mut self.eq{e.reset();}for d in &mut self.dry{d.line.fill(0.);d.at=0;}}
+ fn static_latency(&self)->usize{self.eq[0].latency()*(if self.ms{2}else{1})}
+ pub fn latency(&self)->usize{self.static_latency()+self.dynamics.latency()}
+ pub fn reset(&mut self){self.dynamics.reset();for e in &mut self.eq{e.reset();}for d in self.dry.iter_mut().chain(&mut self.key_pad){d.line.fill(0.);d.at=0;}}
  pub fn preroll(&mut self){for e in &mut self.eq{e.preroll();}}
  pub fn process(&mut self,l:&mut[f32],r:&mut[f32]){
+  self.process_keyed(l, r, None);
+ }
+ pub fn process_keyed(&mut self,l:&mut[f32],r:&mut[f32],key:Option<(&[f32],&[f32])>){
   self.process_static(l,r);
-  self.dynamics.process(l,r,&super::Settings {bands:std::array::from_fn(|k| super::Band{db:f64::from(self.params[k])/100.,freq:f64::from(self.params[7+k])/65536.,width:f64::from(self.params[14+k])/65536.,kind:self.params[21+k],order:self.params[28+k]}),main_db:0.,mask:self.opts.mask},self.routes);
+  let key = key.map(|(left, right)| {
+      for ((input, padded), delay) in [left, right].into_iter().zip(&mut self.key_scratch).zip(&mut self.key_pad) {
+          padded.clear();
+          padded.extend_from_slice(input);
+          delay.run(padded, 1.0);
+      }
+      (&self.key_scratch[0][..], &self.key_scratch[1][..])
+  });
+  self.dynamics.process_keyed(l,r,&super::Settings {bands:std::array::from_fn(|k| super::Band{db:f64::from(self.params[k])/100.,freq:f64::from(self.params[7+k])/65536.,width:f64::from(self.params[14+k])/65536.,kind:self.params[21+k],order:self.params[28+k]}),main_db:0.,mask:self.opts.mask},self.routes,key);
  }
  fn process_static(&mut self,l:&mut[f32],r:&mut[f32]){
   let n=l.len().min(r.len());let(l,r)=(&mut l[..n],&mut r[..n]);

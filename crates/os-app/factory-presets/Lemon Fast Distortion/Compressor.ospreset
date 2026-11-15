@@ -6,3 +6,4 @@ Threshold = 0
 Type = 0
 Mix = 104
 Post gain = 93
+Oversampling = 0

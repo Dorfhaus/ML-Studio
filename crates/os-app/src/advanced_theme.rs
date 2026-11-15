@@ -417,9 +417,10 @@ pub fn set_color(text: &str, token: &str, color: Color) -> String {
         return mixer_skin::set_color(text, Scope::Theme, part, token, color);
     }
     let text = fl::set_key(text, &color_key(token), &hex(color));
-    // Authored mixer finishes have fixed colors. Choosing a mixer palette color is
-    // an explicit request to use the editable finish, also for traditional strips.
-    if token.starts_with("mixer_") || token.starts_with("slot") || token == "fader_handle" {
+    // Preserve an explicitly chosen finish. Older themes without a finish keep
+    // their existing palette-renderer migration behavior.
+    if (token.starts_with("mixer_") || token.starts_with("slot") || token == "fader_handle")
+        && fl::get_key(&text, "LemonStudioStyle.mixer").is_none() {
         fl::set_key(&text, "LemonStudioStyle.mixer", "Theme colors")
     } else {
         text

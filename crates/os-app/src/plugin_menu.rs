@@ -166,7 +166,7 @@ fn sync_folder(root: &std::path::Path, list: &[Entry], effect: bool) -> std::io:
     for names in folder_groups(root)?.values() {
         for name in names {
             if let Some(uid)=name.strip_prefix('@') { known.insert(uid.to_owned()); }
-            else { for entry in list.iter().filter(|e|normalized(&e.name)==normalized(name)) {known.insert(entry.uid.clone());} }
+            else { for entry in list.iter().filter(|e|same_plugin_name(name, &e.name)) {known.insert(entry.uid.clone());} }
         }
     }
     let defaults: BTreeMap<String,Vec<String>> = serde_json::from_str(if effect {
@@ -174,7 +174,7 @@ fn sync_folder(root: &std::path::Path, list: &[Entry], effect: bool) -> std::io:
     } else {include_str!("../assets/native-generators-groups.json")}).unwrap_or_default();
     for entry in list {
         if known.contains(&entry.uid) {continue;}
-        let group = defaults.iter().find(|(_,names)|names.contains(&entry.name)).map(|(g,_)|g.as_str()).unwrap_or("Unsorted");
+        let group = defaults.iter().find(|(_,names)|names.iter().any(|name| same_plugin_name(name, &entry.name))).map(|(g,_)|g.as_str()).unwrap_or("Unsorted");
         let dir=root.join(group); std::fs::create_dir_all(&dir)?;
         let label: String=entry.label.chars().map(|c|if c.is_control()||"<>:\"/\\|?*".contains(c){'_'}else{c}).take(90).collect();
         let id=entry.uid.bytes().fold(14695981039346656037u64,|h,b|(h^u64::from(b)).wrapping_mul(1099511628211));
@@ -253,15 +253,20 @@ fn section(s: &State, effect: bool, target: Target, nested: bool) -> Vec<PItem> 
     let personal = personal_groups(effect);
     if s.plugdb.prefs.menu_view == MenuView::Categories {
         let defaults = if effect { include_str!("../assets/native-effects-groups.json") } else { include_str!("../assets/native-generators-groups.json") };
-        let groups: BTreeMap<String, Vec<String>> = personal.unwrap_or_else(|| crate::prefs::text(if effect { "fl_effect_groups" } else { "fl_generator_groups" })
-            .and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_else(|| serde_json::from_str(defaults).unwrap_or_default()));
+        let configured = personal.or_else(|| {
+            crate::prefs::text(if effect { "fl_effect_groups" } else { "fl_generator_groups" })
+                .and_then(|v| serde_json::from_str(&v).ok())
+        });
+        let show_missing = configured.is_some();
+        let groups: BTreeMap<String, Vec<String>> = configured
+            .unwrap_or_else(|| serde_json::from_str(defaults).unwrap_or_default());
         if !groups.is_empty() {
             v.clear();
             let mut used = std::collections::HashSet::new();
             let mut folders = Folder::default();
             for (group, names) in groups {
-                let es: Vec<_> = list.iter().filter(|e| names.iter().any(|n| n.strip_prefix('@').map_or_else(||normalized(n)==normalized(&e.name),|uid|uid==e.uid))).collect();
-                let unavailable: Vec<_> = names.iter().filter(|n|!n.starts_with('@') && !es.iter().any(|e|normalized(n)==normalized(&e.name))).collect();
+                let es: Vec<_> = list.iter().filter(|e| names.iter().any(|n| n.strip_prefix('@').map_or_else(||same_plugin_name(n, &e.name),|uid|uid==e.uid))).collect();
+                let unavailable: Vec<_> = names.iter().filter(|n|show_missing && !n.starts_with('@') && !es.iter().any(|e|same_plugin_name(n, &e.name))).collect();
                 if es.is_empty() && unavailable.is_empty() { continue; }
                 let mut folder = &mut folders;
                 for part in group.split(" / ").filter(|p| !p.is_empty()) { folder = folder.children.entry(part.to_owned()).or_default(); }
@@ -419,16 +424,31 @@ pub fn run(app: &mut App, c: PlugCmd) -> Option<String> {
 /// in view. Lemon Sampler makes an empty sampler channel (hosted on the next tick); any other generator a plugin
 /// channel hosting it. Its plugin window opens once it is hosted.
 pub fn add_generator(app: &mut App, index: usize, after: Option<usize>) -> Option<String> {
+    let route = crate::sample_route::available_insert(&app.state);
+    add_generator_with_route(app, index, after, route)
+}
+
+/// Playlist lanes own the destination and its mixer history.
+pub(crate) fn add_generator_for_playlist(app: &mut App, index: usize) -> Option<String> {
+    add_generator_with_route(app, index, None, None)
+}
+
+fn add_generator_with_route(
+    app: &mut App, index: usize, after: Option<usize>, route: Option<(u16, bool)>,
+) -> Option<String> {
     let d = app.plugins.available.get(index)?.desc.clone();
     let s = &mut app.state;
     let sampler = d.name == crate::plugins::LEMON_SAMPLER && crate::project_plugins::is_builtin(&d);
     // One step, at the bottom (`history::add_channel`) or inserted higher up (`history::insert_channel`).
     let plugin = (!sampler).then_some(index);
     match after.filter(|&r| r + 1 < s.project.channels.len()) {
-        Some(r) => crate::history::insert_channel(s, r + 1, plugin),
-        None => crate::history::add_channel(s, plugin),
+        Some(r) => crate::history::insert_channel(s, r + 1, plugin, route),
+        None => crate::history::add_channel(s, plugin, route),
     }
     let mut ch = if sampler { crate::app::add_channel(&mut s.project) } else { crate::app::add_plugin_channel(&mut s.project, &d.name) };
+    if let Some(route) = route {
+        crate::sample_route::assign(s, ch, route, Some(d.name.clone()));
+    }
     if sampler {
         s.pending_open = Some(ch);
     } else {
@@ -516,6 +536,12 @@ pub fn add_effects(app:&mut App,indices:&[usize],slot:Option<u8>)->Option<String
     if free.len()<indices.len(){return Some(format!("Need {} free effect slots; no effects were added",indices.len()));}
     for (&index,slot)in indices.iter().zip(free){crate::mixer::run(app,crate::mixer::MCmd::AddEffect(slot,index));}
     Some(format!("Added {} effects",indices.len()))
+}
+
+/// Older database links can name the same stock plug-in before it was renamed.
+fn same_plugin_name(saved: &str, installed: &str) -> bool {
+    normalized(saved) == normalized(installed)
+        || normalized(crate::plugins::canonical_name(saved)) == normalized(installed)
 }
 
 pub(crate) fn normalized(s: &str) -> String {
@@ -644,10 +670,11 @@ mod tests {
         let mut canvas=os_ui::Canvas::new(1600,900,1.0).unwrap();
         fn click(app:&mut App,canvas:&mut os_ui::Canvas,action:crate::app::Action) {
             app.paint(canvas,None);
-            let r=app.hits.iter().rev().find(|h|h.action==action).expect("visible clickable menu item").rect;
+            let r=app.hits.iter().rev().find(|h|h.action==action).unwrap_or_else(|| panic!("no visible menu row for {action:?}")).rect;
             app.mouse_move(r.cx(),r.cy());app.mouse_down();app.mouse_up();
         }
         app.state.playlist.popup=Some(original.clone());
+        crate::prefs::set_check(&crate::prefs::HOVER_MENUS, true);
         click(&mut app,&mut canvas,crate::app::Action::PlPopup(parent));
         click(&mut app,&mut canvas,crate::app::Action::PlPopupSub(0));
         click(&mut app,&mut canvas,crate::app::Action::PlPopupDeep(2,0));
@@ -666,6 +693,12 @@ mod tests {
         assert_eq!(app.state.playlist.popup.as_ref().unwrap().cascade,vec![(1,0)]);
         click(&mut app,&mut canvas,crate::app::Action::PlPopupDeep(2,0));
         assert!(app.state.playlist.popup.is_none(),"leaf selection closes the entire cascade");
+        crate::prefs::set_check(&crate::prefs::HOVER_MENUS, false);
+        app.state.playlist.popup = Some(original.clone());
+        click(&mut app, &mut canvas, crate::app::Action::PlPopup(parent));
+        assert_eq!(app.state.playlist.popup.as_ref().unwrap().sub, Some(parent));
+        click(&mut app, &mut canvas, crate::app::Action::PlPopup(parent));
+        assert_eq!(app.state.playlist.popup.as_ref().unwrap().sub, None);
         // Reopen near the right edge: root position stays fixed as deeper menus open.
         let mut edge=original;edge.x=1480.0;app.state.playlist.popup=Some(edge);
         app.act(crate::app::Action::PlPopup(parent));app.paint(&mut canvas,None);

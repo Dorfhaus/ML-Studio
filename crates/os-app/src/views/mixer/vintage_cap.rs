@@ -24,15 +24,20 @@ const CAPS: [(u32, u32); 11] = [
     (0x9cae84, 0x93a17b),
 ];
 
-pub(super) fn for_color(color: Color) -> &'static Sprite {
-    static CAPS_CACHE: [OnceLock<Sprite>; CAPS.len()] = [const { OnceLock::new() }; CAPS.len()];
+pub(super) fn for_color(color: Color) -> std::sync::Arc<Sprite> {
+    static CACHE: OnceLock<std::sync::Mutex<std::collections::BTreeMap<u32, std::sync::Arc<Sprite>>>> = OnceLock::new();
     let key = (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b);
-    let index = CAPS.iter().position(|&(src, _)| src == key).unwrap_or(8);
-    CAPS_CACHE[index].get_or_init(|| render(Color::rgb(CAPS[index].1)))
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(sprite) = cache.get(&key) { return sprite.clone(); }
+    let face = CAPS.iter().find(|&&(src, _)| src == key).map_or(color, |&(_, dst)| Color::rgb(dst));
+    let sprite = std::sync::Arc::new(render(face));
+    if cache.len() >= 64 { cache.clear(); }
+    cache.insert(key, sprite.clone());
+    sprite
 }
 
 fn render(cap: Color) -> Sprite {
-    const SIZE: usize = 96;
+    const SIZE: usize = 192;
     let mut pixels = Vec::with_capacity(SIZE * SIZE * 4);
     for y in 0..SIZE {
         for x in 0..SIZE {

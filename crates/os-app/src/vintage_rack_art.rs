@@ -31,9 +31,10 @@ pub fn step_red_on(c:&mut Canvas,r:Rect) {step(c,r,true,true);}
 pub fn knob(c:&mut Canvas,r:Rect,value:f32) {
     let frame = (value.clamp(0.0, 1.0) * 60.0).round() as usize;
     let bounds = Rect::new(r.x.round(), r.y.round(), r.w, r.h);
-    if crate::vintage_skin::alpha_draw(c, "MixerWheel", frame, bounds) { return; }
+    // Enlarged controls use smooth geometry instead of magnifying the small legacy sprite.
+    if r.w<=22. && crate::vintage_skin::alpha_draw(c, "MixerWheel", frame, bounds) { return; }
     let (cx,cy)=(r.cx(),r.cy());
-    let k=(r.w/22.).min(r.h/24.).min(1.);
+    let k=(r.w/22.).min(r.h/24.);
     c.fill_circle(cx,cy+k,9.5*k,ink(0x263136));
     c.fill_rect_gradient(Rect::new(cx-9.*k,cy-9.*k,18.*k,18.*k),ink(0xaab5b6),ink(0x2a363d),9.*k);
     c.fill_rect_gradient(Rect::new(cx-7.*k,cy-7.*k,14.*k,14.*k),ink(0x74858b),ink(0x27363c),7.*k);

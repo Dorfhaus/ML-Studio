@@ -14,14 +14,16 @@ use os_engine::effects::chorus::{self as dsp, Chorus, Settings};
 use os_ui::Rect;
 
 use crate::params::{leading_number, nearest_rising};
-use crate::{Control, Kind, Mark, Setting, SmallFx, Sound, Spec};
+use crate::{Card, Control, Kind, Mark, Setting, SmallFx, Sound, Spec};
 
 const fn setting(id: &'static str, name: &'static str, k: usize) -> Setting {
     Setting { id, name, range: dsp::RANGES[k], start: dsp::DEFAULTS[k], magnet: None }
 }
 
 /// The settings in the original's order (spec §5).
-pub const SETTINGS: [Setting; dsp::PARAMS] = [
+const QUALITY: usize = dsp::PARAMS;
+const DRY_LEVEL: usize = dsp::PARAMS + 1;
+pub const SETTINGS: [Setting; dsp::PARAMS + 2] = [
     setting("delay", "Delay", dsp::DELAY),
     setting("depth", "Depth", dsp::DEPTH),
     setting("stereo", "Stereo", dsp::STEREO),
@@ -34,6 +36,8 @@ pub const SETTINGS: [Setting; dsp::PARAMS] = [
     setting("cross", "Cross type", dsp::CROSS_TYPE),
     setting("cutoff", "Cross cutoff", dsp::CROSS_CUTOFF),
     setting("wet", "Wet only", dsp::WET_ONLY),
+    Setting { id: "quality", name: "Delay interpolation", range: (0, 1), start: 0, magnet: None },
+    Setting { id: "dry_level", name: "Dry level", range: (0, 1), start: 0, magnet: None },
 ];
 
 /// Editor layout (spec §2), as the original's: a grid of tiles, three across and four down.
@@ -45,7 +49,7 @@ const fn tile(id: &'static str, col: usize, row: usize, caption: &'static str) -
 /// The stored value of each wave's lowest setting, and the top for the last (the typed-in names).
 pub const WAVES: &[(&str, i32)] = &[("ARC", 0), ("SHARP ARC", 342), ("SINES", 683), ("SHARP SINES", 1024)];
 
-const CONTROLS: [Control; 12] = [
+const CONTROLS: [Control; 14] = [
     tile("delay", 0, 0, "DELAY"),
     tile("depth", 1, 0, "DEPTH"),
     tile("stereo", 2, 0, "STEREO"),
@@ -58,6 +62,8 @@ const CONTROLS: [Control; 12] = [
     tile("cross", 0, 3, "CROSS TYPE"),
     tile("cutoff", 1, 3, "CROSS CUTOFF"),
     tile("wet", 2, 3, "WET ONLY"),
+    Control::Choice { id: "quality", x: 16.0, top: 250.0, names: &["Linear", "Cubic HQ"] },
+    Control::Choice { id: "dry_level", x: 151.0, top: 250.0, names: &["Classic dry", "Unity dry"] },
 ];
 
 pub const SPEC: &Spec = &Spec {
@@ -65,12 +71,13 @@ pub const SPEC: &Spec = &Spec {
     word: "CHORUS",
     about: "ML Studio's chorus",
     settings: &SETTINGS,
+    studio_settings: 2,
     version: Some(dsp::VERSION),
     any_version: false,
     fields: &[],
     tail: &[],
-    size: (502, 248),
-    cards: &[],
+    size: (502, 292),
+    cards: &[Card { x0: 8.0, x1: 310.0, y0: 245.0, y1: 287.0, heading: "" }],
     controls: &CONTROLS,
     display: None,
     mark: Mark { x: 494.0, y: 229.0, anchor: 1.0, stacked: false },
@@ -122,6 +129,8 @@ const WAVE_NAMES: [&str; 4] = ["Arc", "Sharp arc", "Sines", "Sharp sines"];
 fn text(k: usize, v: i32) -> String {
     let on = || dsp::switch(dsp::position(k, v));
     match k {
+        QUALITY => if v == 0 { "Linear" } else { "Cubic HQ" }.into(),
+        DRY_LEVEL => if v == 0 { "Classic dry" } else { "Unity dry" }.into(),
         dsp::DELAY => format!("{:.2}ms", delay_ms(v)),
         dsp::DEPTH => format!("{:.2}ms", depth_ms(v)),
         dsp::STEREO => format!("{:.1} deg", stereo_deg(v)),
@@ -137,6 +146,16 @@ fn parse(k: usize, s: &str) -> Option<i32> {
     let range = SETTINGS[k].range;
     let low = s.trim().to_ascii_lowercase();
     match k {
+        QUALITY => match s.trim().to_ascii_lowercase().as_str() {
+            "linear" | "0" => Some(0),
+            "cubic hq" | "1" => Some(1),
+            _ => None,
+        },
+        DRY_LEVEL => match s.trim().to_ascii_lowercase().as_str() {
+            "classic dry" | "0" => Some(0),
+            "unity dry" | "1" => Some(1),
+            _ => None,
+        },
         dsp::DELAY => Some(nearest_rising(range, leading_number(&low)?, delay_ms)),
         dsp::DEPTH => Some(nearest_rising(range, leading_number(&low)?, depth_ms)),
         dsp::STEREO => Some(nearest_rising(range, leading_number(&low)?, stereo_deg)),
@@ -183,6 +202,7 @@ struct ChorusSound(Chorus);
 impl Sound for ChorusSound {
     fn set(&mut self, v: &[i32]) {
         self.0.set(&settings(v));
+        self.0.set_quality(v.get(QUALITY).copied() == Some(1), v.get(DRY_LEVEL).copied() == Some(1));
     }
     fn set_sample_rate(&mut self, rate: u32) {
         self.0.set_sample_rate(rate);
@@ -198,7 +218,9 @@ impl Sound for ChorusSound {
 }
 
 fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
-    Box::new(ChorusSound(Chorus::with_settings(rate, &settings(v))))
+    let mut effect = ChorusSound(Chorus::with_settings(rate, &settings(v)));
+    effect.set(v);
+    Box::new(effect)
 }
 
 pub struct ChorusKind;

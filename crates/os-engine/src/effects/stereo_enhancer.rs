@@ -13,7 +13,7 @@
 
 use os_dsp::glide::{plugin_limit, Glide};
 
-use super::Effect;
+use super::{delay_line::DelayLine, Effect};
 
 /// The settings, in the saved state's order.
 pub const PARAMS: usize = 6;
@@ -115,32 +115,6 @@ pub fn rate_factor(sample_rate: u32) -> f32 {
     (f64::from(sample_rate) / 100000.0) as f32
 }
 
-/// A delay line of exactly `d` samples (empty: zeros).
-#[derive(Clone, Debug, Default)]
-struct Line {
-    buf: Vec<f32>,
-    pos: usize,
-}
-
-impl Line {
-    fn new(d: usize) -> Line {
-        Line { buf: vec![0.0; d], pos: 0 }
-    }
-
-    #[inline]
-    fn run(&mut self, x: f32) -> f32 {
-        if self.buf.is_empty() {
-            return x;
-        }
-        let y = std::mem::replace(&mut self.buf[self.pos], x);
-        self.pos += 1;
-        if self.pos == self.buf.len() {
-            self.pos = 0;
-        }
-        y
-    }
-}
-
 pub struct StereoEnhancer {
     applied: [i32; PARAMS],
     target: [f32; 4],
@@ -148,10 +122,15 @@ pub struct StereoEnhancer {
     limit: f32,
     /// The rate factor in force when the phase offset is set.
     c: f32,
-    line: Line,
+    line: DelayLine<f32>,
     /// The delayed channel: 0 left, 1 right.
     side: usize,
     started: bool,
+    bass_mono_hz: u32,
+    bass_alpha: f32,
+    bass_low: f32,
+    bass_mix: f32,
+    bass_step: f32,
 }
 
 impl StereoEnhancer {
@@ -164,9 +143,14 @@ impl StereoEnhancer {
             gains: start.map(Glide::new),
             limit: plugin_limit(sample_rate),
             c: rate_factor(sample_rate),
-            line: Line::default(),
+            line: DelayLine::new(sample_rate as usize / 2 + 1),
             side: 1,
             started: false,
+            bass_mono_hz: 0,
+            bass_alpha: 0.0,
+            bass_low: 0.0,
+            bass_mix: 0.0,
+            bass_step: 200.0 / sample_rate.max(1) as f32,
         }
     }
 
@@ -202,7 +186,7 @@ impl StereoEnhancer {
     pub fn apply(&mut self, k: usize, v: i32) {
         self.applied[k] = v;
         if k == PHASE {
-            self.line = Line::new(delay_samples(v, self.c));
+            self.line.set_length(delay_samples(v, self.c));
             self.side = if v < 0 { 0 } else { 1 };
         }
         self.target = gains(&self.applied);
@@ -213,16 +197,37 @@ impl StereoEnhancer {
     pub fn set_sample_rate(&mut self, sample_rate: u32) {
         self.limit = plugin_limit(sample_rate);
         self.c = rate_factor(sample_rate);
+        self.line.prepare(sample_rate as usize / 2 + 1);
+        self.bass_step = 200.0 / sample_rate.max(1) as f32;
+        self.update_bass_filter();
+    }
+
+    /// Removes the low frequencies from the side signal, preserving the mono sum.
+    pub fn set_bass_mono(&mut self, hz: i32) {
+        let hz = hz.clamp(0, 250) as u32;
+        if self.bass_mono_hz != hz {
+            self.bass_mono_hz = hz;
+            self.update_bass_filter();
+        }
+    }
+
+    fn update_bass_filter(&mut self) {
+        if self.bass_mono_hz != 0 {
+            let rate = (self.c * 100000.0).max(1.0);
+            self.bass_alpha = 1.0 - (-std::f32::consts::TAU * self.bass_mono_hz as f32 / rate).exp();
+        }
     }
 
     /// The host's flush: every gain at its target at once; the line is left alone.
     pub fn flush(&mut self) {
         self.gains = self.target.map(Glide::new);
+        self.bass_mix = if self.bass_mono_hz == 0 { 0.0 } else { 1.0 };
+        self.bass_low = 0.0;
     }
 
     /// The delay in samples (tests and the editor).
     pub fn delay(&self) -> usize {
-        self.line.buf.len()
+        self.line.len()
     }
 
     /// The gains as they stand (tests).
@@ -233,7 +238,7 @@ impl StereoEnhancer {
     /// Where the delay acts: before the gains (Pre) or after them; with no delay, nowhere.
     fn pre(&self) -> Option<bool> {
         match self.applied[PLACEMENT] {
-            _ if self.line.buf.is_empty() => None,
+            _ if self.line.len() == 0 => None,
             p if p < 0 => None,
             0 => Some(true),
             _ => Some(false),
@@ -261,15 +266,31 @@ impl StereoEnhancer {
         let [mut ll, mut rr, mut rl, mut lr] = [0, 1, 2, 3].map(|k| self.plan(k, n));
         let pre = self.pre();
         let side = self.side;
+        let bass_on = self.bass_mono_hz != 0;
         for (l, r) in frames {
             let mut x = [*l, *r];
             if pre == Some(true) {
-                x[side] = self.line.run(x[side]);
+                x[side] = self.line.push(x[side]);
             }
             let (a, b, c, d) = (ll.next(), rr.next(), rl.next(), lr.next());
             let mut y = [x[0] * a + x[1] * c, x[1] * b + x[0] * d];
             if pre == Some(false) {
-                y[side] = self.line.run(y[side]);
+                y[side] = self.line.push(y[side]);
+            }
+            if bass_on || self.bass_mix > 0.0 {
+                self.bass_mix = if bass_on {
+                    (self.bass_mix + self.bass_step).min(1.0)
+                } else {
+                    (self.bass_mix - self.bass_step).max(0.0)
+                };
+                let s = (y[0] - y[1]) * 0.5;
+                self.bass_low += self.bass_alpha * (s - self.bass_low);
+                let remove = self.bass_low * self.bass_mix;
+                y[0] -= remove;
+                y[1] += remove;
+                if self.bass_mix == 0.0 {
+                    self.bass_low = 0.0;
+                }
             }
             (*l, *r) = (y[0], y[1]);
         }

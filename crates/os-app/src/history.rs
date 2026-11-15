@@ -67,6 +67,7 @@ pub enum Snap {
     ClipFxTargets(Vec<os_model::Automation>,Vec<os_model::InitControl>,Vec<os_model::PeakLink>),
     StackInstrument(Box<RackSide>,usize,Vec<u8>),
     Tempo(f64),
+    Scoring(usize, os_model::timeline::Timeline),
     Ara(usize, Option<String>, Option<Vec<u8>>),
     MixerInsert { n:u16,count:u16,remove:bool,previous:u16,selection:Vec<u16> },
     /// Structural insertion must precede restoring routed channels on redo, and follow their removal on undo.
@@ -120,6 +121,9 @@ pub enum Snap {
     Init(u32, Option<os_model::InitControl>),
     /// All the patterns and the current one (PATTERNS > Split by channel, spec: ui/split-by-channel.md §2).
     Patterns { patterns: Vec<os_model::Pattern>, current: u16 },
+    PatternArrangements(Vec<os_model::Arrangement>),
+    ScoreArrangement(Vec<os_model::Arrangement>, Option<u16>, bool),
+    StaffNotation(usize, Vec<os_model::notation::StaffChange>),
     /// What ADD > Audio clip / Automation clip changes in the rack (`RackSide`).
     Rack(Box<RackSide>),
     /// The rack's rows from a row on, with its groups, filter and selection (`Tail`).
@@ -224,6 +228,7 @@ pub struct Settings {
 /// instruments as the delete found them (row, `Plugins::available` index, saved state), hosted again by an undo.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rows {
+    pub ara_links: Vec<(u16, usize, os_model::SlotPlugin)>,
     pub vocal_edits:Vec<os_model::vocal::Edit>,
     pub audio_edits:Vec<os_model::audio_edit::Document>,
     pub mpe_channels:Vec<(u16,os_model::mpe::Config)>,
@@ -250,6 +255,13 @@ impl Rows {
     pub fn now(s: &State, full: bool, gone: Vec<usize>, back: Vec<(usize, usize, Vec<u8>)>) -> Rows {
         let (p, r) = (&s.project, &s.rack);
         Rows {
+            ara_links: p.mixer.iter().flat_map(|track| {
+                track.slots.iter().enumerate().filter_map(|(index, slot)| {
+                    let slot = slot.as_ref()?;
+                    crate::ara::link_source(slot)?;
+                    Some((track.index, index, slot.clone()))
+                })
+            }).collect(),
             vocal_edits:p.vocal_edits.clone(),
             audio_edits:p.audio_edits.clone(),
             mpe_channels:p.mpe.channels.clone(),
@@ -290,6 +302,18 @@ impl Rows {
         };
         let m = |r: usize| map.get(r).copied().flatten();
         let p = &mut s.project;
+        for track in &mut p.mixer {
+            for slot in &mut track.slots {
+                if slot.as_ref().and_then(crate::ara::link_source).is_some() {
+                    *slot = None;
+                }
+            }
+        }
+        for (track, slot, link) in self.ara_links {
+            if let Some(track) = p.mixer.iter_mut().find(|m| m.index == track) {
+                track.slots[slot] = Some(link);
+            }
+        }
         p.vocal_edits=self.vocal_edits;
         p.audio_edits=self.audio_edits;
         p.mpe.channels=self.mpe_channels;
@@ -411,6 +435,7 @@ impl Snap {
             Snap::AudioEdits(_)=>Snap::AudioEdits(s.project.audio_edits.clone()),
             Snap::Vocals(_)=>Snap::Vocals(s.project.vocal_edits.clone()),
             Snap::AudioWarps(_)=>Snap::AudioWarps(s.project.audio_warps.clone()),
+            Snap::Scoring(i, _) => Snap::Scoring(*i, s.project.arrangements.get(*i).map(|a| a.timeline.clone()).unwrap_or_default()),
             Snap::Tempo(_) => Snap::Tempo(s.tempo),
             Snap::MixerInsert{n,count,remove,..}=>Snap::MixerInsert{n:*n,count:*count,remove:!*remove,previous:s.selected_mixer,selection:s.mixer.sel.clone()},
             Snap::WithMixerInsert{insert,edit}=>Snap::WithMixerInsert{insert:Box::new(insert.now(s)),edit:Box::new(edit.now(s))},
@@ -454,6 +479,10 @@ impl Snap {
             Snap::Sample { row, .. } => Snap::sample(s, *row).unwrap_or_else(|| self.clone()),
             Snap::Channel { row, .. } => Snap::Channel { row: *row, ch: s.project.channels.get(*row).cloned().map(Box::new) },
             Snap::Init(t, _) => Snap::Init(*t, crate::init::entry(s, *t)),
+            Snap::PatternArrangements(_) => Snap::PatternArrangements(s.project.arrangements.clone()),
+            Snap::ScoreArrangement(..) => Snap::ScoreArrangement(s.project.arrangements.clone(), s.project.current_arrangement, s.song_mode),
+            Snap::StaffNotation(i, _) => Snap::StaffNotation(*i, s.project.arrangements.get(*i)
+                .map(|a| a.staff_notation.clone()).unwrap_or_default()),
             Snap::Patterns { .. } => Snap::Patterns { patterns: s.project.patterns.clone(), current: s.pattern },
             Snap::Rack(r) => Snap::Rack(Box::new(RackSide::now(s, r.row))),
             Snap::Tail(t) => Snap::Tail(Box::new(Tail::now(s, t.from))),
@@ -485,6 +514,7 @@ impl Snap {
             Snap::Playlist(_) | Snap::AttachedInstrument{..} => true,
             Snap::Several(v) => v.iter().any(Snap::has_playlist),
             Snap::WithMixerInsert{edit,..}=>edit.has_playlist(),
+            Snap::SampleRoute { sample, .. } => sample.has_playlist(),
             _ => false,
         }
     }
@@ -508,6 +538,17 @@ impl Snap {
                 for clips in p.2.iter_mut().filter_map(|t|t.frozen.as_mut()) {clips.iter_mut().for_each(|c|c.rescale(from,to));}
                 p.1.iter_mut().for_each(|m| m.rescale(from, to));
             }
+            Snap::PatternArrangements(arrangements) | Snap::ScoreArrangement(arrangements, ..) => {
+                for arrangement in arrangements {
+                    arrangement.staff_notation.iter_mut().for_each(|c| c.rescale(from, to));
+                    arrangement.clips.iter_mut().for_each(|c| c.rescale(from, to));
+                    for clips in arrangement.tracks.iter_mut().filter_map(|t| t.frozen.as_mut()) {
+                        clips.iter_mut().for_each(|c| c.rescale(from, to));
+                    }
+                    arrangement.markers.iter_mut().for_each(|m| m.rescale(from, to));
+                    arrangement.timeline.rescale(from, to);
+                }
+            }
             Snap::Patterns { patterns, .. } => {
                 for p in patterns {
                     p.notes.iter_mut().for_each(|n| n.rescale(from, to));
@@ -516,8 +557,11 @@ impl Snap {
                     p.length = p.length.map(|l| os_model::rescale_length(l, from, to));
                 }
             }
+            Snap::Scoring(_, timeline) => timeline.rescale(from, to),
+            Snap::StaffNotation(_, changes) => changes.iter_mut().for_each(|c| c.rescale(from, to)),
             Snap::Several(v) => v.iter_mut().for_each(|x| x.rescale(from, to)),
             Snap::WithMixerInsert{edit,..}=>edit.rescale(from,to),
+            Snap::SampleRoute { sample, .. } => sample.rescale(from, to),
             // A channel or an initial value holds no ticks; a timebase step's are at its own timebase.
             Snap::Knob(..)
             | Snap::ClipFxTargets(..)
@@ -534,7 +578,6 @@ impl Snap {
             | Snap::MixerMoves{..}
             | Snap::MixerMove{..}
             | Snap::InstrumentLanes(..)
-            | Snap::SampleRoute { .. }
             | Snap::ChannelRoute(..)
             | Snap::CutGroups(..)
             | Snap::TrackColor(..)
@@ -585,6 +628,7 @@ impl Snap {
                     a.clips.iter_mut().for_each(|c| c.rescale(from, to));
                     for clips in a.tracks.iter_mut().filter_map(|t|t.frozen.as_mut()) {clips.iter_mut().for_each(|c|c.rescale(from,to));}
                     a.markers.iter_mut().for_each(|m| m.rescale(from, to));
+                    a.timeline.rescale(from, to);
                 }
             }
         }
@@ -615,6 +659,7 @@ impl Snap {
             Snap::Vocals(v)=>s.project.vocal_edits=v,
             Snap::AudioWarps(v)=>s.project.audio_warps=v,
             Snap::Tempo(v) => s.tempo=v,
+            Snap::Scoring(i, timeline) => { if let Some(a) = s.project.arrangements.get_mut(i) { a.timeline = timeline; } }
             Snap::Pattern { number, notes, controls, length } => {
                 let old=s.project.pattern_length(number);
                 s.piano.edit_length=None;
@@ -714,6 +759,19 @@ impl Snap {
                 _ => {}
             },
             Snap::Init(t, e) => crate::init::put(s, t, e),
+            Snap::PatternArrangements(arrangements) => s.project.arrangements = arrangements,
+            Snap::ScoreArrangement(arrangements, active, song_mode) => {
+                s.project.arrangements = arrangements;
+                s.project.current_arrangement = active;
+                s.song_mode = song_mode;
+                crate::playlist::load_view(s);
+                s.piano.dirty = true;
+            }
+            Snap::StaffNotation(i, marks) => {
+                if let Some(a) = s.project.arrangements.get_mut(i) {
+                    a.staff_notation = marks;
+                }
+            }
             Snap::Patterns { patterns, current } => {
                 s.project.patterns = patterns;
                 s.pattern = current;
@@ -1032,9 +1090,10 @@ pub fn load_sample(s: &mut State, row: usize) {
 
 /// Before generator `plugin` (`None`: Lemon Sampler) is added at the bottom of the rack (the plugin picker, F8, Add
 /// one ▸, a generator dropped from the browser): one step, "Add channel"; undone, the channel and its instance go.
-pub fn add_channel(s: &mut State, plugin: Option<usize>) {
+pub fn add_channel(s: &mut State, plugin: Option<usize>, route: Option<(u16, bool)>) {
     let side = RackSide::now(s, s.project.channels.len());
-    record(s, ADD_CHANNEL, Snap::Generator(Box::new(side), plugin));
+    let edit = Snap::Generator(Box::new(side), plugin);
+    record(s, ADD_CHANNEL, crate::sample_route::with_route(edit, route));
 }
 
 /// Before channel rows `gone` are deleted (the channel menu's Delete..., Delete on the rack, Purge unused audio
@@ -1050,9 +1109,9 @@ pub fn delete_channels(s: &mut State, mut gone: Vec<usize>, back: Vec<(usize, us
 /// Before generator `plugin` (`None`: Lemon Sampler) is inserted as rack row `row`, above the last (a channel's Insert
 /// ▸): one step, "Add channel", holding the rack as it is; undone, the channel and its instance go and the rows under
 /// it move back up, redone, it comes back and its generator starts from its defaults.
-pub fn insert_channel(s: &mut State, row: usize, plugin: Option<usize>) {
+pub fn insert_channel(s: &mut State, row: usize, plugin: Option<usize>, route: Option<(u16, bool)>) {
     let snap = Snap::Insert(Box::new(Rows::now(s, false, vec![row], Vec::new())), plugin);
-    record(s, ADD_CHANNEL, snap);
+    record(s, ADD_CHANNEL, crate::sample_route::with_route(snap, route));
 }
 
 /// Before Replace ▸ puts generator `plugin` (`None`: Lemon Sampler) on rack row `row`: one step, "Replace channel",
@@ -1459,13 +1518,13 @@ mod tests {
         click_step(&mut app, 1, 1);
         let two = steps(&app);
         assert!(start != one && one != two);
-        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true), entry("Redo", "Ctrl+Alt+Z", false)]);
+        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true), entry("Redo", "Ctrl+Alt+Z", false), entry("Undo history", "", true)]);
         ctrl_z(&mut app);
         assert_eq!(steps(&app), one, "the second click undone");
-        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true), entry("Redo step seq edit", "Ctrl+Alt+Z", true)]);
+        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true), entry("Redo step seq edit", "Ctrl+Alt+Z", true), entry("Undo history", "", true)]);
         ctrl_z(&mut app);
         assert_eq!(steps(&app), start, "then the first");
-        assert_eq!(edit_menu(&app), [entry("Undo", "Ctrl+Z", false), entry("Redo step seq edit", "Ctrl+Alt+Z", true)]);
+        assert_eq!(edit_menu(&app), [entry("Undo", "Ctrl+Z", false), entry("Redo step seq edit", "Ctrl+Alt+Z", true), entry("Undo history", "", true)]);
         ctrl_z(&mut app);
         assert_eq!((steps(&app), app.state.message.as_deref()), (start.clone(), Some("Nothing to undo")), "a third does nothing");
         ctrl_alt_z(&mut app);
@@ -1489,13 +1548,13 @@ mod tests {
         let one = steps(&app);
         click_step(&mut app, 1, 1);
         let two = steps(&app);
-        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true)]);
+        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true), entry("Undo history", "", true)]);
         ctrl_z(&mut app);
         assert_eq!(steps(&app), one, "undid the second click");
-        assert_eq!(edit_menu(&app), [entry("Redo step seq edit", "Ctrl+Z", true)]);
+        assert_eq!(edit_menu(&app), [entry("Redo step seq edit", "Ctrl+Z", true), entry("Undo history", "", true)]);
         ctrl_z(&mut app);
         assert_eq!(steps(&app), two, "redid it");
-        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true)]);
+        assert_eq!(edit_menu(&app), [entry("Undo step seq edit", "Ctrl+Z", true), entry("Undo history", "", true)]);
         ctrl_z(&mut app);
         assert_eq!(steps(&app), one, "undid it again");
         ctrl_alt_z(&mut app);
@@ -1535,7 +1594,7 @@ mod tests {
     #[test]
     fn edit_menu_with_no_history() {
         let app = App::new(None);
-        assert_eq!(edit_menu(&app), [entry("Undo", "Ctrl+Z", false)]);
+        assert_eq!(edit_menu(&app), [entry("Undo", "Ctrl+Z", false), entry("Undo history", "", true)]);
     }
 
     /// Undo knob tweaks: on, a turn of a channel knob is a step and Ctrl+Z puts the knob back, the click before it

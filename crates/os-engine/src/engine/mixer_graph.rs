@@ -227,6 +227,11 @@ impl Engine {
                 if !self.pdc.delivered {
                     self.params.deliver_slots(t, &self.tracks[t].effects);
                 }
+                if self.capture_master_input && t == 0 {
+                    let input = std::mem::take(&mut self.bus[t]);
+                    self.capture_mix_track(t, frames, &input);
+                    self.bus[t] = input;
+                }
                 let mut job = self.parallel.jobs[t].take().expect("idle mixer job");
                 job.track = t;
                 job.keys
@@ -297,7 +302,9 @@ impl Engine {
             k.clear();
             k.extend_from_slice(&job.buf);
         }
-        self.capture_mix_track(t, frames, &job.buf);
+        if !self.capture_master_input || t != 0 {
+            self.capture_mix_track(t, frames, &job.buf);
+        }
         self.missed += job.missed;
         self.parallel.cost[t] = job.elapsed;
         self.parallel.done[t] = true;

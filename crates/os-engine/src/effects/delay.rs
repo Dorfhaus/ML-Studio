@@ -91,6 +91,7 @@ pub const FILTER_OFF: i32 = 3;
 /// The saved state: the version, then the 26 settings.
 pub const VERSION: i32 = 1;
 pub const STATE_LEN: usize = 108;
+pub const CLEAN_ECHO_TAG: &[u8; 8] = b"MLDLHQ01";
 
 /// The settings that move to a new value in steps (the others take effect at once).
 const SMOOTHED: [bool; PARAMS] = {
@@ -259,6 +260,18 @@ impl Ring {
         (1.0 - f) * self.buf[i & m] + f * self.buf[i.wrapping_sub(1) & m]
     }
     #[inline]
+    fn read_clean(&self, delay: f32) -> f32 {
+        if !(2.0..(self.buf.len() - 2) as f32).contains(&delay) {
+            return self.read(delay);
+        }
+        let mask = self.buf.len() - 1;
+        let whole = delay as usize;
+        let index = self.pos.wrapping_sub(whole);
+        let at = |offset: usize| self.buf[index.wrapping_sub(offset) & mask];
+        super::interpolation::cubic(at(usize::MAX), at(0), at(1), at(2), delay - whole as f32)
+    }
+
+    #[inline]
     fn write(&mut self, v: f32) {
         let m = self.buf.len() - 1;
         self.buf[self.pos] = ftz(v);
@@ -294,8 +307,8 @@ impl OnePole {
 }
 
 /// The feedback high pass: 10 Hz, always designed for 44100 Hz.
-fn high_pass_10hz() -> OnePole {
-    let w = (1.0f64 / 44100.0) as f32 * std::f32::consts::PI;
+fn high_pass_10hz(rate: f64) -> OnePole {
+    let w = (1.0f64 / rate) as f32 * std::f32::consts::PI;
     let t = (f64::from(w) * 10.0).tan() as f32;
     let b0 = 1.0 / (t + 1.0);
     OnePole { b0, b1: -b0, a1: -(t - 1.0) / (t + 1.0), ..OnePole::default() }
@@ -512,6 +525,7 @@ pub struct Delay {
     /// All-pass rings per side and set.
     allpass: [[Ring; 2]; 2],
     hp: [OnePole; 2],
+    clean_echo: bool,
     svf: [Svf; 2],
     svf_k: SvfCoefs,
     tone: [OnePole; 2],
@@ -595,7 +609,8 @@ impl Delay {
             lines: [ring(), ring()],
             inputs: [ring(), ring()],
             allpass: [[ap(), ap()], [ap(), ap()]],
-            hp: [high_pass_10hz(); 2],
+            hp: [high_pass_10hz(44100.0); 2],
+            clean_echo: false,
             svf: [Svf::default(); 2],
             svf_k: SvfCoefs::default(),
             tone: [OnePole::default(); 2],
@@ -626,7 +641,9 @@ impl Delay {
     }
 
     pub fn from_state(state: &[u8], sample_rate: u32) -> Option<Delay> {
-        Some(Delay::with_settings(sample_rate, &Settings::from_state(state)?, 120.0))
+        let mut delay = Delay::with_settings(sample_rate, &Settings::from_state(state)?, 120.0);
+        delay.set_clean_echo(state.ends_with(CLEAN_ECHO_TAG));
+        Some(delay)
     }
 
     /// The stored values applied last.
@@ -683,7 +700,25 @@ impl Delay {
         self.reset();
     }
 
+    /// Makes the feedback DC blocker rate-correct and uses cubic echo interpolation.
+    pub fn set_clean_echo(&mut self, clean_echo: bool) {
+        if self.clean_echo != clean_echo {
+            self.clean_echo = clean_echo;
+            self.update_high_pass();
+        }
+    }
+
+    fn update_high_pass(&mut self) {
+        let fresh = high_pass_10hz(if self.clean_echo { self.rate } else { 44100.0 });
+        for filter in &mut self.hp {
+            (filter.b0, filter.b1, filter.a1) = (fresh.b0, fresh.b1, fresh.a1);
+        }
+    }
+
     fn rate_changed(&mut self) {
+        if self.clean_echo {
+            self.update_high_pass();
+        }
         let rate = self.rate;
         self.k = (1.0 - 0.01f64.powf(1.0 / (rate * 0.005))) as f32;
         self.depth_c = (1.0 - 0.01f64.powf(1.0 / (0.1 * rate))) as f32;
@@ -959,7 +994,11 @@ impl Delay {
     #[inline]
     fn tap(&self, ring: &Ring, i: usize, sway: f32, mono: bool) -> f32 {
         let d = |s: &Set| if mono { s.live[i] as f32 + sway } else { (f64::from(sway) + s.live[i]) as f32 };
-        ring.read(d(&self.sets[0])) * self.gains[0] + ring.read(d(&self.sets[1])) * self.gains[1]
+        let read = |set: &Set| {
+            let delay = d(set);
+            if self.clean_echo { ring.read_clean(delay) } else { ring.read(delay) }
+        };
+        read(&self.sets[0]) * self.gains[0] + read(&self.sets[1]) * self.gains[1]
     }
 
     /// The diffusion all-passes of `side`, one per set, added by the sets' gains.

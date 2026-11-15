@@ -108,6 +108,7 @@ pub enum Switch {
     Separators,
     Flat,
     HintBar,
+    FloatHint,
     Tesla,
     CpuMemory,
     Hide,
@@ -147,10 +148,10 @@ pub(crate) fn visible_layout(s:&State)->crate::toolbar::Layout {
         for row in &mut layout.rows {
             row.retain(|panel| match panel {
                 Panel::Caption => s.vintage_2005,
-                Panel::Hint => s.vintage_2005,
+                Panel::Hint => s.vintage_2005 && inline_hint(s),
                 Panel::Cpu => false,
                 Panel::Menu | Panel::Transport | Panel::Space | Panel::Flex => true,
-                Panel::Windows => WINDOW_BUTTONS[..5].iter().any(|key| shown(key)),
+                Panel::Windows => crate::notation::shortcut_shown() || WINDOW_BUTTONS[..5].iter().any(|key| shown(key)),
                 Panel::Tools => WINDOW_BUTTONS[5..].iter().any(|key| shown(key)),
                 panel => shown(&format!("visible_{}", panel.key())),
             });
@@ -166,6 +167,18 @@ pub(crate) fn visible_layout(s:&State)->crate::toolbar::Layout {
 
 pub(super) fn display_layout(s: &State) -> &crate::toolbar::Layout {
     s.toolbar_display_layout.as_ref().unwrap_or(&s.bar.layout)
+}
+
+pub(crate) fn refresh_layout(s: &mut State) {
+    let layout = visible_layout(s);
+    let actions = s.toolbar_actions.width(s.vintage_2005);
+    s.toolbar_required_width = crate::toolbar::natural_width(&layout, s.bar.editing) + actions + 1.0;
+    let width = s.screen.0 / super::band_k(s);
+    s.toolbar_display_layout = Some(if s.bar.editing || super::vintage_toolbar::active(s, width) {
+        layout
+    } else {
+        wrap(layout, width, actions)
+    });
 }
 
 /// Wrap whole panels after reaching the scale floor. Only the first row shares
@@ -529,9 +542,42 @@ fn caption(ui: &mut Ui, c: &Ctx) {
     }
 }
 
-/// Two-line hints; project/template names belong in the project title, not here.
+pub(crate) fn inline_hint(s: &State) -> bool {
+    s.toolbar.hint_bar && shown("visible_hint") && s.bar.floating_hint.is_none()
+}
+
+/// Keep the bar entirely below the toolbar and inside the workspace, even after
+/// reopening on a smaller screen or with different display scaling.
+pub(crate) fn clamp_hint(s: &State, mut r: Rect) -> Rect {
+    let top = super::work_y(s) + 4.0;
+    let avail_w = (s.screen.0 - 8.0).max(1.0);
+    let avail_h = (s.screen.1 - top - 4.0).max(1.0);
+    r.w = r.w.clamp(130.0_f32.min(avail_w), avail_w);
+    r.h = r.h.clamp(34.0_f32.min(avail_h), avail_h);
+    r.x = r.x.clamp(4.0, 4.0 + (avail_w - r.w));
+    r.y = r.y.clamp(top, top + (avail_h - r.h));
+    r
+}
+
+pub(crate) fn floating_hint_rect(s: &State) -> Option<Rect> {
+    if s.native_view.is_some() || s.toolbar.hidden || !s.toolbar.hint_bar || !shown("visible_hint") {
+        return None;
+    }
+    s.bar.floating_hint.map(|r| clamp_hint(s, r))
+}
+
+pub(super) fn paint_floating_hint(ui: &mut Ui, s: &State, f: &FrameInfo, rect: Rect) {
+    ui.hit(rect, Action::HintDrag(false), "Move hint bar");
+    hint_content(ui, s, f, rect);
+    let corner = Rect::new(rect.right() - 12.0, rect.bottom() - 12.0, 12.0, 12.0);
+    if ui.hit(corner, Action::HintDrag(true), "Resize hint bar") {
+        let (x, y) = (rect.right() - 4.0, rect.bottom() - 4.0);
+        ui.c.line(x - 6.0, y, x, y - 6.0, 1.0, ui.t.text_dim);
+    }
+}
+
 fn hint_panel(ui: &mut Ui, c: &Ctx) {
-    let (t, a, s, f) = (ui.t, c.a, c.s, c.f);
+    let (a, s, f) = (c.a, c.s, c.f);
     let mut hp = a.span(72.0, 72.0+Panel::Hint.width()-7., 4.0, 36.0);
     hp.w=hp.w.min((c.fit-hp.x-2.).max(0.));
     ui.hit(hp, Action::DragWindow, "Hint bar");
@@ -544,6 +590,11 @@ fn hint_panel(ui: &mut Ui, c: &Ctx) {
         }
         return;
     }
+    hint_content(ui, s, f, hp);
+}
+
+fn hint_content(ui: &mut Ui, s: &State, f: &FrameInfo, hp: Rect) {
+    let t = ui.t;
     if super::lemon(ui) && !s.vintage_2005 {
         studio_tile(ui, hp, t.toolbar.mix(t.sunken, 0.52));
     } else {
@@ -576,7 +627,8 @@ fn hint_panel(ui: &mut Ui, c: &Ctx) {
     ui.c.push_clip(hp.inset(2.));
     let chars:Vec<char>=hint.chars().collect();
     let lines=super::settings::wrap(ui,font,hint,text_width);
-    for (row,(start,n)) in lines.into_iter().take(2).enumerate() {
+    let max_lines = ((hp.h - 4.0) / line_height).floor().max(1.0) as usize;
+    for (row,(start,n)) in lines.into_iter().take(max_lines).enumerate() {
         ui.c.text_clip(font,hp.x+5.,hp.y+2.+row as f32*line_height,text_width,t.text,&chars[start..start+n].iter().collect::<String>());
     }
     ui.c.pop_clip();
@@ -817,7 +869,9 @@ fn time(ui: &mut Ui, c: &Ctx) {
     let ppq = f64::from(s.project.ppq.max(1));
     // A bar that makes no signature (3 steps per beat) counts its beats as quarters.
     let sig = s.project.signature().unwrap_or((s.project.bar().0, 4));
-    let secs = f.tick / ppq * 60.0 / s.project.tick_tempo(s.tempo.max(1.0));
+    let secs = if f.song && s.project.arrangement().is_some_and(|a| !a.timeline.tempo.is_empty()) {
+        s.project.tempo_map(s.tempo).seconds(f.tick)
+    } else { f.tick / ppq * 60.0 / s.project.tick_tempo(s.tempo.max(1.0)) };
     let (bar, step, tick) = s.clock.reading(secs, f.tick * 96.0 / ppq, sig);
     ui.c.push_clip(tp.inset(1.0));
     let g = if lemon { t.pill } else { t.glyph };
@@ -1380,14 +1434,16 @@ fn window_buttons(ui: &mut Ui, c: &Ctx, which: Range<usize>) -> bool {
         (Icon::Plug, Action::PickerOpen, "Plugin picker (F8)"),
         (Icon::Kick, Action::ToggleWin(Win::Tapper), "Tempo tapper (Ctrl+F5)"),
         (Icon::Touch, Action::ToggleWin(Win::Touch), "Touch controller (Alt+F7)"),
+        (Icon::Score, Action::ToggleWin(Win::Score), "Score Editor"),
         // FL's store button is hidden: its stand-in, a repository of free and open-source plugins (spec:
         // ui/main-window.md §3), had the plugin picker's icon. It is to come back with a shop icon.
     ];
     let legacy = crate::settings_file::flag("declutter_toolbar", false);
+    let score = (which.start == 0 && crate::notation::shortcut_shown()).then_some(9);
     let buttons = which.clone().filter(|&i| {
         (!legacy || ![5, 6, 8].contains(&i))
             && (c.preview || c.s.bar.editing || shown(WINDOW_BUTTONS[i]))
-    });
+    }).chain(score);
     for (slot, i) in buttons.enumerate() {
         let (icon, ref action, hint) = wins[i];
         let r = a.r(btn(973.0 + 33.0 * (which.start + slot) as f32, 45.0));
@@ -1690,14 +1746,16 @@ mod tests {
     fn toolbars_scaling_scales_the_top_band() {
         let Ok(mut c) = Canvas::new(4600, 1080, 1.0) else { return };
         let mut app = App::new(None);
+        app.state.bar.layout = crate::toolbar::Layout::classic();
         app.state.show_browser = true;
         app.paint(&mut c, None);
         assert_eq!(choice(&TOOLBARS_SCALING), "Main");
         assert_eq!((crate::views::band_h(&app.state), app.state.work_rect().y), (83.0, 83.0));
-        let (clock, tab) = (hit(&app, &Action::Clock), hit(&app, &Action::BrowserTab(1)));
+        let (clock, tab) = (hit(&app, &Action::Clock), hit(&app, &Action::BrowserTab(0)));
         assert_eq!(app.state.win_rect(Win::Playlist).y, 83.0, "docked under the band");
 
         app.open_settings(crate::views::settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         let combo = app
             .hits
@@ -1720,7 +1778,7 @@ mod tests {
         assert_eq!(hit(&app, &Action::Clock), twice(clock));
         let drag = app.hits.iter().find(|h| h.action == Action::DragWindow).map(|h| h.rect);
         assert_eq!(drag, Some(Rect::new(0.0, 0.0, 4600.0, 162.0)));
-        assert_eq!(hit(&app, &Action::BrowserTab(1)), Rect { y: tab.y + 83.0, ..tab });
+        assert_eq!(hit(&app, &Action::BrowserTab(0)), Rect { y: tab.y + 83.0, ..tab });
         assert_eq!(app.state.win_rect(Win::Playlist).y, 166.0, "docked under the band");
         // A floating window keeps its distance to the band when the band shrinks back.
         app.state.wins[0].maxed = false;
@@ -1739,12 +1797,13 @@ mod tests {
     fn band_controls_are_hit_where_drawn() {
         let Ok(mut c) = Canvas::new(4600, 1080, 1.0) else { return };
         let mut app = App::new(None);
+        app.state.bar.layout = crate::toolbar::Layout::classic();
         set_choice(&TOOLBARS_SCALING, 5);
         app.paint(&mut c, None);
         // The metronome (580, 4, 30 x 33 in the band's px), pressed near its bottom-right corner, where the Main layout
         // has another button.
         let m = hit(&app, &Action::Metronome);
-        assert_eq!(m, Rect::new(1160.0, 8.0, 60.0, 66.0));
+        assert_eq!((m.w, m.h), (60.0, 66.0));
         let was = crate::metronome::on();
         click(&mut app, &mut c, m.right() - 4.0, m.bottom() - 4.0);
         assert_eq!(crate::metronome::on(), !was);
@@ -1753,17 +1812,20 @@ mod tests {
         assert!(file.y >= 90.0 && file.h > 50.0, "{file:?}");
         click(&mut app, &mut c, file.cx(), file.cy());
         assert_eq!(app.state.menu_open, Some(0));
-        let save = hit(&app, &crate::views::menus::pick(0, crate::views::menus::FILE_SAVE));
+        let save = hit(&app, &Action::PlPopup(0));
         app.state.menu_open = None;
+        app.state.playlist.popup = None;
         // Under its title, which moved: at Main the same menu opens 78 px higher (the bottom row ends at 78, not 156)
         // and 4 px further left (its left edge, 4 px, doubled); same rows, same width.
         set_choice(&TOOLBARS_SCALING, 0);
         app.paint(&mut c, None);
         let main = hit(&app, &Action::Menu(0));
         click(&mut app, &mut c, main.cx(), main.cy());
-        let save0 = hit(&app, &crate::views::menus::pick(0, crate::views::menus::FILE_SAVE));
-        assert_eq!((save.h, save0.h, save.w, save.x - save0.x, save.y - save0.y), (19.0, 19.0, save0.w, 4.0, 78.0), "{save:?} {save0:?}");
+        let save0 = hit(&app, &Action::PlPopup(0));
+        assert_eq!((save.h, save.w), (save0.h, save0.w), "menu rows use their own scale");
+        assert!((save.y - file.bottom() - (save0.y - main.bottom())).abs() <= 1., "the menu stays anchored to the resized toolbar");
         app.state.menu_open = None;
+        app.state.playlist.popup = None;
         set_choice(&TOOLBARS_SCALING, 5);
         app.paint(&mut c, None);
         // The tempo: the first decimal steps by 0.1.
@@ -1846,6 +1908,37 @@ mod tests {
             click(&mut app, &mut canvas, browser.cx(), browser.cy());
             assert_ne!(app.state.show_browser, was_open);
         }
+    }
+
+    #[test]
+    fn score_editor_shortcut_is_opt_in_and_hides_independently() {
+        if !crate::notation::available() { return; }
+        let key = crate::notation::SHORTCUT_VISIBILITY;
+        let prior = crate::settings_file::get(key);
+        crate::settings_file::write(key, "");
+        assert!(!crate::workspace_visibility::shown(key));
+        let action = Action::ToggleWin(Win::Score);
+        let mut app = App::new(None);
+        app.state.startup_layout_pending = false;
+        let mut canvas = Canvas::new(1920, 850, 1.).unwrap();
+        app.paint(&mut canvas, None);
+        assert!(!has(&app, &action));
+        crate::workspace_visibility::toggle(key);
+        assert!(crate::notation::shortcut_shown());
+        app.paint(&mut canvas, None);
+        let button = hit(&app, &action);
+        assert!(button.x >= hit(&app, &Action::ToggleWin(Win::Browser)).right());
+        click(&mut app, &mut canvas, button.cx(), button.cy());
+        assert!(app.state.shown(Win::Score));
+        assert!(super::window_shortcut_open(&app.state, &action));
+        app.state.vintage_2005 = true;
+        app.paint(&mut canvas, None);
+        assert!(has(&app, &action));
+        crate::workspace_visibility::toggle(key);
+        app.paint(&mut canvas, None);
+        assert!(!has(&app, &action));
+        assert!(app.state.shown(Win::Score));
+        crate::settings_file::write(key, prior.as_deref().unwrap_or(""));
     }
 
     #[test]

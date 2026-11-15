@@ -1777,6 +1777,7 @@ pub const SPEC: &Spec = &Spec {
     word: "WAVE",
     about: "ML Wave — wavetable synthesis / verified reference oscillator / embedded WAV tables",
     settings: &SETTINGS,
+    studio_settings: 0,
     version: Some(1),
     any_version: false,
     fields: &[],

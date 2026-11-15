@@ -102,6 +102,7 @@ pub struct LemonEq {
     /// Monitor (0 off, 1 input, 2 output) and input (1 Mid, 2 Side, 3 Left, 4 Right), read with the options.
     monitor: (u8, i32),
     extra_seen: u64,
+    external_key: bool,
     feed: Vec<f32>,
 }
 
@@ -123,6 +124,7 @@ impl Default for LemonEq {
             latency: 0,
             monitor: (2, 1),
             extra_seen: u64::MAX,
+            external_key: false,
             feed: Vec::new(),
         }
     }
@@ -138,6 +140,7 @@ impl LemonEq {
         if let Ok(b) = self.params.extra.try_read() {
             self.opts = Options::from_image(&b);
             self.eq.set_routes(routed::routes(&b,false));
+            self.external_key = routed::sidechain_port(&b) != 0;
             self.monitor = (params::byte(&b, params::MONITOR_BYTE), params::opt(&b, params::Opt::MonitorInput));
             self.extra_seen = v;
         }
@@ -158,8 +161,8 @@ impl LemonEq {
         }
     }
 
-    fn process_eq(&mut self, left: &mut [f32], right: &mut [f32], solo: Option<usize>) {
-        self.eq.process(left, right);
+    fn process_eq(&mut self, left: &mut [f32], right: &mut [f32], solo: Option<usize>, key: Option<(&[f32], &[f32])>) {
+        self.eq.process_keyed(left, right, key);
         // Isolate the monitoring range without changing the EQ's routing, enable mask or delay.
         if let Some(k) = solo {
             let band = self.params.settings(self.opts.mask).bands[k];
@@ -198,6 +201,7 @@ impl Plugin for LemonEq {
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: NonZeroU32::new(2),
         main_output_channels: NonZeroU32::new(2),
+        aux_input_ports: &[new_nonzero_u32(2)],
         ..AudioIOLayout::const_default()
     }];
     const SAMPLE_ACCURATE_AUTOMATION: bool = false;
@@ -240,7 +244,7 @@ impl Plugin for LemonEq {
         self.eq.preroll();
     }
 
-    fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, ctx: &mut impl ProcessContext<Self>) -> ProcessStatus {
+    fn process(&mut self, buffer: &mut Buffer, aux: &mut AuxiliaryBuffers, ctx: &mut impl ProcessContext<Self>) -> ProcessStatus {
         let solo = self.shared.solo.load(Ordering::Relaxed);
         let solo = (!self.offline && !EXPORTING.load(Ordering::Relaxed) && (0..7).contains(&solo))
             .then_some(solo as usize);
@@ -263,7 +267,11 @@ impl Plugin for LemonEq {
         let matching=self.shared.gain_match.load(Ordering::Relaxed) && self.shared.editor_open.load(Ordering::Relaxed);
         let input_energy=if matching {gain_match::GainMatch::energy(&out[0][..len],&out[1][..len])}else{0.};
         let (left, right) = out.split_at_mut(1);
-        self.process_eq(&mut left[0][..len], &mut right[0][..len], solo);
+        let key = self.external_key.then(|| aux.inputs.first()).flatten()
+            .map(|input| input.as_slice_immutable())
+            .filter(|sides| sides.len() >= 2)
+            .map(|sides| (&*sides[0], &*sides[1]));
+        self.process_eq(&mut left[0][..len], &mut right[0][..len], solo, key);
         self.gain_match.process(input_energy,&mut left[0][..len],&mut right[0][..len],self.sr,matching && solo.is_none());
         if self.shared.editor_open.load(Ordering::Relaxed){
         for (meter,v) in self.shared.dynamics.iter().zip(self.eq.dynamic_meters()){meter.store(v.to_bits(),Ordering::Relaxed);}
@@ -339,20 +347,20 @@ mod audition_tests {
         let (mut left, mut right) = (input.clone(), input.clone());
         let latency = eq.eq.latency();
         let saved = eq.params.extra_copy();
-        eq.process_eq(&mut left, &mut right, Some(k));
+        eq.process_eq(&mut left, &mut right, Some(k), None);
         let at = |hz| (4096..8192).map(|i| f64::from(left[i]) * tone(hz, i)).sum::<f64>().abs();
         assert!(at(center) > 10. * at(distant));
         assert_eq!(eq.params.extra_copy(), saved);
         assert_eq!(eq.eq.latency(), latency);
         left.clone_from(&input);
         right.clone_from(&input);
-        eq.process_eq(&mut left, &mut right, None);
+        eq.process_eq(&mut left, &mut right, None, None);
         let mut normal = LemonEq::default();
         let (mut dry_l, mut dry_r) = (input.clone(), input.clone());
-        normal.process_eq(&mut dry_l, &mut dry_r, None);
+        normal.process_eq(&mut dry_l, &mut dry_r, None, None);
         dry_l.clone_from(&input);
         dry_r.clone_from(&input);
-        normal.process_eq(&mut dry_l, &mut dry_r, None);
+        normal.process_eq(&mut dry_l, &mut dry_r, None, None);
         assert!(left == dry_l && right == dry_r, "normal output changed after audition");
     }
 }

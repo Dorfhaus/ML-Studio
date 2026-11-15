@@ -9,14 +9,29 @@ use std::sync::{
     Arc,
 };
 pub const VISIBILITY: &str = "visible_tesla-cleanup";
-pub fn visible() -> bool {
+pub const DEVERB_VISIBILITY: &str = "visible_tesla-deverb";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    #[default]
+    Denoise,
+    General,
+    Vocal,
+}
+impl Mode {
+    pub fn deverb(self) -> bool { self != Self::Denoise }
+}
+
+pub fn deverb_visible() -> bool { control_visible(DEVERB_VISIBILITY) }
+pub fn visible() -> bool { control_visible(VISIBILITY) }
+fn control_visible(key: &str) -> bool {
     !os_paths::user_file("settings.txt")
         .and_then(|p| std::fs::read_to_string(p).ok())
         .is_some_and(|s| {
             s.lines()
                 .rev()
                 .filter_map(|l| l.split_once('='))
-                .find(|(k, _)| k.trim() == VISIBILITY)
+                .find(|(k, _)| k.trim() == key)
                 .is_some_and(|(_, v)| v.trim() == "0")
         })
 }
@@ -28,6 +43,7 @@ pub struct Profile {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Panel {
+    pub mode: Mode,
     pub reduction: f32,
     pub sensitivity: f32,
     pub busy: bool,
@@ -40,6 +56,7 @@ pub struct Panel {
 impl Default for Panel {
     fn default() -> Self {
         Self {
+            mode: Mode::Denoise,
             reduction: 12.,
             sensitivity: 1.5,
             busy: false,
@@ -199,7 +216,24 @@ pub fn render(
             &inferred
         }
     };
-    let n = profile.n;
+    spectral(s, range, Some(profile), reduction, sensitivity, Mode::Denoise, p)
+}
+
+/// Native adaptation of the weighted prediction error estimator in NARA-WPE.
+/// It uses a delayed complex predictor and a linked magnitude mask to retain
+/// stereo imaging. General mode leaves more of the early decay in place.
+pub fn deverb(s: &Sample, range: (usize, usize), amount: f32, mode: Mode, p: &Progress) -> Result<Sample, String> {
+    validate(s)?;
+    if range.0 > range.1 || range.1 >= s.frames() || !amount.is_finite() || !mode.deverb() {
+        return Err("Invalid Deverb settings or selection.".into());
+    }
+    if amount <= 0.0 { return Ok(s.clone()); }
+    spectral(s, range, None, amount.clamp(0.0, 100.0), 1.0, mode, p)
+}
+
+fn spectral(s: &Sample, range: (usize, usize), profile: Option<&Profile>, reduction: f32, sensitivity: f32, mode: Mode, p: &Progress) -> Result<Sample, String> {
+    let (a, b) = range;
+    let n = profile.map_or_else(|| size(s.rate), |profile| profile.n);
     let hop = n / 4;
     let bins = n / 2 + 1;
     let w = window(n);
@@ -212,6 +246,7 @@ pub fn render(
     let mut im = re.clone();
     let mut gain = vec![1.; bins];
     let mut previous = vec![1.; bins];
+    let mut predictor = mode.deverb().then(|| Prediction::new(bins, s.channels(), mode));
     let first = a as isize - n as isize + hop as isize;
     let total = (b as isize - first) / hop as isize + 1;
     for (step, start) in (first..=b as isize).step_by(hop).enumerate() {
@@ -222,15 +257,19 @@ pub fn render(
             frame(s, c, start, &w, &mut re[c], &mut im[c]);
             fft.run(&mut re[c], &mut im[c]);
         }
-        for k in 0..bins {
-            let power = (0..s.channels())
-                .map(|c| re[c][k] * re[c][k] + im[c][k] * im[c][k])
-                .sum::<f32>()
-                / s.channels() as f32;
-            gain[k] = (1. - profile.power[k] * sensitivity / power.max(1e-20))
-                .max(0.)
-                .sqrt()
-                .max(floor);
+        if let Some(prediction) = &mut predictor {
+            prediction.gains(&re, &im, reduction * 0.01, &mut gain);
+        } else if let Some(profile) = profile {
+            for k in 0..bins {
+                let power = (0..s.channels())
+                    .map(|c| re[c][k] * re[c][k] + im[c][k] * im[c][k])
+                    .sum::<f32>()
+                    / s.channels() as f32;
+                gain[k] = (1. - profile.power[k] * sensitivity / power.max(1e-20))
+                    .max(0.)
+                    .sqrt()
+                    .max(floor);
+            }
         }
         for k in 0..bins {
             let lo = k.saturating_sub(2);
@@ -285,6 +324,66 @@ pub fn render(
     }
     Ok(out)
 }
+// WPE minimizes the inverse-power weighted prediction error in each STFT bin.
+// Reference implementation: https://github.com/fgnt/nara_wpe (MIT).
+struct Prediction {
+    history: Vec<Vec<[f32; 2]>>,
+    covariance: Vec<[f32; 2]>,
+    energy: Vec<f32>,
+    level: Vec<f32>,
+    step: usize,
+    delay: usize,
+    floor: f32,
+}
+
+impl Prediction {
+    fn new(bins: usize, channels: usize, mode: Mode) -> Self {
+        let delay = if mode == Mode::Vocal { 3 } else { 5 };
+        let entries = bins * channels;
+        Self {
+            history: vec![vec![[0.0; 2]; entries]; delay],
+            covariance: vec![[0.0; 2]; entries],
+            energy: vec![0.0; entries],
+            level: vec![0.0; entries],
+            step: 0,
+            delay,
+            floor: if mode == Mode::Vocal { 0.13 } else { 0.28 },
+        }
+    }
+
+    fn gains(&mut self, re: &[Vec<f32>], im: &[Vec<f32>], amount: f32, output: &mut [f32]) {
+        let bins = output.len();
+        let history = &mut self.history[self.step % self.delay];
+        for (k, gain) in output.iter_mut().enumerate() {
+            let mut original = 0.0;
+            let mut residual = 0.0;
+            for c in 0..re.len() {
+                let i = c * bins + k;
+                let (x, y) = (re[c][k], im[c][k]);
+                let [a, b] = std::mem::replace(&mut history[i], [x, y]);
+                let power = x * x + y * y;
+                let delayed = a * a + b * b;
+                self.level[i] = (0.96 * self.level[i]).max(power);
+                let weight = 1.0 / power.max(self.level[i] * 0.05).max(1e-14);
+                let norm = self.energy[i] + 0.04;
+                let [r, j] = self.covariance[i];
+                let dx = x - (r * a - j * b) / norm;
+                let dy = y - (r * b + j * a) / norm;
+                original += power;
+                residual += dx * dx + dy * dy;
+                self.energy[i] = 0.98 * self.energy[i] + 0.02 * weight * delayed;
+                self.covariance[i][0] = 0.98 * r + 0.02 * weight * (x * a + y * b);
+                self.covariance[i][1] = 0.98 * j + 0.02 * weight * (y * a - x * b);
+            }
+            let attenuation = if original > 1e-14 {
+                (residual / original).sqrt().clamp(self.floor, 1.0)
+            } else { 1.0 };
+            *gain = 1.0 + amount * (attenuation - 1.0);
+        }
+        self.step += 1;
+    }
+}
+
 pub enum Outcome {
     Audio(Sample),
     Profile(Profile),
@@ -305,6 +404,43 @@ impl Drop for Job {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn wpe_reduces_predictable_room_tail_and_keeps_channel_polarity() {
+        let rate = 22_050;
+        let len = 48_000;
+        let delay = size(rate) * 3 / 4;
+        let starts: Vec<_> = (500..len - 3 * delay).step_by(2300).collect();
+        let mut signal = vec![0.0; len];
+        let mut seed = 7u32;
+        for &start in &starts {
+            for i in 0..190 {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let dry = ((seed >> 16) as f32 / 32_768.0 - 1.0) * 0.5;
+                signal[start + i] += dry;
+                signal[start + delay + i] += 0.63 * dry;
+                signal[start + 2 * delay + i] += 0.35 * dry;
+            }
+        }
+        let sample = Sample::from_channels(
+            rate,
+            vec![signal.clone(), signal.iter().map(|x| -*x).collect()],
+            Format::Float32,
+        );
+        let progress = Progress::default();
+        let clean = deverb(&sample, (0, len - 1), 80.0, Mode::Vocal, &progress).unwrap();
+        let energy = |audio: &[f32], offset: usize| {
+            starts.iter().skip(8).map(|start| {
+                let at = start + offset;
+                audio[at..at + 190].iter().map(|x| x * x).sum::<f32>()
+            }).sum::<f32>()
+        };
+        let echo_ratio = energy(&clean.ch[0], delay) / energy(&signal, delay);
+        assert!(echo_ratio < 0.9, "echo energy ratio: {echo_ratio}");
+        assert!(energy(&clean.ch[0], 0) > 0.55 * energy(&signal, 0));
+        assert!(clean.ch[0].iter().zip(&clean.ch[1]).all(|(l, r)| l.is_finite() && (*l + *r).abs() < 1e-6));
+        assert_eq!(deverb(&sample, (0, len - 1), 0.0, Mode::General, &progress).unwrap(), sample);
+    }
+
     fn noise(n: usize) -> Vec<f32> {
         let mut seed = 23u32;
         (0..n)

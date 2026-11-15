@@ -122,7 +122,11 @@ pub fn paint(spec: &Spec, c: &mut Canvas, t: &Palette, m: &dyn Model, st: &ViewS
             heading(&mut ui, card.x0, card.x1, card.y0 - 12.0, card.heading);
         }
     }
+    let studio_visible = spec.studio_settings != 0 && os_plugkit::visibility::stock_dsp_controls();
     for control in spec.controls {
+        if !studio_visible && spec.index(control.id()).is_some_and(|k| k >= spec.legacy_settings()) {
+            continue;
+        }
         match *control {
             Control::Knob { id, cx, cy, r, caption, bipolar } => knob(&mut ui, id, cx, cy, r, caption, bipolar),
             Control::Choice { id, x, top, names } => {

@@ -1,0 +1,71 @@
+{
+  "windows": {
+    "url": "https://github.com/mtyas/AudioVisualizer/releases/download/v0.77/AudioVisualizer-0.77-windows.zip",
+    "size": 9488535,
+    "sha256": "ade3b2d8b900a5d8ef129e8c69c743442b58e9963ea6a5cc0dab43d603710823",
+    "prefix": "AudioVisualizer-0.77-windows/",
+    "files": {
+      "AudioVisualizer.clap": {
+        "size": 7706112,
+        "sha256": "4494bbbd74ec21a6d9f507ee2c725ca240b324b27386a3a6b2b0f3b72a431d42",
+        "executable": true
+      },
+      "LICENSE": {
+        "size": 1008,
+        "sha256": "6bcd7008b4a8271ea4a18a8383f8a5d320bbe513833f672d68ab0d0a4010e965",
+        "executable": false
+      }
+    }
+  },
+  "linux": {
+    "url": "https://github.com/mtyas/AudioVisualizer/releases/download/v0.77/AudioVisualizer-0.77-linux.zip",
+    "size": 8249057,
+    "sha256": "6a3f5242077aa9a49af37522799a8a8a903c5662e77fba01491496a05c9373f8",
+    "prefix": "AudioVisualizer-0.77-linux/",
+    "files": {
+      "AudioVisualizer.clap": {
+        "size": 6697208,
+        "sha256": "e3327ee801a060554ecbce48bf2c4d83e45de6ee89e9f364700f540d587f5ef6",
+        "executable": true
+      },
+      "LICENSE": {
+        "size": 986,
+        "sha256": "ff9d2fcd6b1d0d656bace4a5cdfa3b918cbb2deb8e31a354a3038f60983f08d1",
+        "executable": false
+      }
+    }
+  },
+  "macos": {
+    "url": "https://github.com/mtyas/AudioVisualizer/releases/download/v0.77/AudioVisualizer-0.77-macos.zip",
+    "size": 18280067,
+    "sha256": "6fb7f2e39e2640047d3361a599cc6b36f28a19fc83a0f0150fce6d84261360ac",
+    "prefix": "AudioVisualizer-0.77-macos/",
+    "files": {
+      "LICENSE": {
+        "size": 986,
+        "sha256": "ff9d2fcd6b1d0d656bace4a5cdfa3b918cbb2deb8e31a354a3038f60983f08d1",
+        "executable": false
+      },
+      "AudioVisualizer.clap/Contents/MacOS/AudioVisualizer": {
+        "size": 12064096,
+        "sha256": "c72e66cdec0ee1300686bbd0cd9342ceb3471820a3afc859856eccec890048a7",
+        "executable": true
+      },
+      "AudioVisualizer.clap/Contents/Resources/clap.icns": {
+        "size": 17222,
+        "sha256": "4d34e6438e4a3c6bf2a6e8cce56970dcd0e6328acc24983694058c6885e97c72",
+        "executable": false
+      },
+      "AudioVisualizer.clap/Contents/Info.plist": {
+        "size": 958,
+        "sha256": "f23c6db6ed6862d88fe9e8efd89d2f4c814c59c7673a9a2ce300a8bdfd1cd559",
+        "executable": false
+      },
+      "AudioVisualizer.clap/Contents/PkgInfo": {
+        "size": 8,
+        "sha256": "d06a80ba92de0833d0ed03de1b02b7c8913f126d9e8c8931b190765dd5d83b11",
+        "executable": false
+      }
+    }
+  }
+}

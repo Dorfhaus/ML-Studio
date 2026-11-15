@@ -98,6 +98,7 @@ pub struct SoftClipper {
     k: f32,
     r: f32,
     gain: f32,
+    smooth_knee: bool,
 }
 
 impl SoftClipper {
@@ -106,7 +107,7 @@ impl SoftClipper {
     }
 
     pub fn with_settings(s: &Settings) -> SoftClipper {
-        let mut c = SoftClipper { applied: DEFAULTS, t: 0.0, k: 0.0, r: 0.0, gain: 1.0 };
+        let mut c = SoftClipper { applied: DEFAULTS, t: 0.0, k: 0.0, r: 0.0, gain: 1.0, smooth_knee: false };
         c.derive(&s.v);
         c
     }
@@ -133,10 +134,21 @@ impl SoftClipper {
         self.gain = post_gain(v[POST]);
     }
 
+    /// Switches to a knee with continuous curvature at the threshold.
+    pub fn set_smooth_knee(&mut self, enabled: bool) {
+        self.smooth_knee = enabled;
+    }
+
     /// One sample of either channel: the curve, then the post gain unless it is exactly 1.
     #[inline]
     pub fn sample(&self, s: f32) -> f32 {
-        let y = clip(s, self.t, self.k, self.r);
+        let y = if self.smooth_knee && s.abs() > self.t {
+            let distance = s.abs() - self.t;
+            let shaped = if distance.is_infinite() { self.k } else { self.k * (distance / distance.hypot(self.k)) };
+            (self.t + shaped).copysign(s)
+        } else {
+            clip(s, self.t, self.k, self.r)
+        };
         if self.gain != 1.0 { y * self.gain } else { y }
     }
 

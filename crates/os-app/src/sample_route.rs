@@ -86,61 +86,73 @@ fn unused(s: &State, n: u16) -> bool {
         && !s.mixer.recording.inputs.contains_key(&n)
 }
 
-// Capture the route and the sample as a single undo step. Existing inserts keep their names and effects.
+/// Choose an unused insert or append one. Master and the hidden last track are never candidates.
+pub fn available_insert(s: &State) -> Option<(u16, bool)> {
+    if !prefs::check(&prefs::ROUTE_RACK_SAMPLES) || s.project.mixer.len() < 2 {
+        return None;
+    }
+    let last = mixer::inserts(s);
+    (1..=last).find(|&n| unused(s, n)).map(|n| (n, false))
+        .or_else(|| (last < 4093).then(|| (last + 1, true)))
+}
+
+/// Include the insert and its name in the same Undo step as the Rack edit.
+pub fn with_route(edit: Snap, route: Option<(u16, bool)>) -> Snap {
+    match route {
+        Some((route, append)) => Snap::SampleRoute {
+            sample: Box::new(edit), route, name: None, insert: append.then_some(true),
+        },
+        None => edit,
+    }
+}
+
+pub fn assign(s: &mut State, row: usize, route: (u16, bool), name: Option<String>) {
+    let (n, append) = route;
+    if append {
+        let selection = (s.selected_mixer, s.mixer.sel.clone());
+        mixer::add_track(s, None);
+        (s.selected_mixer, s.mixer.sel) = selection;
+    }
+    s.project.channels[row].mixer_track = n;
+    if let Some(track) = mixer::track_mut(s, n) {
+        track.name = name;
+    }
+}
+
 pub fn begin(s: &mut State, existing: Option<usize>, path: &Path) -> usize {
     let row = existing.unwrap_or(s.project.channels.len());
     let route = existing.map_or(0, |r| s.project.channels[r].mixer_track);
-    if !prefs::check(&prefs::ROUTE_RACK_SAMPLES) || route != 0 || s.project.mixer.len() < 2 {
+    let Some(insert) = (route == 0).then(|| available_insert(s)).flatten() else {
         history::load_sample(s, row);
         if existing.is_none() {
             crate::app::add_channel(&mut s.project);
             s.project.channels[row].mixer_track = 0;
         }
         return row;
-    }
-    let free = (1..=mixer::inserts(s)).find(|&n| unused(s, n));
-    let n = free.unwrap_or_else(|| mixer::inserts(s) + 1);
+    };
     let sample = existing.map_or(Snap::Channel { row, ch: None }, |_| {
         Snap::Several(vec![
             Snap::sample(s, row).unwrap(),
             Snap::ChannelRoute(row, route),
         ])
     });
-    history::record(
-        s,
-        history::LOAD_SAMPLE,
-        Snap::SampleRoute {
-            sample: Box::new(sample),
-            route: n,
-            name: None,
-            insert: free.is_none().then_some(true),
-        },
-    );
-    if free.is_none() {
-        let selection = (s.selected_mixer, s.mixer.sel.clone());
-        mixer::add_track(s, None);
-        (s.selected_mixer, s.mixer.sel) = selection;
-    }
+    history::record(s, history::LOAD_SAMPLE, with_route(sample, Some(insert)));
     if existing.is_none() {
         crate::app::add_channel(&mut s.project);
     }
-    s.project.channels[row].mixer_track = n;
-    if let Some(track) = mixer::track_mut(s, n) {
-        track.name = path
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned());
-    }
+    assign(s, row, insert, path.file_stem().map(|stem| stem.to_string_lossy().into_owned()));
     row
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn rack_sample_routing_is_opt_in_and_protects_templates() {
+    fn rack_sample_routing_defaults_on_and_protects_templates() {
         let mut a = crate::app::App::new(None);
         a.state.project = crate::app::default_project();
         a.state.project.mixer[2].name = Some("KICK".into());
-        assert!(!prefs::check(&prefs::ROUTE_RACK_SAMPLES));
+        assert!(prefs::check(&prefs::ROUTE_RACK_SAMPLES));
+        prefs::set_check(&prefs::ROUTE_RACK_SAMPLES, false);
         a.sample_to_channel("snare.wav".into(), None);
         assert_eq!(a.state.project.channels[1].mixer_track, 0);
         prefs::set_check(&prefs::ROUTE_RACK_SAMPLES, true);
@@ -166,6 +178,29 @@ mod tests {
         assert_eq!(a.state.project.mixer, after.mixer);
         assert_eq!(a.state.project.channels, after.channels);
     }
+    #[test]
+    fn rack_instrument_claims_a_spare_insert_and_undoes_with_its_route() {
+        let mut app = crate::app::App::new(None);
+        app.state.project = crate::app::default_project();
+        let highest = mixer::inserts(&app.state);
+        app.state.project.channels[0].mixer_track = highest;
+        app.state.project.mixer[1].name = Some("Vocal bus".into());
+        app.plugins.available = crate::plugins::builtin();
+        let trio = app.plugins.index_of(crate::osc3::LEMON_TRIO).unwrap();
+        let before = app.state.project.clone();
+        crate::plugin_menu::add_generator(&mut app, trio, None);
+        let after = app.state.project.clone();
+        assert_eq!(after.channels[1].mixer_track, 2);
+        assert_eq!(after.mixer[2].name.as_deref(), Some(crate::osc3::LEMON_TRIO));
+        assert_eq!(after.mixer[1], before.mixer[1]);
+        history::undo(&mut app.state).unwrap();
+        assert_eq!(app.state.project.channels, before.channels);
+        assert_eq!(app.state.project.mixer, before.mixer);
+        history::redo(&mut app.state).unwrap();
+        assert_eq!(app.state.project.channels, after.channels);
+        assert_eq!(app.state.project.mixer, after.mixer);
+    }
+
     #[test]
     fn existing_recording_reuses_the_playlist_lane_and_its_routing() {
         let mut a = crate::app::App::new(None);

@@ -1322,6 +1322,33 @@ impl Canvas {
         }
     }
 
+    /// Accumulates an opaque, device-size image over a black destination. Callers keep total
+    /// weights at or below one. The original damage and clip boundaries still apply.
+    pub fn add_opaque_pixmap(&mut self, at: (i32, i32), pixels: &Pixmap, weight: f32) {
+        let factor = (weight.clamp(0., 1.) * 256.).round() as u16;
+        if factor == 0 { return; }
+        let width = pixels.width() as i32;
+        let height = pixels.height() as i32;
+        let dst_width = self.pixmap.width() as usize;
+        for index in 0..self.clip_count() {
+            let (left, top, right, bottom) = self.clip_at(index);
+            let (x0, y0) = (left.max(at.0), top.max(at.1));
+            let (x1, y1) = (right.min(at.0 + width), bottom.min(at.1 + height));
+            if x0 >= x1 || y0 >= y1 { continue; }
+            self.mark(x0, y0, x1, y1);
+            let dest = self.pixmap.data_mut();
+            let src = pixels.data();
+            let count = (x1 - x0) as usize * 4;
+            for y in y0..y1 {
+                let i = (y as usize * dst_width + x0 as usize) * 4;
+                let j = ((y - at.1) as usize * width as usize + (x0 - at.0) as usize) * 4;
+                for (dst, src) in dest[i..i + count].chunks_exact_mut(4).zip(src[j..j + count].chunks_exact(4)) {
+                    for channel in 0..3 { dst[channel] = dst[channel].saturating_add(((u16::from(src[channel]) * factor + 128) >> 8) as u8); }
+                }
+            }
+        }
+    }
+
     /// Filter a straight-alpha material sprite over the current clipped surface.
     /// Used for cached mixer materials; does not bypass damage or viewport clipping.
     pub fn image_rgba(&mut self, r: Rect, w: usize, h: usize, px: &[u8]) {

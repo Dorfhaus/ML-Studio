@@ -255,6 +255,7 @@ impl SkinBank {
 #[derive(Default)]
 pub struct Skin {
     enabled: bool,
+    pub original_knob_colors: u8,
     palette: Option<Palette>,
     layers: [Layer; 5],
 }
@@ -266,6 +267,7 @@ impl Skin {
 
     fn refresh(&mut self, text: &str, scope: Scope, base: &Palette) {
         self.enabled = fl::get_key(text, &scope.key(ENABLED)) == Some("1");
+        self.original_knob_colors = if scope == Scope::Original { Part::Knob.colors().iter().enumerate().fold(0, |mask, (i, (_, token))| if fl::get_key(text, &scope.color_key(token)).is_some() { mask | (1 << i) } else { mask }) } else { 0 };
         let mut palette = base.clone();
         // Start custom components in the selected console's material palette.
         let (cap, rim, face, ink) = match scope {
@@ -422,11 +424,11 @@ pub fn color(text: &str, scope: Scope, token: &str) -> Option<Color> {
 
 pub fn set_color(text: &str, scope: Scope, part: Part, token: &str, color: Color) -> String {
     let value = format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b);
-    use_part(
-        &fl::set_key(text, &scope.color_key(token), &value),
-        scope,
-        part,
-    )
+    let next = fl::set_key(text, &scope.color_key(token), &value);
+    if scope == Scope::Original && part == Part::Knob {
+        return next;
+    }
+    use_part(&next, scope, part)
 }
 
 pub fn edit(text: &str, scope: Scope, part: Part, field: &str, value: u8) -> String {
@@ -901,5 +903,19 @@ pub fn preview(c: &mut Canvas, t: &Palette, skin: &Skin, designer: &Designer, re
             Rect::new(x - 98.0, y - 40.0, 196.0, 80.0),
             state.on,
         ),
+    }
+}
+
+#[cfg(test)]
+mod color_regression_tests {
+    use super::*;
+    #[test]
+    fn recolor_original_preserves_authored_knob() {
+        let text = set_color("", Scope::Original, Part::Knob, "skin_knob_cap", Color::rgb(0x2040ee));
+        let mut skin = Skin::default();
+        skin.refresh(&text, Scope::Original, &Palette::default());
+        assert!(!skin.uses(Part::Knob));
+        assert_eq!(skin.original_knob_colors, 1);
+        assert_eq!(skin.palette(&Palette::default()).skin_knob_cap, Color::rgb(0x2040ee));
     }
 }

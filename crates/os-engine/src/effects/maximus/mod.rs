@@ -966,6 +966,22 @@ impl Maximus {
         self.report();
     }
 
+    /// Prepare the oversampling scratch for a host block before audio starts.
+    pub fn prepare_buffer(&mut self, frames: usize) {
+        let ni = frames * self.f();
+        for v in [&mut self.xi, &mut self.sum, &mut self.mid, &mut self.high, &mut self.un] {
+            for c in v.iter_mut() {
+                if c.len() < ni {
+                    c.resize(ni, 0.0);
+                }
+            }
+        }
+        let temporary = ni / 2;
+        if temporary > self.tmp.capacity() {
+            self.tmp.reserve(temporary - self.tmp.len());
+        }
+    }
+
     pub fn process_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
         let n = left.len().min(right.len());
         if n == 0 {
@@ -1004,13 +1020,7 @@ impl Maximus {
         // Up.
         let f = self.f();
         let ni = n * f;
-        for v in [&mut self.xi, &mut self.sum, &mut self.mid, &mut self.high, &mut self.un] {
-            for c in v.iter_mut() {
-                if c.len() < ni {
-                    c.resize(ni, 0.0);
-                }
-            }
-        }
+        self.prepare_buffer(n);
         for (ch, inp) in [&left[..n], &right[..n]].into_iter().enumerate() {
             self.xi[ch][..n].copy_from_slice(inp);
             let mut len = n;

@@ -83,6 +83,72 @@ mod tests {
     use super::*;
     use crate::app::{Action,Win};
     #[test]
+    fn compact_rack_hides_sequence_hits_and_restores_the_expanded_view() {
+        use crate::{playlist::Mark, rack::{self, RCmd}, views::rack as view};
+        for vintage in [false, true] {
+            let mut app = App::new(None);
+            app.state.project = crate::app::default_project();
+            app.state.vintage_2005 = vintage;
+            app.state.z = vec![Win::ChannelRack];
+            app.state.show_browser = false;
+            app.state.rack_pos = (50.0, 140.0);
+            app.state.rack_size = (900.0, 240.0);
+            app.state.rack_scroll_x = 48.0;
+            crate::patterns::pat_mut(&mut app.state, 1).notes = vec![os_model::Note::step(0, 0)];
+            let project = app.state.project.clone();
+            let mut canvas = os_ui::Canvas::new(1500, 900, 1.25).unwrap();
+            app.paint(&mut canvas, None);
+            let expanded = view::rect(&app.state);
+            assert!(app.hits.iter().any(|h| matches!(h.action, Action::Step(0, _))));
+            rack::run(&mut app, RCmd::ShowSteps);
+            assert!(!rack::show_steps());
+            assert_eq!(crate::settings_file::get(rack::STEP_GRID_VISIBILITY).as_deref(), Some("0"));
+            let menu = rack::default_options_menu(&app.state, 0.0, 0.0);
+            let view_items = &menu.items.iter().find(|item| item.label == "View").unwrap().children;
+            assert!(view_items.iter().any(|item| item.label == "Show step grid" && matches!(item.mark, Mark::Check(false))));
+            app.paint(&mut canvas, None);
+            let compact = view::rect(&app.state);
+            assert!(compact.w < expanded.w * 0.65);
+            assert_eq!(view::step_at(&app.state, compact.right() + 1.0), None);
+            assert!(!app.hits.iter().any(|h| matches!(h.action,
+                Action::Step(..) | Action::RackRoll(..) | Action::RackGraphArea
+                    | Action::RackRollView | Action::Scrollbar(crate::app::Scroll::RackX))));
+            let get = |action| app.hits.iter().find(|h| h.action == action).unwrap().rect;
+            let close = get(Action::CloseWin(Win::ChannelRack));
+            let filter = get(Action::RackFilter);
+            let name = get(Action::ChannelSelect(0));
+            let add = get(Action::RackAdd);
+            for r in [close, filter, name, add] {
+                assert_eq!(r.intersect(&compact), r, "every retained control fits");
+            }
+            assert!(filter.intersect(&close).is_empty());
+            assert!(name.intersect(&add).is_empty());
+            if !vintage {
+                let solo = get(Action::RackSolo(0));
+                assert!(compact.right() - solo.right() >= 20.0);
+                assert!(get(Action::ChannelEnable(0)).intersect(&solo).is_empty());
+            }
+            if let Some(dir) = std::env::var_os("ML_RACK_PREVIEW_DIR") {
+                let scale = canvas.scale;
+                let clip = tiny_skia::IntRect::from_xywh(
+                    (compact.x * scale).floor() as i32, (compact.y * scale).floor() as i32,
+                    (compact.w * scale).ceil() as u32, (compact.h * scale).ceil() as u32,
+                ).unwrap();
+                let filename = if vintage { "rack-compact-vintage.png" } else { "rack-compact-studio.png" };
+                canvas.pixmap.clone_rect(clip).unwrap().save_png(std::path::PathBuf::from(dir).join(filename)).unwrap();
+            }
+            rack::set_window_size(&mut app.state, compact.w, compact.h + 36.0);
+            assert_eq!(app.state.rack_size.0, 900.0);
+            // The Settings switch is backed by the same preference as the rack's menu.
+            crate::workspace_visibility::toggle(rack::STEP_GRID_VISIBILITY);
+            app.paint(&mut canvas, None);
+            assert_eq!(view::rect(&app.state).w, expanded.w);
+            assert_eq!(app.state.rack_scroll_x, 48.0);
+            assert!(app.hits.iter().any(|h| matches!(h.action, Action::Step(0, _))));
+            assert_eq!(app.state.project, project);
+        }
+    }
+    #[test]
     fn rack_additions_fit_channels_preserve_manual_sizes_and_cap_to_workspace() {
         use crate::rack::{self,AutoResize,RCmd};
         for vintage in [false,true] {

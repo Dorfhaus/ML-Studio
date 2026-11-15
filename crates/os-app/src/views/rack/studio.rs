@@ -39,19 +39,17 @@ pub(super) fn paint(ui: &mut Ui, s: &State, frame: &FrameInfo) {
     let window = rect(s);
     let columns = cols(s);
     let rows = row_view(s);
-    let count = visible_steps(s);
-    let grid = Grid {
-        area: Rect::new(
-            window.x + columns.step_x,
-            rows.y,
-            count as f32 * STEP_W,
-            rows.h,
-        ),
-        offset: sx(s),
-        count,
-        beat: rk::beat_steps(s).max(1),
-    };
-    let length = rk::pattern_steps(s);
+    let show_steps = rk::show_steps();
+    let grid = show_steps.then(|| {
+        let count = visible_steps(s);
+        Grid {
+            area: Rect::new(window.x + columns.step_x, rows.y, count as f32 * STEP_W, rows.h),
+            offset: sx(s),
+            count,
+            beat: rk::beat_steps(s).max(1),
+        }
+    });
+    let length = if show_steps { rk::pattern_steps(s) } else { 0 };
     let per_step = rk::per_step(s).max(1);
     let play_step = (frame.playing && !frame.song)
         .then(|| (frame.tick / f64::from(per_step)).floor() as u32 % length.max(1));
@@ -59,13 +57,13 @@ pub(super) fn paint(ui: &mut Ui, s: &State, frame: &FrameInfo) {
         .project
         .pattern(s.pattern)
         .map_or(&[][..], |p| p.notes.as_slice());
-    let bars = rk::pattern_bars(s, length * per_step);
+    let bars = if show_steps { rk::pattern_bars(s, length * per_step) } else { Vec::new() };
 
-    ui.c.fill_rrect(window, 10.0, ui.t.s(BODY));
-    ui.c.stroke_rrect(window.inset(0.5), 10.0, 1.0, ui.t.s(0x28282b));
+    ui.c.fill_rrect(window, STUDIO_FRAME_RADIUS, ui.t.s(BODY));
+    ui.c.stroke_rrect(window.inset(0.5), STUDIO_FRAME_RADIUS, 1.0, ui.t.s(0x28282b));
     ui.hit(window, Action::RackArea, "Channel rack");
-    header(ui, s, window, frame);
-    ruler(ui, window, columns, &grid);
+    header(ui, s, window, frame, show_steps);
+    ruler(ui, window, columns, grid.as_ref());
 
     let scroll_y = scroll(s);
     ui.c.push_clip(rows);
@@ -73,15 +71,15 @@ pub(super) fn paint(ui: &mut Ui, s: &State, frame: &FrameInfo) {
         for row in layout(s) {
             let y = rows.y + row.top - scroll_y - 2.0;
             if y + row.pitch() > rows.y && y < rows.bottom() {
-                controls(ui, s, window.x, columns, &row, y, frame);
-                if !row.zipped {
-                    sequence(ui, s, row.row, y, &grid, notes, &bars, per_step, play_step);
+                controls(ui, s, window.x, columns, &row, y, frame, show_steps);
+                if !row.zipped && let Some(grid) = &grid {
+                    sequence(ui, s, row.row, y, grid, notes, &bars, per_step, play_step);
                 }
             }
         }
-        if let (Some(lane), Some(graph)) = (graph_rect(s), graph_bars(s)) {
+        if let (Some(grid), Some(lane), Some(graph)) = (&grid, graph_rect(s), graph_bars(s)) {
             if lane.intersect(&rows).h > 0.0 {
-                graph_lane(ui, s, lane, graph, &grid, per_step);
+                graph_lane(ui, s, lane, graph, grid, per_step);
             }
         }
     });
@@ -101,40 +99,12 @@ pub(super) fn paint(ui: &mut Ui, s: &State, frame: &FrameInfo) {
     );
     let hot = face(ui, add, Action::RackAdd, "Add a channel", false);
     glyph(ui, Icon::Plus, add, 15.0, text(ui, hot));
-    let track = Rect::new(grid.area.x, window.bottom() - 15.0, grid.area.w, 6.0);
-    let total = (length.max(count) + 256) as f32 * STEP_W;
-    super::super::scrollbar(
-        ui,
-        track,
-        false,
-        grid.offset,
-        grid.area.w,
-        total,
-        Scroll::RackX,
-    );
-
-    let (right, bottom) = (window.right(), window.bottom());
-    for (region, edges) in [
-        (
-            Rect::span(
-                right - 3.0,
-                right + 4.0,
-                window.y + STUDIO_TITLE_H,
-                bottom - 8.0,
-            ),
-            EDGE_RIGHT,
-        ),
-        (
-            Rect::span(window.x, right - 8.0, bottom - 3.0, bottom + 4.0),
-            EDGE_BOTTOM,
-        ),
-        (
-            Rect::span(right - 10.0, right + 4.0, bottom - 10.0, bottom + 4.0),
-            EDGE_RIGHT | EDGE_BOTTOM,
-        ),
-    ] {
-        ui.hit(region, Action::RackResize(edges), "Drag to resize");
+    if let Some(grid) = grid {
+        let track = Rect::new(grid.area.x, window.bottom() - 15.0, grid.area.w, 6.0);
+        let total = (length.max(grid.count) + 256) as f32 * STEP_W;
+        super::super::scrollbar(ui, track, false, grid.offset, grid.area.w, total, Scroll::RackX);
     }
+    resize_handles(ui, s, window, show_steps);
 }
 
 fn face(ui: &mut Ui, rect: Rect, action: Action, hint: &str, active: bool) -> bool {
@@ -180,7 +150,7 @@ fn label(ui: &mut Ui, rect: Rect, label: &str, color: Color, left: bool) {
     }
 }
 
-fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
+fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo, show_steps: bool) {
     let top = Rect::new(
         window.x + 1.0,
         window.y + 1.0,
@@ -242,7 +212,7 @@ fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
             Action::RackGraph,
             "Graph editor (Ctrl+K)",
             s.rack.graph_open,
-            crate::workspace_visibility::shown("visible_rack-graph"),
+            show_steps && crate::workspace_visibility::shown("visible_rack-graph"),
         ),
         (
             right(65.0, 26.0),
@@ -250,7 +220,7 @@ fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
             Action::RackRollView,
             "Step sequencer / piano roll overview",
             !s.rack_roll_view,
-            true,
+            show_steps,
         ),
         (
             right(34.0, 24.0),
@@ -282,7 +252,7 @@ fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
         }
     }
 
-    let gap = ((window.w - 750.0) * 0.20).clamp(0.0, 56.0);
+    let gap = if show_steps { ((window.w - 750.0) * 0.20).clamp(0.0, 56.0) } else { 0.0 };
     label(
         ui,
         left(108.0 + gap, 70.0),
@@ -310,7 +280,7 @@ fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
         },
         false,
     );
-    let pitch = left(218.0 + gap, 91.0);
+    let pitch = left(218.0 + gap, if show_steps { 91.0 } else { 64.0 });
     face(
         ui,
         pitch,
@@ -329,19 +299,31 @@ fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
         false,
     );
 
-    let filter = left(317.0 + gap, 101.0);
+    let filter = if show_steps {
+        left(317.0 + gap, 101.0)
+    } else {
+        left(290.0, (window.w - 328.0).min(140.0))
+    };
     let group = match s.rack.filter {
         rk::Filter::All => "All",
         rk::Filter::Unsorted => "Unsorted",
         rk::Filter::Group(g) => s.rack.groups.get(g).map_or("All", |g| g.name.as_str()),
     };
-    face(
+    let hot = face(
         ui,
         filter,
         Action::RackFilter,
         "Channel display filter (PgUp/PgDn)",
         false,
     );
+    if !show_steps {
+        let arrow = Rect::new(filter.right() - 19.0, filter.y, 17.0, filter.h);
+        let caption = Rect::new(filter.x, filter.y, filter.w - 16.0, filter.h);
+        let group = shorten(ui, Font::light(13, 0).natural(), group, caption.w - 15.0);
+        label(ui, caption, &group, text(ui, true), true);
+        glyph(ui, Icon::ArrowDown, arrow, 9.0, text(ui, hot));
+        return;
+    }
     label(ui, filter, group, text(ui, true), true);
     let pattern = left(425.0 + gap, 102.0);
     let name = crate::patterns::name_of(s, s.pattern.max(1));
@@ -387,7 +369,7 @@ fn header(ui: &mut Ui, s: &State, window: Rect, frame: &FrameInfo) {
     );
 }
 
-fn ruler(ui: &mut Ui, window: Rect, columns: Cols, grid: &Grid) {
+fn ruler(ui: &mut Ui, window: Rect, columns: Cols, grid: Option<&Grid>) {
     let y = window.y + STUDIO_TITLE_H + 1.0;
     let name = Rect::new(
         window.x + columns.name_x,
@@ -413,6 +395,7 @@ fn ruler(ui: &mut Ui, window: Rect, columns: Cols, grid: &Grid) {
             text(ui, hot),
         );
     }
+    let Some(grid) = grid else { return };
     let bounds = Rect::new(grid.area.x, y, grid.area.w, name.h);
     ui.c.push_clip(bounds);
     for step in grid.steps() {
@@ -430,6 +413,7 @@ fn controls(
     row: &RowPos,
     y: f32,
     frame: &FrameInfo,
+    show_steps: bool,
 ) {
     let index = row.row;
     let channel = &s.project.channels[index];
@@ -458,11 +442,15 @@ fn controls(
     let hot = ui.hit(
         select,
         Action::RackSelect(index),
-        "Graph editor for this channel (Shift to select; Shift-double-click to select all)",
+        if show_steps {
+            "Graph editor for this channel (Shift to select; Shift-double-click to select all)"
+        } else {
+            "Select channel (Shift to add or remove; double-click to select all)"
+        },
     );
     ui.live(Live::Sounding, select);
     let sounding = channel.enabled && frame.sounding.iter().any(|&(n, _)| n == channel.index);
-    let graph_open = s.rack.graph_open && focused;
+    let graph_open = show_steps && s.rack.graph_open && focused;
     glyph(
         ui,
         if graph_open {

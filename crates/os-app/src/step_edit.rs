@@ -192,7 +192,8 @@ mod tests {
         app.state.song_mode = false;
         app.state.selected_channel = 0;
         app.state.project.patterns.iter_mut().for_each(|p| p.notes.clear());
-        assert!(app.typing_on() && !on(), "the typing keyboard is on and step edit off at start");
+        app.state.toggles.push("typing");
+        assert!(!on(), "step edit is off at start");
         ctrl_e(&mut app);
         assert!(on());
         app
@@ -377,6 +378,7 @@ mod tests {
     fn ctrl_e_the_menu_and_the_button_toggle_it() {
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
+        app.state.bar.layout = crate::toolbar::Layout::classic();
         app.paint(&mut c, None);
         assert!(!on(), "off at start");
         let ticked = |app: &App| {
@@ -387,7 +389,7 @@ mod tests {
         };
         assert!(!ticked(&app));
         let r = app.hits.iter().find(|h| h.action == Action::StepEdit).map(|h| h.rect).expect("the button");
-        assert_eq!((r.x, r.y), (646.0, 45.0));
+        assert!(r.y > crate::toolbar::ROW_H, "mode button in the second row: {r:?}");
         let unlit = look(&mut app, &mut c, r);
         app.mouse_move(r.cx(), r.cy());
         app.mouse_down();

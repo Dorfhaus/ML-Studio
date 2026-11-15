@@ -3,8 +3,11 @@
 //! Adapted from Lemon Studio motion.rs (clip_jumped/clip_glide), upstream
 //! 73e6389821c59ffd5d738f0ca43e926d5ab84a89. Visual offsets never alter clip timing.
 use crate::app::{App, State};
+use crate::playlist::{self, PGeom};
+use os_model::Clip;
 use os_ui::Rect;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     time::{Duration, Instant},
 };
@@ -21,6 +24,14 @@ struct Glide {
     right: f32,
     down: f32,
     at: Instant,
+    shown: (f32, f32, f32),
+}
+
+impl Glide {
+    fn sample(&self, now: Instant) -> (f32, f32, f32) {
+        let k = (-now.saturating_duration_since(self.at).as_secs_f64() / SNAP_TAU).exp() as f32;
+        (self.left * k, self.right * k, self.down * k)
+    }
 }
 impl Motion {
     pub fn clear(&mut self) {
@@ -52,62 +63,98 @@ impl Motion {
         let at = now
             .checked_sub(Duration::from_secs_f64(FIRST_STEP))
             .unwrap_or(now);
-        if let Some(g) = self.glides.get_mut(&key) {
-            let k = (-now.saturating_duration_since(g.at).as_secs_f64() / SNAP_TAU).exp() as f32;
-            (g.left, g.right, g.down, g.at) = (
-                g.left * k + left,
-                g.right * k + right,
-                g.down * k + down,
-                at,
-            );
-        } else {
-            self.glides.insert(
-                key,
-                Glide {
-                    left,
-                    right,
-                    down,
-                    at,
-                },
-            );
-        }
+        let previous = self.glides.get(&key).map_or((0., 0., 0.), |g| g.shown);
+        let mut glide = Glide {
+            left: previous.0 + left,
+            right: previous.1 + right,
+            down: previous.2 + down,
+            at,
+            shown: (0., 0., 0.),
+        };
+        glide.shown = glide.sample(now);
+        self.glides.insert(key, glide);
     }
     pub fn offset(
-        &mut self,
+        &self,
         arr: Option<u16>,
         count: usize,
         key: usize,
-        now: Instant,
     ) -> Option<(f32, f32, f32)> {
-        self.context(arr, count);
-        if crate::smooth::smoothing() <= 0. {
-            self.clear();
+        if self.context != Some((arr, count)) {
             return None;
         }
-        let g = self.glides.get(&key)?;
-        let k = (-now.saturating_duration_since(g.at).as_secs_f64() / SNAP_TAU).exp() as f32;
-        let at = (g.left * k, g.right * k, g.down * k);
-        if at.0.abs().max(at.1.abs()).max(at.2.abs()) < SNAP_ARRIVED {
-            self.glides.remove(&key);
-            None
-        } else {
-            Some(at)
-        }
+        self.glides.get(&key).map(|g| g.shown)
     }
-    pub fn tick(&mut self, now: Instant) -> bool {
-        let was = self.active();
-        self.glides.retain(|_, g| {
-            let k = (-now.saturating_duration_since(g.at).as_secs_f64() / SNAP_TAU).exp() as f32;
-            k * g.left.abs().max(g.right.abs()).max(g.down.abs()) >= SNAP_ARRIVED
-                && crate::smooth::smoothing() > 0.
+
+    fn advance(&mut self, now: Instant) {
+        let enabled = crate::smooth::smoothing() > 0.;
+        self.glides.retain(|_, glide| {
+            let (left, right, down) = glide.sample(now);
+            glide.shown = (left, right, down);
+            enabled && left.abs().max(right.abs()).max(down.abs()) >= SNAP_ARRIVED
         });
-        was
     }
 }
+
+/// Painting and damage use the same interpolated clip placement.
+pub fn placement<'a>(
+    s: &State, g: &PGeom, clip: &'a Clip, (left, right, down): (f32, f32, f32),
+) -> (PGeom, Cow<'a, Clip>) {
+    let mut at = g.clone();
+    at.scroll_y -= down;
+    let drawn = if (left - right).abs() < 0.01 {
+        at.scroll_x -= left;
+        Cow::Borrowed(clip)
+    } else {
+        Cow::Owned(playlist::with_edges(s, g, clip, left, right))
+    };
+    (at, drawn)
+}
+
+fn bounds(s: &State, g: &PGeom, clip: &Clip, offset: Option<(f32, f32, f32)>) -> Rect {
+    if let Some(offset) = offset {
+        let (at, drawn) = placement(s, g, clip, offset);
+        at.clip_rect(&drawn)
+    } else {
+        g.clip_rect(clip)
+    }
+}
+
+pub fn damage_bounds(s: &State, g: &PGeom, index: usize, clip: &Clip) -> Option<Rect> {
+    let offset = s.playlist_motion.borrow().offset(s.project.current_arrangement, playlist::clips(s).len(), index)?;
+    Some(bounds(s, g, clip, Some(offset)).outset(6.0).intersect(&g.grid))
+}
+
 pub fn tick(app: &mut App) {
-    let moving = app.state.playlist_motion.borrow_mut().tick(Instant::now());
-    if moving {
-        app.damage_win(crate::app::Win::Playlist);
+    advance(app, Instant::now());
+}
+
+fn advance(app: &mut App, now: Instant) {
+    let mut motion = app.state.playlist_motion.borrow_mut();
+    if !motion.active() {
+        return;
+    }
+    let s = &app.state;
+    let clips = playlist::clips(s);
+    motion.context(s.project.current_arrangement, clips.len());
+    let old: Vec<_> = motion.glides.iter().map(|(&i, glide)| (i, glide.shown)).collect();
+    motion.advance(now);
+    let Some(grid) = app.pl_grid().filter(|_| s.shown(crate::app::Win::Playlist)) else { return };
+    let g = PGeom::new(s, grid);
+    let mut dirty = Vec::new();
+    for (index, before) in old {
+        let after = motion.glides.get(&index).map(|glide| glide.shown);
+        if Some(before) != after {
+            if let Some(clip) = clips.get(index) {
+                for offset in [Some(before), after] {
+                    dirty.push(bounds(s, &g, clip, offset).outset(6.0).intersect(&grid));
+                }
+            }
+        }
+    }
+    drop(motion);
+    for rect in dirty {
+        app.damage_rect(rect);
     }
 }
 
@@ -146,26 +193,22 @@ mod tests {
         let mut motion = Motion::default();
         let now = Instant::now();
         motion.jump(Some(0), 3, 1, (-120., -120., 48.), now);
-        let first = motion.offset(Some(0), 3, 1, now).unwrap();
+        let first = motion.offset(Some(0), 3, 1).unwrap();
         assert!(first.0 < 0. && first.0 > -120. && first.2 > 0.);
-        let later = motion
-            .offset(Some(0), 3, 1, now + Duration::from_millis(24))
-            .unwrap();
+        motion.advance(now + Duration::from_millis(24));
+        let later = motion.offset(Some(0), 3, 1).unwrap();
         assert!(later.0.abs() < first.0.abs());
-        assert!(
-            motion
-                .offset(Some(0), 3, 1, now + Duration::from_secs(1))
-                .is_none()
-        );
+        motion.advance(now + Duration::from_secs(1));
+        assert!(motion.offset(Some(0), 3, 1).is_none());
         assert!(!motion.active());
         motion.jump(Some(0), 3, 1, (100., 100., 0.), now);
         assert!(
-            motion.offset(Some(1), 3, 1, now).is_none(),
+            motion.offset(Some(1), 3, 1).is_none(),
             "another arrangement never inherits a glide"
         );
         motion.jump(Some(1), 3, 1, (100., 100., 0.), now);
         assert!(
-            motion.offset(Some(1), 4, 1, now).is_none(),
+            motion.offset(Some(1), 4, 1).is_none(),
             "added/deleted clip resets identity"
         );
         crate::prefs::set_slider(&crate::prefs::SMOOTHING, 0);

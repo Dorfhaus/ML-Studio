@@ -1131,7 +1131,7 @@ mod tests {
         let m = l.menu(&MenuReq::Param("post".into()));
         assert_eq!(m.find("Reset"), Some(Cmd::Reset("post".into())));
         assert_eq!(m.find("Type in value..."), Some(Cmd::TypeIn("post".into())));
-        assert_eq!(m.find("About Lemon Soft Clipper..."), Some(Cmd::About));
+        assert_eq!(m.find("About ML Soft Clipper..."), Some(Cmd::About));
         l.vals.edit_plain("post", 10.0);
         l.pick(&MenuReq::Param("post".into()), Cmd::Reset("post".into()), 0.0, 0.0);
         assert_eq!(l.vals.plain("post"), 128.0);

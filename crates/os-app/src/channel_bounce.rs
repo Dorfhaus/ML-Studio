@@ -185,6 +185,7 @@ mod tests {
         let master = find(&a, Action::Knob(KnobId::MasterPitch));
         assert!(master.right() < find(&a, Action::RackFilter).x);
         assert!(find(&a,Action::Knob(KnobId::Varispeed)).w<=40.);
+        crate::prefs::set_check(&crate::prefs::DOUBLE_CLICK_RESET, true);
         a.state.set_knob(KnobId::ChanPitch(0),0.9);
         a.mouse_move(pitch.cx(),pitch.cy());a.mouse_down();a.mouse_up();a.mouse_down();a.mouse_up();
         assert_eq!(a.state.project.channels[0].pitch_cents,0);

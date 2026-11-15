@@ -826,7 +826,8 @@ impl LovePhilter {
         self.host[ch][i0..i0 + v.len()].copy_from_slice(v);
     }
 
-    fn grow(&mut self, frames: usize) {
+    /// Prepare oversampling and modulation buffers before processing.
+    pub fn prepare_buffer(&mut self, frames: usize) {
         let ni = frames << self.stages;
         let tick = self.tick;
         for ch in 0..2 {
@@ -855,7 +856,7 @@ impl LovePhilter {
         if n == 0 {
             return;
         }
-        self.grow(n);
+        self.prepare_buffer(n);
         let ni = n << self.stages;
         // The silence test.
         let floor = s(1e-6);

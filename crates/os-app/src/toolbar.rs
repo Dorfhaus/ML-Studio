@@ -182,7 +182,7 @@ impl Panel {
             match self { Panel::Tools => return 35.0, _ => {} }
         }
         let (_, x0, x1) = self.home();
-        x1 - x0
+        x1 - x0 + if self == Panel::Windows && crate::notation::shortcut_shown() { 33.0 } else { 0.0 }
     }
 
     /// Where (home x) its first part ends: the panel, or its first button, shows when that fits (`views::toolbar::room`).
@@ -524,17 +524,31 @@ pub fn write_preset(path: &Path, l: &Layout) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// The editor's state, never kept: whether it is open and the user's presets as last read.
+const FLOATING_HINT: &str = "toolbar_floating_hint";
+
+/// The toolbar layout, editor state and optional floating hint bar.
 #[derive(Debug, Clone, Default)]
 pub struct Bar {
     pub layout: Layout,
     pub editing: bool,
     pub user: Vec<UserPreset>,
+    pub floating_hint: Option<Rect>,
 }
 
 impl Bar {
     pub fn load() -> Bar {
-        Bar { layout: Layout::load(), editing: false, user: user_presets() }
+        let floating_hint = crate::settings_file::get(FLOATING_HINT).and_then(|value| {
+            let values: Vec<f32> = value.split(',').map(str::parse).collect::<Result<_, _>>().ok()?;
+            let [x, y, w, h] = values.as_slice() else { return None };
+            (values.iter().all(|v| v.is_finite()) && *w > 0.0 && *h > 0.0)
+                .then_some(Rect::new(*x, *y, *w, *h))
+        });
+        Bar { layout: Layout::load(), editing: false, user: user_presets(), floating_hint }
+    }
+
+    pub fn save_hint(&self) {
+        let value = self.floating_hint.map_or_else(String::new, |r| format!("{},{},{},{}", r.x, r.y, r.w, r.h));
+        crate::settings_file::write(FLOATING_HINT, &value);
     }
 
     /// The user preset with the current layout, if any.
@@ -660,21 +674,20 @@ pub fn apply(l: &mut Layout, d: &BarDrag, to: Target) -> bool {
 mod tests {
     use super::*;
 
-    /// The classic layout puts every panel at its home and is 1440 px wide: the toolbar of spec ui/main-window.md.
     #[test]
-    fn classic_is_at_home() {
-        let l = Layout::classic();
-        assert_eq!((natural_width(&l, false), l.band_h(), l.logo), (1440.0, 83.0, true));
-        for p in place(&l, 1920.0, false) {
-            assert_eq!(p.at(), At::default(), "{:?}", p.panel);
-        }
-        // The slots meet: each row's panels follow one another without gaps.
-        for row in &l.rows {
-            for w in row.windows(2) {
-                assert_eq!(w[0].home().2, w[1].home().1, "{w:?}");
+    fn classic_preset_tiles_visible_panels() {
+        let layout = Layout::classic();
+        assert_eq!((natural_width(&layout, false), layout.band_h(), layout.logo), (1136.0, 83.0, true));
+        let panels = place(&layout, 1920.0, false);
+        for row in 0..layout.rows.len() {
+            let placed: Vec<_> = panels.iter().filter(|panel| panel.row == row).collect();
+            assert_eq!(placed[0].x, 0.0);
+            for pair in placed.windows(2) {
+                assert_eq!(pair[0].x + pair[0].w, pair[1].x);
             }
         }
-        assert_eq!((Panel::at_home(100.0, 20.0), Panel::at_home(837.0, 75.0), Panel::at_home(4.0, 78.0)), (Some(Panel::Hint), Some(Panel::Pattern), Some(Panel::Menu)));
+        assert!(panels.iter().any(|p| p.panel == Panel::Transport && p.row == 0));
+        assert!(panels.iter().any(|p| p.panel == Panel::Menu && p.row == 1));
     }
 
     #[test]
@@ -721,11 +734,13 @@ mod tests {
     /// Dragging moves a panel within and between rows, takes it off onto the palette and puts a tile back.
     #[test]
     fn drops_move_remove_and_add() {
-        let mut b = Bar { layout: Layout::classic(), editing: true, user: Vec::new() };
+        let mut b = Bar { layout: Layout::classic(), editing: true, ..Bar::default() };
         let palette = (b.layout.band_h(), 400.0);
         // The hint panel (row 1, second) dropped right of the transport: after it.
         let d = BarDrag { moving: Moving::Item(0, 1), grab: (5.0, 5.0) };
-        let to = drop_at(&b, 1920.0, &d, (600.0, 20.0), palette);
+        let right_of_transport = place(&b.layout, 1920.0, true).iter()
+            .find(|panel| panel.panel == Panel::Transport).map(|panel| panel.x + panel.w).unwrap();
+        let to = drop_at(&b, 1920.0, &d, (right_of_transport, 20.0), palette);
         assert_eq!(to, Target::Insert { row: 0, idx: 2 });
         assert!(apply(&mut b.layout, &d, to));
         assert_eq!(&b.layout.rows[0][..3], &[Panel::Caption, Panel::Transport, Panel::Hint]);

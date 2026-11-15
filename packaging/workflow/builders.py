@@ -1,6 +1,6 @@
 """Isolated public build workers. Credentials never enter these environments."""
 from pathlib import Path
-import json, os, shutil, subprocess, tarfile
+import json, os, shutil, struct, subprocess, tarfile, zipfile
 import release as r
 import storage
 from checkpoints import atomic_json, digest
@@ -12,6 +12,9 @@ def environment(config,platform):
     env['CARGO_TARGET_DIR']=str(Path(config['cache'])/platform)
     env['LEMON_MASTER_BUNDLE']=config['engines'][platform]['bundle']
     env['LEMON_JUCE_SOURCE']=config['juce_source']
+    env.pop('LEMON_SCORE_BUNDLE', None)
+    if entry := config.get('score_bundles', {}).get(platform):
+        env['LEMON_SCORE_BUNDLE'] = entry['bundle']
     if bundle := config.get('plasma_bundles', {}).get(platform):
         target = {'windows': 'WINDOWS_X86_64', 'linux': 'LINUX_X86_64',
                   'mac-arm64': 'MACOS_AARCH64', 'mac-x86_64': 'MACOS_X86_64'}[platform]
@@ -21,6 +24,27 @@ def environment(config,platform):
         env['PATH']=str(Path.home()/'.cargo/bin')+os.pathsep+str(Path.home()/'.lemon-studio-release/tools/bin')+os.pathsep+env.get('PATH','')
     else:env['LIBCLANG_PATH']=r.read_config()['llvm']
     return env
+
+
+def verify_score_bundle(config, platform):
+    entry = config.get('score_bundles', {}).get(platform)
+    if not entry:
+        raise RuntimeError('Missing Score Editor bundle configuration: ' + platform)
+    archive = Path(entry['bundle'])
+    if not archive.is_file() or digest(archive) != entry['sha256']:
+        raise RuntimeError('Missing or changed Score Editor bundle: ' + platform)
+    with zipfile.ZipFile(archive) as bundle:
+        binary = bundle.read('verovio.exe' if platform == 'windows' else 'verovio')
+        if platform == 'windows':
+            pe_offset = struct.unpack_from('<I', binary, 60)[0]
+            valid = binary[:2] == b'MZ' and binary[pe_offset:pe_offset + 6] == b'PE\0\0\x64\x86'
+        elif platform == 'linux':
+            valid = binary[:6] == b'\x7fELF\x02\x01' and binary[18:20] == b'\x3e\x00'
+        else:
+            expected_cpu = 0x0100000c if platform == 'mac-arm64' else 0x01000007
+            valid = binary[:4] == b'\xcf\xfa\xed\xfe' and struct.unpack_from('<I', binary, 4)[0] == expected_cpu
+        if not valid or not bundle.read('data/Bravura.xml') or bundle.testzip() is not None:
+            raise RuntimeError('Invalid Score Editor bundle for ' + platform)
 
 
 def command(log,*args,env=None,cwd=r.ROOT):

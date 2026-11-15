@@ -74,6 +74,7 @@ mod tests {
         let row = Action::Settings(SAct::Check(HIGH_VISIBILITY.label));
         if let Ok(mut c) = os_ui::Canvas::new(1920, 1080, 1.0) {
             app.open_settings(settings::GENERAL);
+            app.state.settings.folded.insert("Display");
             app.paint(&mut c, None);
             assert!(app.hits.iter().any(|h| h.action == row), "the row is live");
             assert!(!app.hits.iter().any(|h| h.action == Action::Placeholder("High visibility")));

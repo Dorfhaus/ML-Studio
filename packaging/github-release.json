@@ -1,42 +1,42 @@
 {
-  "tag": "v2026.11.14.3",
-  "title": "ML Studio 2026.11.14.3",
-  "notes": "- Bounced Playlist tracks and instruments now keep their original Mixer routing by default, leaving Mixer effects live. An optional setting prints the processing and routes the bounce to a clean free insert, with undo and redo support.\n- Added optional automatic project-tempo fitting for samples dropped into the Playlist, using filename BPM or detected rhythm. Unrecognized material keeps its original speed.\n- Added visible drag handles across Mixer layouts, clearer insertion markers and cancellation when dropping outside the Mixer. Selected insert groups keep their routing when moved.\n- Windows Open and Save dialogs now offer Explorer context menus and file copy, cut and paste shortcuts. Added F2 file/folder renaming with collision protection on all platforms.\n- Menus open on hover by default for new profiles. Existing saved choices remain respected; the option is available under General > Input.\n- Added six Mixer recording pickup points and Off, When armed and On input-monitoring modes, with per-channel saved settings and undo support.\n- Fixed Melli sending basic ML Studio routing and recording questions into generic conversation. Follow-up questions about missing controls now retain guide context instead of inventing buttons.\n- Expanded the bundled User Guide to 624 articles, including every Workspace Visibility switch, missing-control troubleshooting and detailed documentation for the new workflows. Added visibility controls for the new preferences, Mixer grips and file-management actions.\n\nhttps://michaellanemusic.de/ml-studio/",
+  "tag": "v2026.11.15.1",
+  "title": "ML Studio 2026.11.15.1",
+  "notes": "- Added an offline Mix Assistant. Review detected sources and routing, confirm roles and focus, include or exclude buses, choose a genre, then preview and apply gain and stock processing in one undoable step.\n- Mix Assistant measures the song before suggesting compressor, EQ and level changes. Its review explains skipped processing. The optional Mix References pack is available on the download website.\n- Added a detachable Score Editor and Arrangement Score for editing written parts, importing MusicXML, and exporting scores and parts. Added Playlist chord, tempo, hit-point and reference video tools for scoring to picture.\n- Channel Strip Mixer adds SSL 360 Link pages for Filters/EQ, Dynamics and Fader. All effects lists available insert effects. Dock a compatible editor and save custom page widths per plug-in and editor shape.\n- Plugin Downloads shows which plug-ins were found by the scanner and offers clearer Favorites controls. Updates preserve ordinary and portable plug-in files.\n- Plug-in delay compensation now refreshes during playback when an effect slot or the whole chain is bypassed.\n- Playlist audio and MIDI selections transpose together by semitones with Alt+Up/Down or by octaves with Ctrl+Alt+Up/Down. Fixed clip dragging, automation redraw, Quick Chop Undo and Redo, and sample waveform refresh.\n- New Channel Rack samples and instruments can route to a free Mixer insert or the insert linked to an attached Playlist lane. On Windows, samples can also be dragged from a detached Browser. Added a compact Channel Rack.\n- Added Full Mixer size presets and a movable, resizable floating Hint Bar. Removed the visible Mixer drag grips while retaining insert reordering. Fader wheel changes are grouped for Undo.\n- Added a detachable ML Visualizer workspace with Playlist scene sequencing, fades and dissolves. Windows x64 can export the built-in visualizer with the song mix to MP4.\n- Added optional stock DSP controls including distortion and clipping oversampling, true-peak limiting, cleaner delay and chorus modes, stereo bass-to-mono, and external sidechain detection for ML EQ dynamic bands.\n- Added Mixer shortcuts for clip ARA editing, Split by Channel for patterns, and Tesla Deverb. Improved compatible plug-in resizing.\n- Improved autosave during playback, export cleanup and recovery of interrupted jobs. Reorganized General settings and expanded the bundled User Guide with the new controls and workflows.\n\nhttps://michaellanemusic.de/ml-studio/",
   "assets": [
     {
-      "name": "ML-Studio-Windows-Setup-2026.11.14.3.exe",
-      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111403/ML-Studio-Windows-Setup-2026.11.14.3.exe",
-      "sha256": "710046ce3545d6d2da61aa56e53a4267fe3db29596bf474c8862e8ba1d1eefd6"
+      "name": "ML-Studio-Windows-Setup-2026.11.15.1.exe",
+      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111501/ML-Studio-Windows-Setup-2026.11.15.1.exe",
+      "sha256": "624050c4673f50d3772818fd4645b5eec178e8be9f7904e9c82693e3adff92b3"
     },
     {
-      "name": "ML-Studio-Source-2026111403.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111403/Lemon%20Studio%20Source.zip",
-      "sha256": "d298850092df734a3b60187a9b7227d13f9829c10576a65e4eccc7633fbddc9e"
+      "name": "ML-Studio-Source-2026111501.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111501/Lemon%20Studio%20Source.zip",
+      "sha256": "0637adf80c4684ca141d3eccc32301745a71475277d13432e3c06d9ec0422886"
     },
     {
-      "name": "ML-Studio-Linux-x86_64-2026111403.tar.gz",
-      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111403/ML-Studio-Linux-x86_64-2026111403.tar.gz",
-      "sha256": "f00a20944124ebfdb9784ca9971a9323906abc09f34cc70ac3e6e16f44ec69c6"
+      "name": "ML-Studio-Linux-x86_64-2026111501.tar.gz",
+      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111501/ML-Studio-Linux-x86_64-2026111501.tar.gz",
+      "sha256": "6814f20a67931e38ff2b9a89730dfb3eb05d6ff2e7145ae94a60cb6139415e5c"
     },
     {
-      "name": "ML-Studio-Mac-arm64-2026111403.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111403/ML-Studio-Mac-arm64-2026111403.dmg",
-      "sha256": "15227b17821f53bd284671eacec91416575f4b2effa035a95604e3bb5e3f299c"
+      "name": "ML-Studio-Mac-arm64-2026111501.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111501/ML-Studio-Mac-arm64-2026111501.dmg",
+      "sha256": "ea9384cdb04cecc4384e7e9343572bcb3c1bc03b9d5434d531beb0c312334f27"
     },
     {
-      "name": "ML-Studio-Source-Mac-arm64-2026111403.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111403/ML-Studio-Source-Mac-arm64-2026111403.zip",
-      "sha256": "a54428c576e304ba07edc19da95c6ea147cb5252972a800acf9aacccf931a586"
+      "name": "ML-Studio-Source-Mac-arm64-2026111501.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111501/ML-Studio-Source-Mac-arm64-2026111501.zip",
+      "sha256": "e36248842fccf59a65bea8f0630bec5f9520b61b5c5fe0ddcdc9aec16b716601"
     },
     {
-      "name": "ML-Studio-Mac-x86_64-2026111403.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111403/ML-Studio-Mac-x86_64-2026111403.dmg",
-      "sha256": "cd69de70ba1ef088991f3a0a4b66202d690bf8fac2c73a55f55c8f06f643cc4a"
+      "name": "ML-Studio-Mac-x86_64-2026111501.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111501/ML-Studio-Mac-x86_64-2026111501.dmg",
+      "sha256": "f196d95d51dbd9ca4c44773c16c991be3a07870e6813d0405d4bef4d910da4f0"
     },
     {
-      "name": "ML-Studio-Source-Mac-x86_64-2026111403.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111403/ML-Studio-Source-Mac-x86_64-2026111403.zip",
-      "sha256": "970b3441193542eebb47534d39cf8f79e27d3f2a619790000595fe5412c2bef0"
+      "name": "ML-Studio-Source-Mac-x86_64-2026111501.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111501/ML-Studio-Source-Mac-x86_64-2026111501.zip",
+      "sha256": "c02e62bdc0fcce23f76cdd537b90551f7ec853b81d0cf3819806414daca47aaf"
     },
     {
       "name": "melli-linux-v4.zip",

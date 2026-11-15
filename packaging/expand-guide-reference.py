@@ -49,8 +49,9 @@ def visibility_rows():
  # Read actual labels, including referenced preference and inspector labels.
  path=ROOT/'crates/os-app/src/workspace_visibility.rs'
  source=clean(path.read_text(encoding='utf-8'))
- if 'key != "visible_settings-debug"&&key!=crate::playlist_tracks::VISIBILITY' not in source:
-  raise ValueError('Review changed visibility defaults before exporting the guide')
+ defaults=re.search(r'const DEFAULT_HIDDEN: &\[&str\] = &\[(.*?)\];',source,re.S)
+ if not defaults:raise ValueError('Visibility defaults not found')
+ default_hidden={key.strip() for key in defaults[1].split(',') if key.strip()}
  def label(expr):
   direct=literal(expr)
   if direct is not None:return direct
@@ -82,7 +83,7 @@ def visibility_rows():
    fields=call_args(rows,row.start()+1)
    if not fields or len(fields)!=2:raise ValueError('Invalid visibility row')
    name=label(fields[0]);key=fields[1]
-   default=key not in ('"visible_settings-debug"','crate::playlist_tracks::VISIBILITY')
+   default=key not in default_hidden
    yield group,name,default
 
 def generate():
@@ -97,7 +98,7 @@ def generate():
  for group,label,default in visibility_rows():
   body=(f'To show or hide **{label}**, open **Settings > Visibility > {group} > {label}**. '
         f'The default visibility is **{"on" if default else "off"}**. This choice is saved per profile. '
-        'Settings > General > Workspace Visibility > Choose what to show opens the same controls.\n'
+        'Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.\n'
         'Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. '
         'Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.')
   article('Visibility: '+label+' ('+group+')',body,'crates/os-app/src/workspace_visibility.rs')
@@ -107,7 +108,6 @@ def generate():
   arrays={m[1]:[decode(q) for q in re.findall(STR,m[2])] for m in re.finditer(r'const\s+(\w+):[^=]+?=\s*&?\[(.*?)\];',s,re.S)}
   for m in re.finditer(r'^pub const (\w+): (Check|Combo|Number|Slider)\s*=\s*\w+\s*\{(.*?)\};',s,re.S|re.M):
    name,kind,fields=m.groups();label=re.search(r'label:\s*('+STR+')',fields)
-   if name=='TEST_CHECK':continue
    if not label:continue
    label=decode(label[1]);default=re.search(r'default:\s*(\w+)',fields)
    if not default:continue

@@ -348,13 +348,16 @@ pub fn rate() -> Option<u32> {
 mod tests {
     use super::*;
 
-    /// Legacy fixed buffers cannot override the ASIO control panel.
+    /// Legacy WASAPI buffer values do not carry into ASIO. An explicit
+    /// ASIO override is stored separately.
     #[test]
-    fn asio_buffer_is_always_driver_owned() {
+    fn asio_ignores_legacy_buffers_and_persists_explicit_override() {
         let c = AudioCfg::parse("host=asio\ndevice=AudioBox ASIO\nbuffer=64\nrate=48000\n");
         assert_eq!(c.buffer, None);
         assert_eq!(c.rate, Some(48000));
-        assert_eq!(c.clone().with(Set::Buffer(Some(128))).buffer, None);
+        let explicit = c.clone().with(Set::Buffer(Some(128)));
+        assert_eq!(explicit.buffer, Some(128));
+        assert_eq!(AudioCfg::parse(&explicit.text()).buffer, Some(128));
         assert_eq!(AudioCfg::default().with(Set::Buffer(Some(256))).with(Set::Asio("AudioBox ASIO".into())).buffer, None);
         assert_eq!(c.with(Set::Device(None)).with(Set::Buffer(Some(256))).buffer, Some(256));
     }

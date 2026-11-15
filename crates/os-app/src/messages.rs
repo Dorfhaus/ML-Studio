@@ -293,7 +293,7 @@ mod tests {
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(crate::views::settings::GENERAL);
-        app.state.settings.folded.extend(["Display", "Language", "Input", "Undo history"]);
+        app.state.settings.folded.insert("Hints and warnings");
         app.paint(&mut c, None);
         assert!(!app.hits.iter().any(|h| h.action == Action::Placeholder("Manage messages")), "not greyed out");
         let b = hit_rect(&app, &Action::Settings(SAct::Button("Manage messages")));

@@ -2,6 +2,7 @@
   {
     "id": "surge-xt",
     "name": "Surge XT",
+    "scan_vendor": "Surge Synth Team",
     "category": "Synthesizers",
     "description": "Hybrid synth with wavetable, FM and MPE.",
     "source": "https://github.com/surge-synthesizer/surge",
@@ -746,6 +747,7 @@
   {
     "id": "zl-spectrum-equalizer",
     "name": "ZL Spectrum Equalizer",
+    "scan_vendor": "ZL",
     "category": "EQ and filters",
     "description": "Dynamic spectrum-based tonal control.",
     "source": "https://github.com/ZL-Audio/ZLSpectrumEqualizer",
@@ -2446,6 +2448,8 @@
   {
     "id": "span",
     "name": "Voxengo SPAN",
+    "scan_vendor": "Voxengo",
+    "scan_aliases": ["SPAN"],
     "category": "Analysis and meters",
     "description": "Real-time spectrum analyzer for seeing bass, midrange and treble balance.",
     "info": "Real-time spectrum analyzer for seeing bass, midrange and treble balance. Includes stereo correlation and level statistics. Use it to compare tracks and investigate resonances; it measures the signal rather than changing its tone.",
@@ -5631,6 +5635,7 @@
   {
     "id": "spectrum",
     "name": "Spectrum",
+    "scan_vendor": "tadmn",
     "category": "Analysis and meters",
     "description": "GPU-accelerated spectrum analyzer for comparing frequency balance during mixing.",
     "source": "https://github.com/tadmn/spectrum/releases",

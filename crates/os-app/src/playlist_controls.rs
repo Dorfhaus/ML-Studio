@@ -63,7 +63,7 @@ pub fn original(s: &State, ch: u16) -> Option<f64> {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Reference { channel: u16, name: Option<String>, targets: Vec<u32>, value: f64 }
-fn reference_path(path: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn reference_path(path: &std::path::Path) -> std::path::PathBuf {
     let mut name = path.as_os_str().to_os_string(); name.push(".lemon.json"); name.into()
 }
 pub fn load_references(s: &mut State) {

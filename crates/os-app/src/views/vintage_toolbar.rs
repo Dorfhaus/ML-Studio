@@ -7,7 +7,8 @@ use crate::workspace_visibility::{shown,WINDOW_BUTTONS};
 
 pub fn active(s:&State,width:f32)->bool {
     s.vintage_2005 && !s.bar.editing
-        && width - s.toolbar_actions.width(true) + s.toolbar_actions.meters_width() >= 1015.0
+        && width - s.toolbar_actions.width(true) + s.toolbar_actions.meters_width()
+            >= if crate::notation::shortcut_shown() { 1048.0 } else { 1015.0 }
         && transport_available()
         && [("ControlToolBar", 0), ("RecordToolBar", 0), ("ShortcutToolBar", 0),
             ("SCBtns", 9), ("RecordRail", 0), ("TimeToolBar", 0), ("PatternToolBar", 0)]
@@ -45,7 +46,8 @@ pub fn paint(ui:&mut Ui,s:&State,f:&FrameInfo) {
         }
         if hot || s.menu_open==Some(i) {ui.c.fill_rect(Rect::new(r.x+2.,47.,r.w-4.,1.),Color::rgb(0xd7e4df));}
     }
-    if shown("visible_hint") {
+    if super::toolbar::inline_hint(s) {
+        ui.hit(Rect::new(9., 53., 287., 20.), Action::DragWindow, "Hint bar");
         ui.c.text_clip(Font::vintage(11),13.,58.,280.,Color::rgb(0xb0c0c8),if f.hint.is_empty(){s.message.as_deref().unwrap_or("FL Studio 2005")}else{&f.hint});
     }
     master_lever(ui, s, 342.0, KnobId::MasterVol, "visible_volume");
@@ -202,6 +204,14 @@ fn shortcut_bank(ui: &mut Ui, s: &State, x: f32, y: f32) {
         let hot = ui.hit(cell, Action::ToggleWin(win), hint);
         let on=super::toolbar::window_shortcut_open(s,&Action::ToggleWin(win));
         skin::native(ui.c, "SCBtns", slot * 2 + usize::from(on || hot), cell.x, cell.y);
+    }
+    if crate::notation::shortcut_shown() {
+        let cell = Rect::new(x + 147.0, y, 29.0, 25.0);
+        let action = Action::ToggleWin(Win::Score);
+        let hot = ui.hit(cell, action.clone(), "Score Editor");
+        let on = super::toolbar::window_shortcut_open(s, &action);
+        crate::vintage::metal(ui.c, cell, if hot || on { ui.t.button_hi } else { ui.t.button });
+        icons::draw(ui.c, Icon::Score, cell.inset(4.0), if on { ui.t.accent } else { ui.t.glyph });
     }
 }
 

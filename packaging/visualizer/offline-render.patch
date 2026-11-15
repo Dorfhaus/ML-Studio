@@ -1,0 +1,41 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 514670e..8a4907d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -81,0 +82,6 @@ target_link_libraries(AudioVisualizer PRIVATE
++
++if(WIN32)
++    juce_add_console_app(MLVisualizerRender PRODUCT_NAME "ML Visualizer Render")
++    target_sources(MLVisualizerRender PRIVATE src/OfflineRender.cpp)
++    target_link_libraries(MLVisualizerRender PRIVATE AudioVisualizer juce::juce_audio_formats juce::juce_opengl juce::juce_dsp juce::juce_video opengl32)
++endif()
+diff --git a/src/render/Renderer.cpp b/src/render/Renderer.cpp
+index 37f7d4b..d47927e 100644
+--- a/src/render/Renderer.cpp
++++ b/src/render/Renderer.cpp
+@@ -799 +799,7 @@ void Renderer::renderOpenGL()
+-    const int W = juce::jmax (1, vp[2]), H = juce::jmax (1, vp[3]);
++    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
++    renderFrame (juce::jmax (1, vp[2]), juce::jmax (1, vp[3]), now - lastTime, context.getFrameBufferID());
++    lastTime = now;
++}
++
++void Renderer::renderFrame (int W, int H, double delta, unsigned int target)
++{
+@@ -802,3 +808 @@ void Renderer::renderOpenGL()
+-
+-    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+-    const float dt = (float) juce::jlimit (0.0005, 0.1, now - lastTime);
++    const float dt = (float) juce::jlimit (0.0005, 0.1, delta);
+@@ -807 +810,0 @@ void Renderer::renderOpenGL()
+-    lastTime = now;
+@@ -1141 +1144 @@ void Renderer::renderOpenGL()
+-    glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) context.getFrameBufferID());
++    glBindFramebuffer (GL_FRAMEBUFFER, target);
+diff --git a/src/render/Renderer.h b/src/render/Renderer.h
+index 214d0c6..4713167 100644
+--- a/src/render/Renderer.h
++++ b/src/render/Renderer.h
+@@ -20,0 +21,2 @@ public:
++    void renderFrame (int width, int height, double delta, unsigned int target);
++    bool ready() const noexcept { return (bool) compProg && (bool) blendProg; }

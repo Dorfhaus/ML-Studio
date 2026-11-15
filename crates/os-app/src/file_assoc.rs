@@ -479,7 +479,7 @@ mod tests {
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
-        app.state.settings.folded.extend(["Display", "Language", "Input", "Undo history"]);
+        app.state.settings.folded.insert("System");
         app.paint(&mut c, None);
         assert!(!app.state.settings.assoc);
         let key = Action::Settings(SAct::Check(ASSOCIATE_CHECK));

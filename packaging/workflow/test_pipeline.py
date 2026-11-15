@@ -46,11 +46,19 @@ class PipelineTests(unittest.TestCase):
             (staged.parent/data['files'][0]['local']).write_bytes(b'tampered')
             with self.assertRaisesRegex(RuntimeError,'changed'):c.stage_plan(plan,root/'shared')
     def test_public_build_overrides_personal_environment_and_isolates_caches(self):
-        cfg={'cache':'public-cache','juce_source':'juce','engines':{x:{'bundle':x+'.zip'} for x in p.PLATFORMS}}
-        with patch.dict(os.environ,{'LEMON_WAVE_LIBRARY':'personal.lwpack','CARGO_TARGET_DIR':'personal-cache'}),patch.object(b.r,'read_config',return_value={'llvm':'llvm'}):
+        cfg={'cache':'public-cache','juce_source':'juce','engines':{x:{'bundle':x+'.zip'} for x in p.PLATFORMS},
+             'score_bundles':{x:{'bundle':'score-'+x+'.zip'} for x in p.PLATFORMS}}
+        with patch.dict(os.environ,{'LEMON_WAVE_LIBRARY':'personal.lwpack','CARGO_TARGET_DIR':'personal-cache','LEMON_SCORE_BUNDLE':'personal.zip'}),patch.object(b.r,'read_config',return_value={'llvm':'llvm'}):
             environments=[b.environment(cfg,x) for x in p.PLATFORMS]
         self.assertTrue(all(e['LEMON_WAVE_LIBRARY']=='' and e['LEMON_RELEASE']=='1' for e in environments))
         self.assertEqual(len({e['CARGO_TARGET_DIR'] for e in environments}),4)
+        self.assertEqual([e['LEMON_SCORE_BUNDLE'] for e in environments],['score-'+x+'.zip' for x in p.PLATFORMS])
+
+    def test_mix_reference_download_is_website_only(self):
+        self.assertTrue(p.r.permitted(p.r.MIX_REFERENCE_PATH,'website'))
+        for scope in (*p.PLATFORMS,'windows-linux','helper'):
+            self.assertFalse(p.r.permitted(p.r.MIX_REFERENCE_PATH,scope))
+        self.assertFalse(p.r.permitted('another-pack.mlmixref','website'))
     def test_changed_engine_rejected_before_native_build(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/'modules/juce_core').mkdir(parents=True);(root/'modules/juce_core/juce_core.h').touch()
@@ -73,6 +81,7 @@ class PipelineTests(unittest.TestCase):
         import threading
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);out=root/'Desktop';share=root/'share';share.mkdir();out.mkdir();source=root/'source';(source/'packaging').mkdir(parents=True);(source/'packaging/download-page.html').write_text('page')
+            reference=root/'reference.mlmixref';reference.write_bytes(b'fixture')
             calls=[];barrier=threading.Barrier(4,timeout=10);failed=[False]
             def makeplan(folder,scope):
                 folder=Path(folder);folder.mkdir(parents=True,exist_ok=True);file=folder/'test.bin';file.write_bytes(scope.encode())
@@ -87,17 +96,25 @@ class PipelineTests(unittest.TestCase):
                     if args[1]=='mac-arm64' and not failed[0]:failed[0]=True;raise RuntimeError('simulated lost connection')
                     c.atomic_json(share/args[1]/'PUBLISHED.json',{'verified':True})
             def stage(plan,name):dest=c.stage_plan(plan,share/name);return str(dest),c.plan_files(dest)
-            def verify(plans,folder):f=folder/'github-release.json';c.atomic_json(f,{'tag':'fixture'});return str(f),[f]
+            def verify(plans,folder,website):
+                self.assertNotIn(website, plans)
+                f=folder/'github-release.json';c.atomic_json(f,{'tag':'fixture'});return str(f),[f]
             def ghverify(plan,folder,commit=None):f=folder/'GITHUB-VERIFIED.json';c.atomic_json(f,{'url':'fixture'});return 'fixture',[f]
             def backup(*args,**kw):
                 f=share/'snapshot.zip';f.write_bytes(b'snapshot');c.atomic_json(share/'LATEST.json',{'source':f.name,'sha256':c.digest(f)})
             with ExitStack() as stack:
                 changes=[(p.platform,'system',lambda:'Windows'),(p,'config',lambda:{'source_sync':'fixture','juce_source':'fixture'}),(p,'probe',lambda:None),(p,'remote',remote),(p,'prepare',lambda n:None),(p,'release_notes',lambda:{}),(p,'identity',lambda:{'version':7,'commit':'abc'}),(p,'output_root',lambda:out),(p,'shared_run',lambda:share),(p,'stage',stage),(p,'verify_live',verify),(p,'github_stage',lambda *a:({'commit':'abc','tag':'fixture'},[out/'github-release.json'])),(p,'github_verify',ghverify),(p.r,'ROOT',source),(p.r,'PRIVATE',root/'private'),(p.r,'git',lambda *a:'' if a[0]=='status' else 'abc'),(p.r,'run',lambda *a:None),(p.r,'shared_folder',lambda:share),(b,'windows',win),(b,'linux_compile',lin),(b,'linux_package',lambda cfg,binary,wp,folder,log:makeplan(folder,'linux-package')),(b,'merged_plan',lambda plans,folder:makeplan(folder/'combined','windows-linux')),(b,'command',backup),(p.r,'write_plan',lambda site,folder,scope:makeplan(folder,scope))]
                 for obj,name,value in changes:stack.enter_context(patch.object(obj,name,value))
+                stack.enter_context(patch.object(p.r, 'version', return_value=7))
+                stack.enter_context(patch.object(p, 'mix_reference_pack', return_value=reference))
+                stack.enter_context(patch.object(p.discord_changelog, 'bot_api', return_value=object()))
+                post = stack.enter_context(patch.object(p.discord_changelog, 'publish', return_value={'verified': True}))
                 stack.enter_context(patch.object(p,'helper_stage',lambda folder:stage(makeplan(folder/'helper','helper'),'helper')))
                 with self.assertRaisesRegex(RuntimeError,'lost connection'):p.coordinator()
                 p.coordinator()
             for name in ['windows','linux','arm64','x86_64']:self.assertEqual(calls.count(name),1,name)
+            post.assert_called_once()
+            self.assertTrue(json.loads((out/'DISCORD-VERIFIED.json').read_text())['verified'])
             self.assertEqual(calls.count('publish-mac-arm64'),2)
             self.assertEqual(calls.count('publish-mac-x86_64'),1)
             self.assertEqual(calls.count('publish-helper'),1)

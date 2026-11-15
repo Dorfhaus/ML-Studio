@@ -808,6 +808,16 @@ mod tests {
         );
         history::undo(&mut a.state);
         assert_eq!(piano::notes(&a.state).len(), 1);
+        let before_chop = piano::notes(&a.state).to_vec();
+        assert!(chop(&mut a.state, 48));
+        let chopped = piano::notes(&a.state).to_vec();
+        assert_eq!(chopped.len(), 2);
+        assert_eq!(history::undo(&mut a.state), Some("Quick chop"));
+        assert_eq!(piano::notes(&a.state), before_chop);
+        assert_eq!(history::redo(&mut a.state), Some("Quick chop"));
+        assert_eq!(piano::notes(&a.state), chopped);
+        assert_eq!(a.state.project.mpe.get(chopped[1].expression).unwrap().value(0, 0.5), 18.);
+        history::undo(&mut a.state);
         a.state.piano.select(1, 0, vec![0]);
         a.state.mpe.open = true;
         a.state.raise(crate::app::Win::PianoRoll);
@@ -850,7 +860,12 @@ pub fn chop(s: &mut State, size: u32) -> bool {
         |s, notes| {
             let mut out = vec![];
             for original in notes {
-                for mut n in crate::piano_tools::chop_from_start(vec![original], size) {
+                let pieces = crate::piano_tools::chop_from_start(vec![original], size);
+                if pieces.len() == 1 {
+                    out.extend(pieces);
+                    continue;
+                }
+                for mut n in pieces {
                     if let Some(e) = s.project.mpe.get(original.expression) {
                         let length = original.length.max(1) as f32;
                         added.push(e.window(
@@ -864,7 +879,7 @@ pub fn chop(s: &mut State, size: u32) -> bool {
             }
             out
         },
-        None,
+        Some("Quick chop"),
     );
     s.project.mpe.expressions.extend(added);
     changed

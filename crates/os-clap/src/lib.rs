@@ -1294,6 +1294,31 @@ impl Plugin {
         unsafe { (*self.gui).get_size.is_some_and(|f| f(self.plugin, &mut w, &mut h)) }.then(|| self.to_px((w, h)))
     }
 
+    fn editor_resizable(&self) -> bool {
+        self.editor && unsafe {
+            let gui = &*self.gui;
+            gui.set_size.is_some() && gui.can_resize.is_some_and(|can_resize| can_resize(self.plugin))
+        }
+    }
+
+    fn resize_editor(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
+        if !self.editor_resizable() || width == 0 || height == 0 {
+            return None;
+        }
+        let pixels = |v: u32| (v as f32 / self.editor_scale).round().max(1.0) as u32;
+        let (mut width, mut height) = (pixels(width), pixels(height));
+        unsafe {
+            let gui = &*self.gui;
+            if let Some(adjust) = gui.adjust_size {
+                if !adjust(self.plugin, &mut width, &mut height) { return None; }
+            }
+            if width == 0 || height == 0 || !gui.set_size?(self.plugin, width, height) {
+                return None;
+            }
+        }
+        self.editor_size().or_else(|| Some(self.to_px((width, height))))
+    }
+
     /// An editor size as the plugin gives it (points on macOS) in pixels.
     fn to_px(&self, (w, h): (u32, u32)) -> (u32, u32) {
         let px = |v: u32| (v as f32 * self.editor_scale).round() as u32;
@@ -1737,6 +1762,14 @@ impl os_host::Plugin for Plugin {
 
     fn editor_size(&self) -> Option<(u32, u32)> {
         Plugin::editor_size(self)
+    }
+
+    fn editor_resizable(&self) -> bool {
+        Plugin::editor_resizable(self)
+    }
+
+    fn resize_editor(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
+        Plugin::resize_editor(self, width, height)
     }
 
     fn close_editor(&mut self) {
@@ -2454,13 +2487,16 @@ mod tests {
         let p = lemon_eq();
         let p = p.lock().unwrap();
         let infos: Vec<os_host::ParamInfo> = (0..p.param_count()).filter_map(|i| p.param_info(i)).collect();
-        assert_eq!(infos.len(), 36);
+        // The original 36 automation indices stay stable as dynamic bands
+        // and sidechain controls are appended.
+        assert_eq!(infos.len(), 83);
+        assert_eq!(infos.iter().map(|i| i.id).collect::<std::collections::HashSet<_>>().len(), infos.len());
         let names: Vec<&str> = infos.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(
             (names[0], names[7], names[14], names[21], names[28], names[35]),
             ("Band 1 level", "Band 1 freq", "Band 1 width", "Band 1 type", "Band 1 order", "Main level")
         );
-        assert!(infos.iter().all(|i| i.automatable && !i.hidden));
+        assert!(infos[..36].iter().all(|i| i.automatable && !i.hidden));
         assert_eq!(infos[21].steps, 7);
         assert_eq!(p.param_value(infos[0].id), Some(0.5), "0 dB is the middle of -18..18");
         assert_eq!(p.param_text(infos[0].id, 1.0).as_deref(), Some("18.0dB"));

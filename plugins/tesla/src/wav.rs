@@ -465,9 +465,11 @@ mod tests {
         // acid: 2 beats, 4/4.
         let ac = b.windows(4).position(|w| w == b"acid").unwrap() + 8;
         assert_eq!(u32_at(&b, ac + 12), 2);
-        // Tesla's own name: 6 bytes, so LIST INFO is 18.
+        // LIST type (4), ISFT header (8), and the padded null-terminated name.
         let t = write(&example(), Depth::Own);
-        assert_eq!(chunks(&t).last().unwrap(), &("LIST INFO".to_string(), 18));
+        let size = 12 + (SOFTWARE.len() as u32 + 1).next_multiple_of(2);
+        assert_eq!(chunks(&t).last().unwrap(), &("LIST INFO".to_string(), size));
+        assert!(t.windows(SOFTWARE.len()).any(|s| s == SOFTWARE.as_bytes()));
     }
 
     #[test]

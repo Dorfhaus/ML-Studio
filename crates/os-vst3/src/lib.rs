@@ -568,6 +568,7 @@ pub struct Plugin {
     ara: Option<ara::Document>,
     ara_playback: Option<ara_playback::Playback>,
     ara_source: Option<String>,
+    ara_owner: Option<(u16, u32)>,
     /// The controller is its own object (initialised and terminated by the host).
     separate: bool,
     handler: Com<Handler>,
@@ -682,6 +683,7 @@ impl Plugin {
                 component,
                 ara_playback: ara.as_ref().map(|d|ara_playback::Playback::new(d.duration())),
                 ara_source: None,
+                ara_owner: None,
                 ara,
                 separate,
                 handler: Handler::create(shared.clone()),
@@ -1137,7 +1139,7 @@ impl Plugin {
         if let Some(doc)=&self.ara {
             return ara::State { plugin_path:self.desc.path.clone(), class_id:self.desc.id.clone(),
                 source_path:self.ara_source.clone()?, factory_id:doc.factory_id(), archive_id:doc.archive_id(),
-                frames:doc.frames(), rate:doc.sample_rate(), fingerprint:doc.fingerprint(), archive:doc.archive().ok()? }.encode().ok();
+                frames:doc.frames(), rate:doc.sample_rate(), fingerprint:doc.fingerprint(), owner:self.ara_owner, archive:doc.archive().ok()? }.encode().ok();
         }
         unsafe {
             let s = Stream::create(Vec::new());

@@ -171,7 +171,10 @@ pub fn render(o: &Opts) -> Result<(), String> {
     });
     let peak = audio.iter().fold(0.0f32, |m, v| m.max(v.abs()));
     eprintln!("RENDERED {:.2} s (song {:.2} s) at {} Hz in {:.1} s, peak {peak:.3}", audio.len() as f64 / 2.0 / rate as f64, len as f64 / rate as f64, o.rate, t1.elapsed().as_secs_f64());
+    app.transport.shutdown();
     app.reset_hosted();
+    drop(app);
+    crate::plugins::sweep_retired();
     written.map_err(|e| format!("{}: {e}", o.out.display()))
 }
 

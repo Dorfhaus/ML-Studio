@@ -38,6 +38,7 @@ pub const SPEC: &Spec = &Spec {
     word: "BALANCE",
     about: "ML Studio's balance",
     settings: &SETTINGS,
+    studio_settings: 0,
     version: None,
     any_version: false,
     fields: &[],

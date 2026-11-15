@@ -161,6 +161,7 @@ pub enum Cmd {
     Properties,
     Stretch,
     Cleanup,
+    Deverb,
     ReturnTrack,
     Format(Format),
     Channels(usize),
@@ -1354,6 +1355,7 @@ impl Logic {
                 };
                 m.head("Amp", Cmd::None);
                 if crate::cleanup::visible(){m.add(item("Clean up audio (denoise)...").enabled(has),Cmd::Cleanup);}
+                if crate::cleanup::deverb_visible(){m.add(item("Deverb...").enabled(has),Cmd::Deverb);}
                 if crate::stretch::visible(){m.add(item("Time stretch / pitch shift...").enabled(has),Cmd::Stretch);}
                 t(&mut m, "Amp...", "Alt+A", ToolCmd::Amp, has);
                 t(&mut m, "Reverse polarity", "", ToolCmd::ReversePolarity, has);
@@ -1460,7 +1462,8 @@ impl Logic {
         let mut acts = vec![Act::Repaint];
         match cmd {
             Cmd::ReturnTrack=>self.cleanup_return_current(),
-            Cmd::Cleanup => {if crate::cleanup::visible(){self.cleanup_open();}},
+            Cmd::Cleanup => {if crate::cleanup::visible(){self.cleanup_open_as(crate::cleanup::Mode::Denoise);}},
+            Cmd::Deverb => {if crate::cleanup::deverb_visible(){self.cleanup_open_as(crate::cleanup::Mode::General);}},
             Cmd::Stretch => {
                 if self.stretch_job.is_none() && crate::stretch::visible() && self.doc(|d|d.frames()>0) && !self.shared.armed.load(Ordering::Acquire){self.view.stretch=Some(Default::default());}
                 else{self.hint="Load audio, stop recording and wait for pending processing.".into();}

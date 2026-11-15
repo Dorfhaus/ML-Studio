@@ -14,6 +14,13 @@ use crate::views::settings::{self, Plug};
 impl App {
     /// The plugin manager's checks (`settings::plugin_check`).
     pub(crate) fn plugin_check(&mut self, key: &str) {
+        if key == settings::SAFE_PLUGIN_CHECK {
+            let disabled = !crate::settings_file::flag("external_plugins_disabled", false);
+            crate::prefs::set_text("external_plugins_disabled", if disabled { "1" } else { "0" });
+            self.state.message = Some("Reopen the project to apply external plug-in recovery mode.".into());
+            self.invalidate();
+            return;
+        }
         let p = &mut self.state.plugdb.prefs;
         match key {
             settings::ERRORS_CHECK => p.rescan_errors = !p.rescan_errors,

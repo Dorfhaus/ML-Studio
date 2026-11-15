@@ -255,6 +255,9 @@ pub fn slot_ports(project: &Project, track: usize, slot: usize) -> (usize, usize
     let Some(s) = project.mixer.iter().find(|m| usize::from(m.index) == track).and_then(|m| m.slots.get(slot)?.as_ref()) else {
         return (0, 0);
     };
+    if s.name == crate::plugins::EQ_FILE_NAME {
+        return (0, os_engine::effects::eq::routed::sidechain_port(&s.state));
+    }
     if s.name != WRAPPER {
         return (0, 0);
     }
@@ -272,6 +275,15 @@ pub fn set_slot_sidechain(proj: &mut Project, plugins: &Plugins, track: u16, slo
     let Some(s) = proj.mixer.iter_mut().find(|m| m.index == track).and_then(|m| m.slots.get_mut(usize::from(slot))?.as_mut()) else {
         return false;
     };
+    if s.name == crate::plugins::EQ_FILE_NAME {
+        let Some(mut state) = plugins.eq_file_state(key) else { return false };
+        os_engine::effects::eq::routed::set_sidechain_port(&mut state, port);
+        if !plugins.set_state(key, &lemon_parametric_eq_2::params::plugin_state_from_fl(&state)) {
+            return false;
+        }
+        s.state = state;
+        return true;
+    }
     if s.name != WRAPPER {
         let Some(d) = plugins.descriptor(key).filter(is_wrapped) else { return false };
         let Some(state)=plugins.state(key) else{return false;};
@@ -281,6 +293,46 @@ pub fn set_slot_sidechain(proj: &mut Project, plugins: &Plugins, track: u16, slo
     let Some(state) = wrapper::set_input_port(&s.state, 1, i32::try_from(port).unwrap_or(0)) else { return false };
     s.state = state;
     true
+}
+
+/// Other DAWs see the compatible effect state. The live plugin and the
+/// internal project continue to hold the ML-only options.
+pub(crate) fn strip_ml_dsp_options(project: &mut Project, warnings: &mut Vec<String>) -> Vec<(u16, usize, Vec<u8>)> {
+    let mut restore = Vec::new();
+    use lemon_small_fx::{chorus, fast_distortion, soft_clipper, stereo_enhancer, transient_processor};
+    for track in &mut project.mixer {
+        for (index, slot) in track.slots.iter_mut().enumerate() {
+            let Some(slot) = slot else { continue };
+            let spec = match slot.name.as_str() {
+                "Fruity Chorus" => Some(chorus::SPEC),
+                "Fruity Fast Dist" => Some(fast_distortion::SPEC),
+                "Fruity Soft Clipper" => Some(soft_clipper::SPEC),
+                "Fruity Stereo Enhancer" => Some(stereo_enhancer::SPEC),
+                "Transient Processor" => Some(transient_processor::SPEC),
+                _ => None,
+            };
+            let mut length = spec.map_or(slot.state.len(), |spec| lemon_small_fx::params::studio_base_len(spec, &slot.state));
+            let tag = match slot.name.as_str() {
+                "Fruity Delay 3" => Some(os_engine::effects::delay::CLEAN_ECHO_TAG),
+                "Fruity Limiter" => Some(os_engine::effects::dynamics::PEAK_GUARD_TAG),
+                _ => None,
+            };
+            if let Some(tag) = tag.filter(|tag| slot.state.ends_with(*tag)) {
+                length -= tag.len();
+            }
+            let eq_key = slot.name == crate::plugins::EQ_FILE_NAME
+                && os_engine::effects::eq::routed::sidechain_port(&slot.state) != 0;
+            if length != slot.state.len() || eq_key {
+                restore.push((track.index, index, slot.state.clone()));
+                slot.state.truncate(length);
+                if eq_key {
+                    os_engine::effects::eq::routed::set_sidechain_port(&mut slot.state, 0);
+                }
+                warnings.push(format!("Insert {}, slot {}: advanced ML DSP settings require an LMN project", track.index, index + 1));
+            }
+        }
+    }
+    restore
 }
 
 /// Attaches hosted effects to `e`, each with the input ports its slot is saved with in `project`.
@@ -378,6 +430,7 @@ pub fn plugin_title(ch: &Channel) -> Option<String> {
 
 /// What a mixer slot shows: a wrapped plugin's own name, else the slot's label (spec: ui/mixer.md §7).
 pub fn slot_title(s: &SlotPlugin) -> String {
+    if let Some(title) = crate::ara::link_title(s) { return title; }
     match wrapped_slot(s).map(|r| crate::plugins::canonical_name(&r.name).to_string()).filter(|n| !n.is_empty()) {
         Some(n) => n,
         None => crate::plugins::slot_label(&s.name).to_string(),
@@ -574,7 +627,7 @@ impl crate::app::App {
             // Before the states are copied: this runs every tick, and an Edison slot's can be tens of megabytes.
             .filter(|&(t, k, s)| {
                 let key = fx_key(t, k);
-                !s.name.is_empty() && s.name != WRAPPER && !self.plugins.hosted.contains_key(&key) && !self.native_failed.contains(&key)
+                !s.name.is_empty() && s.name != WRAPPER && s.name != crate::ara::MIXER_LINK && !self.plugins.hosted.contains_key(&key) && !self.native_failed.contains(&key)
             })
             .map(|(t, k, s)| (t, k, s.name.clone(), s.state.clone()))
             .collect();
@@ -704,6 +757,47 @@ mod tests {
     use super::*;
     use crate::app::App;
     use crate::plugins::{fx_key, LEMON_EQ, LEMON_SAMPLER};
+
+    #[test]
+    fn stock_dsp_options_survive_project_save_and_reopen() {
+        let mut app = App::new(None);
+        app.state.project = crate::app::test_project();
+        app.plugins.effects = crate::plugins::builtin_effects();
+        let spec = lemon_small_fx::soft_clipper::SPEC;
+        let base = lemon_small_fx::params::default_state(spec);
+        let advanced = lemon_small_fx::params::to_fl(spec, &[64, 150, 2, 1, 1], &base);
+        let mut delay = os_engine::effects::delay::Settings::default().to_state();
+        delay.extend_from_slice(os_engine::effects::delay::CLEAN_ECHO_TAG);
+        let mut limiter = lemon_limiter::params::default_state();
+        limiter.extend_from_slice(os_engine::effects::dynamics::PEAK_GUARD_TAG);
+        for (index, (name, state)) in [
+            ("Fruity Soft Clipper", advanced), ("Fruity Delay 3", delay), ("Fruity Limiter", limiter),
+            (crate::plugins::EQ_FILE_NAME, lemon_parametric_eq_2::params::default_state()),
+        ].into_iter().enumerate() {
+            app.state.project.mixer[3].slots[index] = Some(SlotPlugin { name: name.into(), state });
+        }
+        app.sync_effects();
+        assert!(set_slot_sidechain(&mut app.state.project, &app.plugins, 3, 3, 2));
+        let path = std::env::temp_dir().join(format!("ml-stock-dsp-{}.lmn", std::process::id()));
+        app.save_to(path.clone());
+        let saved = os_flp::project::load(&os_flp::FlpFile::parse(&std::fs::read(&path).unwrap()).unwrap()).unwrap();
+        let mut reopened = App::new(None);
+        reopened.state.project = saved;
+        reopened.plugins.effects = crate::plugins::builtin_effects();
+        reopened.sync_effects();
+        reopened.store_builtin_states();
+        let mut project = reopened.state.project.clone();
+        let state = |slot: usize| project.mixer[3].slots[slot].as_ref().unwrap().state.as_slice();
+        assert_eq!(lemon_small_fx::params::values_of(spec, state(0)), [64, 150, 2, 1, 1]);
+        assert!(state(1).ends_with(os_engine::effects::delay::CLEAN_ECHO_TAG));
+        assert!(state(2).ends_with(os_engine::effects::dynamics::PEAK_GUARD_TAG));
+        assert_eq!(slot_ports(&project, 3, 3), (0, 2));
+        let mut warnings = Vec::new();
+        assert_eq!(strip_ml_dsp_options(&mut project, &mut warnings).len(), 4);
+        assert_eq!(warnings.len(), 4);
+        assert_eq!(slot_ports(&project, 3, 3), (0, 0));
+        let _ = std::fs::remove_file(path);
+    }
 
     /// A hosted plugin channel and a mixer slot plugin are saved as wrapped plugins holding their identity and state,
     /// and the reopened project hosts them again with that state; a second save keeps working on the saved file

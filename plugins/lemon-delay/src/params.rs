@@ -345,6 +345,22 @@ impl DelayParams {
         self.raw_version.fetch_add(1, Ordering::AcqRel);
     }
 
+    pub fn clean_echo(&self) -> bool {
+        self.raw.read().is_ok_and(|raw| raw.ends_with(dsp::CLEAN_ECHO_TAG))
+    }
+
+    pub fn toggle_clean_echo(&self) {
+        if let Ok(mut raw) = self.raw.write() {
+            if raw.ends_with(dsp::CLEAN_ECHO_TAG) {
+                let end = raw.len() - dsp::CLEAN_ECHO_TAG.len();
+                raw.truncate(end);
+            } else {
+                raw.extend_from_slice(dsp::CLEAN_ECHO_TAG);
+            }
+            self.raw_version.fetch_add(1, Ordering::Release);
+        }
+    }
+
     pub fn raw_copy(&self) -> Vec<u8> {
         self.raw.read().map(|b| b.clone()).unwrap_or_else(|_| default_state())
     }

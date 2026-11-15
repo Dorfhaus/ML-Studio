@@ -157,7 +157,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::app::{test_project, Action};
-    use crate::views::menus::{self, VIEW};
+    use crate::views::menus::VIEW;
     use os_ui::{Canvas, Rect};
 
     fn hit_rect(app: &App, a: &Action) -> Rect {
@@ -184,7 +184,7 @@ mod tests {
         assert!((0..12).filter(|&k| is_black(k)).eq([1, 3, 6, 8, 10]));
     }
 
-    /// The toolbar button, VIEW and Alt+F7 open it; pressing a pad plays the selected channel, a drag onto another pad
+    /// View and Alt+F7 toggle it; pressing a pad plays the selected channel, a drag onto another pad
     /// moves the note, the release ends it (spec §2).
     #[test]
     fn opens_and_plays() {
@@ -193,14 +193,18 @@ mod tests {
         app.state.project = test_project();
         app.state.selected_channel = 1;
         app.paint(&mut c, None);
-        let b = hit_rect(&app, &Action::ToggleWin(Win::Touch));
-        assert_eq!(hint(&app, &Action::ToggleWin(Win::Touch)), "Touch controller (Alt+F7)");
-        app.mouse_move(b.cx(), b.cy());
+        let menu = hit_rect(&app, &Action::Menu(VIEW));
+        app.mouse_move(menu.cx(), menu.cy());
+        app.mouse_down();
+        app.mouse_up();
+        app.paint(&mut c, None);
+        let index = app.state.playlist.popup.as_ref().unwrap().items.iter()
+            .position(|item| item.label == "Touch controller").unwrap();
+        let row = hit_rect(&app, &Action::PlPopup(index));
+        app.mouse_move(row.cx(), row.cy());
         app.mouse_down();
         app.mouse_up();
         assert!(app.state.shown(Win::Touch) && app.state.in_front(Win::Touch));
-        let i = (0..).map_while(|i| menus::item_at(VIEW, i)).position(|it| it.label == "Touch controller").expect("VIEW entry");
-        assert!(menus::works(VIEW, menus::item_at(VIEW, i).unwrap()));
         app.paint(&mut c, None);
 
         let (g4s, a4) = (Action::Touch(TouchAct::Note(56)), Action::Touch(TouchAct::Note(57)));

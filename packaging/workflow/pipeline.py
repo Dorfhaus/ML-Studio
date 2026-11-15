@@ -5,6 +5,7 @@ import argparse, datetime, hashlib, json, mmap, os, platform, re, shutil, subpro
 import release as r
 import builders as b
 import storage
+import discord_changelog
 from checkpoints import Journal, atomic_json, digest, exclusive, plan_files, stage_plan
 
 CONFIG=r.PRIVATE/'pipeline.json'
@@ -29,6 +30,15 @@ def live_versions():
 def engine_id():return r.git('rev-parse','HEAD:plugins/lemon-master-assistant')
 
 
+def mix_reference_pack(config):
+    entry = config['mix_reference_pack']
+    source = Path(entry['path'])
+    if not source.is_file() or digest(source) != entry['sha256']:
+        raise RuntimeError('Website Mix References pack is missing or changed')
+    r.verify_mix_reference_pack(source)
+    return source
+
+
 def probe(mac=False):
     c=config();required=PLATFORMS[2:] if mac else PLATFORMS[:2]
     if not Path(c['juce_source'],'modules/juce_core/juce_core.h').is_file():raise RuntimeError('Matching JUCE source is missing')
@@ -41,6 +51,7 @@ def probe(mac=False):
             if (m['os'],m['arch'])!=expected:raise RuntimeError('Wrong engine architecture: '+p)
             for f in m['files']:
                 if hashlib.sha256(z.read(f['path'])).hexdigest()!=f['sha256']:raise RuntimeError('Damaged native engine archive')
+        b.verify_score_bundle(c, p)
     from cryptography.hazmat.primitives.serialization import load_pem_private_key,Encoding,PublicFormat
     key=r.PRIVATE/('mac-update-signing-key.pem' if mac else 'update-signing-key.pem')
     expected=r.ROOT/'crates/os-app/src'/('update-mac-public-key.hex' if mac else 'update-public-key.hex')
@@ -53,6 +64,7 @@ def probe(mac=False):
         if not all(t in targets for t in ['aarch64-apple-darwin','x86_64-apple-darwin']):raise RuntimeError('Both Mac Rust targets must be installed')
         r.check_connection()
     else:
+        mix_reference_pack(c)
         cfg=r.read_config()
         for k in ('llvm','nsis','runtime'):
             if not Path(cfg[k]).exists():raise RuntimeError('Missing build tool: '+k)
@@ -206,7 +218,7 @@ def helper_stage(out):
     return stage(r.write_plan(site,folder,'helper'),'helper')
 
 
-def verify_live(plans,out):
+def verify_live(plans,out,website_plan):
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     index,assets=artifacts(plans)
     for rel in ['platforms/'+p+'.json' for p in PLATFORMS]+['updates/stable.json','updates/linux-x64/stable.json','mac/updates/arm64/stable.json','mac/updates/x86_64/stable.json']:
@@ -219,8 +231,13 @@ def verify_live(plans,out):
             value=json.loads(value['payload'])
         if value['version']!=r.version():raise RuntimeError('Wrong live release version')
     if read_url(r.DOWNLOAD_PAGE+'?verify='+str(time.time_ns()))!=(r.ROOT/'packaging/download-page.html').read_bytes():raise RuntimeError('Live changelog page differs')
+    website = json.loads(Path(website_plan).read_text())
+    reference_hash = next(entry['sha256'] for entry in website['files'] if entry['path'] == r.MIX_REFERENCE_PATH)
+    reference = read_url(r.BASE+urllib.parse.quote(r.MIX_REFERENCE_PATH)+'?verify='+str(time.time_ns()))
+    if hashlib.sha256(reference).hexdigest() != reference_hash:
+        raise RuntimeError('Website Mix References download differs')
     # Artifact bytes were verified over HTTPS by each publisher before its manifest became live.
-    for path in plans:
+    for path in [*plans, website_plan]:
         p=json.loads(Path(path).read_text());receipt=json.loads(Path(path).with_name('PUBLISHED.json').read_text())
         if any(receipt[k]!=p[k] for k in ('version','commit','scope','files')):raise RuntimeError('Publication receipt does not match prepared artifacts')
     for a in assets:
@@ -229,7 +246,7 @@ def verify_live(plans,out):
         if digest(dest)!=a['sha256']:raise RuntimeError('Desktop artifact hash differs')
     notes=release_notes();v=str(r.version());label=f'{v[:4]}.{v[4:6]}.{v[6:8]}.{int(v[8:])}'
     plan=dict(tag='v'+label,title='ML Studio '+label,notes='\n'.join('- '+x for x in notes['changes'])+'\n\n'+r.DOWNLOAD_PAGE,assets=[{k:a[k] for k in ('name','url','sha256')} for a in assets])
-    atomic_json(out/'github-release.json',plan);atomic_json(out/'VERIFIED.json',{'version':r.version(),'platforms':list(PLATFORMS),'signatures':4,'download_hashes_verified_by_publishers':True,'website_exact':True})
+    atomic_json(out/'github-release.json',plan);atomic_json(out/'VERIFIED.json',{'version':r.version(),'platforms':list(PLATFORMS),'signatures':4,'download_hashes_verified_by_publishers':True,'website_exact':True,'website_mix_references_sha256':reference_hash})
     return str(out/'github-release.json'),[out/'github-release.json',out/'VERIFIED.json']+[out/'Downloads'/a['name'] for a in assets]
 
 
@@ -335,6 +352,9 @@ def coordinator(notes=None,check=False,no_changelog=False):
         win_shared=j.step('Stage Windows and Linux',lambda _:stage(combined,'windows-linux'))
         def website(_):
             folder=out/'website';site=folder/'lemon-studio';site.mkdir(parents=True,exist_ok=True);shutil.copy2(r.ROOT/'packaging/download-page.html',site/'index.html')
+            target = site / r.MIX_REFERENCE_PATH
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(mix_reference_pack(c), target)
             p=r.write_plan(site,folder,'website');return stage(p,'website')
         webplan=j.step('Stage website',website)
         helper=j.step('Stage optional Melli',lambda _:helper_stage(out))
@@ -349,7 +369,7 @@ def coordinator(notes=None,check=False,no_changelog=False):
         publish(helper)
         with ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(publish,plans[:-1]))
         publish(webplan)
-        gp=j.step('Verify live downloads and feeds',lambda _:verify_live(plans,out))
+        gp=j.step('Verify live downloads and feeds',lambda _:verify_live(plans,out,webplan))
         publication=j.step('Publish GitHub',lambda attempt:github_stage(gp,plans,out,attempt))
         def finish_github(attempt):
             commit=publication['commit']
@@ -360,6 +380,15 @@ def coordinator(notes=None,check=False,no_changelog=False):
                     result,_=github_stage(gp,plans,out,1000+attempt*10+retry,force=True)
                     commit=result['commit']
         j.step('Verify GitHub',finish_github)
+        def post_discord(_):
+            result = discord_changelog.publish(
+                discord_changelog.bot_api(c['source_sync']),
+                r.version(), release_notes(), r.DOWNLOAD_PAGE,
+            )
+            receipt = out / 'DISCORD-VERIFIED.json'
+            atomic_json(receipt, result)
+            return result, [receipt]
+        j.step('Post Discord changelog', post_discord)
         def backup(_):
             env=dict(os.environ,LEMON_JUCE_SOURCE=c['juce_source'],PYTHONUTF8='1')
             b.command(out/'backup.log','powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',c['source_sync'],'-Source',r.ROOT,env=env)
@@ -369,7 +398,7 @@ def coordinator(notes=None,check=False,no_changelog=False):
             atomic_json(r.shared_folder()/'LATEST.json',latest)
             receipt=out/'BACKUP-VERIFIED.json';atomic_json(receipt,latest);return str(p),[p,receipt]
         j.step('Back up source',backup)
-        print('COMPLETE: website, Windows, Linux, both Macs, GitHub, signed feeds and backup verified. '+str(out),flush=True)
+        print('COMPLETE: website, Windows, Linux, both Macs, GitHub, signed feeds, Discord changelog and backup verified. '+str(out),flush=True)
 
 
 def main():

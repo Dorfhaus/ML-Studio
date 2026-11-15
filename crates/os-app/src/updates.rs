@@ -7,7 +7,9 @@ use sha2::{Digest, Sha256};
 #[path = "update_retention.rs"]
 pub(crate) mod retention;
 
-pub const VERSION: u64 = 2026111403;
+pub(crate) const SETTINGS_VISIBILITY: &str = "visible_update-preferences";
+
+pub const VERSION: u64 = 2026111501;
 #[cfg(windows)]
 pub const FEED: &str = "https://michaellanemusic.de/lemon-studio/updates/stable.json";
 #[cfg(windows)]
@@ -63,18 +65,27 @@ fn allowed(name: &str) -> bool {
 fn verify_with(bytes: &[u8], key: &VerifyingKey) -> Result<Manifest> {
     verify_newer_than(bytes,key,VERSION)
 }
-fn verify_newer_than(bytes: &[u8], key: &VerifyingKey, minimum: u64) -> Result<Manifest> {
+fn authenticate(bytes: &[u8], key: &VerifyingKey) -> Result<Manifest> {
     if bytes.len() > 65536 { return Err("Update manifest too large".into()); }
     let signed: Signed = serde_json::from_slice(bytes)?;
     key.verify_strict(signed.payload.as_bytes(), &Signature::from_slice(&unhex(&signed.signature)?)?)?;
-    let m: Manifest = serde_json::from_str(&signed.payload)?;
+    Ok(serde_json::from_str(&signed.payload)?)
+}
+
+fn verify_newer_than(bytes: &[u8], key: &VerifyingKey, minimum: u64) -> Result<Manifest> {
+    let manifest = authenticate(bytes, key)?;
+    validate_newer(&manifest, minimum)?;
+    Ok(manifest)
+}
+
+fn validate_newer(m: &Manifest, minimum: u64) -> Result<()> {
     if m.product != PRODUCT || m.version <= minimum || m.label.len()>80 || m.notes.len()>8000 { return Err("Wrong product or non-newer update".into()); }
     if m.files.len()!=expected_files().len() { return Err("Incomplete update".into()); }
     let mut names = std::collections::HashSet::new();
     for file in &m.files {
         if !allowed(&file.name) || !names.insert(&file.name) || file.size==0 || file.size>512*1024*1024 || unhex(&file.sha256)?.len()!=32 { return Err("Invalid update file".into()); }
     }
-    Ok(m)
+    Ok(())
 }
 fn verify(bytes: &[u8]) -> Result<Manifest> { verify_with(bytes, &public_key()?) }
 fn checked_file(path: &Path, file: &File) -> Result<()> {
@@ -118,15 +129,25 @@ fn writable_bundle(exe:&Path) -> Result<()> {
     fs::remove_file(probe)?;
     Ok(())
 }
-fn check() -> Result<Option<PathBuf>> {
-    let bytes=get(FEED,65536).map_err(|e| format!("Could not fetch the update feed ({e})"))?;
+enum CheckResult {
+    Current,
+    Available(String),
+    Downloaded(PathBuf),
+}
+
+fn check(download: impl FnOnce() -> bool) -> Result<CheckResult> {
+    let bytes = get(FEED, 65536).map_err(|e| format!("Could not fetch the update feed ({e})"))?;
+    check_release(&bytes, &public_key()?, download)
+}
+
+fn check_release(bytes: &[u8], key: &VerifyingKey, download: impl FnOnce() -> bool) -> Result<CheckResult> {
     // Authenticate even a current/older release, before interpreting its version.
-    let signed: Signed=serde_json::from_slice(&bytes)?;
-    public_key()?.verify_strict(signed.payload.as_bytes(), &Signature::from_slice(&unhex(&signed.signature)?)?)?;
-    let advertised: Manifest=serde_json::from_str(&signed.payload)?;
-    if advertised.product!=PRODUCT { return Err("Wrong update product".into()); }
-    if advertised.version<=VERSION {return Ok(None)}
-    let manifest=verify(&bytes)?;
+    let manifest = authenticate(bytes, key)?;
+    if manifest.product != PRODUCT { return Err("Wrong update product".into()); }
+    if manifest.version <= VERSION { return Ok(CheckResult::Current); }
+    validate_newer(&manifest, VERSION)?;
+    if !download() { return Ok(CheckResult::Available(manifest.label)); }
+
     #[cfg(target_os="macos")] writable_bundle(&std::env::current_exe()?)?;
     let dir=cache()?.join(format!("{}-{}",manifest.version,std::process::id())); fs::create_dir_all(&dir)?;
     #[cfg(unix)] {use std::os::unix::fs::PermissionsExt;fs::set_permissions(&dir,fs::Permissions::from_mode(0o700))?;}
@@ -142,40 +163,64 @@ fn check() -> Result<Option<PathBuf>> {
         checked_file(&part,file)?; fs::rename(&part,&dest)?;
     }
     fs::write(dir.join("signed.json"),bytes)?;
-    Ok(Some(dir))
+    Ok(CheckResult::Downloaded(dir))
 }
 pub fn start(previous_failure: Option<&str>) {
     // Maintenance never touches the audio/UI thread or pending newer update payloads.
     std::thread::spawn(|| { if let Ok(exe)=std::env::current_exe() { let _=retention::run(&exe,VERSION,None); } });
-    let mut status = status().lock().unwrap();
-    status.started = true;
-    if let Some(error) = previous_failure {
-        status.message = format!("Update check failed: {error}");
-    } else {
-        drop(status);
-        request();
+    {
+        let mut s = status().lock().unwrap();
+        s.started = true;
+        if let Some(error) = previous_failure {
+            s.last = Some(Instant::now());
+            s.message = format!("Update check failed: {error}");
+        }
     }
+    tick();
 }
+
+/// A manual request checks and downloads regardless of the background settings.
 pub fn request() {
-    let mut s=status().lock().unwrap();
+    start_check(true);
+}
+
+fn start_check(manual: bool) {
+    let mut s = status().lock().unwrap();
     if s.busy || s.ready.is_some() { return; }
-    s.busy=true; s.last=Some(Instant::now()); s.message="Checking for updates…".into(); drop(s);
-    std::thread::spawn(|| {
-        let result=check(); let mut s=status().lock().unwrap(); s.busy=false;
+    s.busy = true;
+    s.last = Some(Instant::now());
+    s.message = "Checking for updates…".into();
+    drop(s);
+
+    std::thread::spawn(move || {
+        use crate::prefs::{AUTO_CHECK_UPDATES, AUTO_DOWNLOAD_UPDATES, check as preference};
+        let result = check(|| manual || (preference(&AUTO_CHECK_UPDATES) && preference(&AUTO_DOWNLOAD_UPDATES)));
+        let mut s = status().lock().unwrap();
+        s.busy = false;
         match result {
-            Ok(Some(dir)) => {s.ready=Some(dir);s.message="Update ready. Click to restart, or it will install when you close ML Studio.".into();}
-            Ok(None) => s.message="ML Studio is up to date.".into(),
+            Ok(CheckResult::Downloaded(dir)) => {
+                s.ready = Some(dir);
+                s.message = "Update ready. Click to restart, or it will install when you close ML Studio.".into();
+            }
+            Ok(CheckResult::Available(label)) => {
+                s.message = format!("{label} is available. Click Update to download it.");
+            }
+            Ok(CheckResult::Current) => s.message = "ML Studio is up to date.".into(),
             Err(e) => {
-                s.message=format!("Update check failed: {e}. Click Update to retry.");
+                s.message = format!("Update check failed: {e}. Click Update to retry.");
                 report_error(&s.message);
             }
         }
     });
 }
+
 pub fn tick() {
-    let s=status().lock().unwrap();
-    let due=s.started && !s.busy && s.ready.is_none() && s.last.is_some_and(|v|v.elapsed()>Duration::from_secs(21600));
-    drop(s); if due {request()}
+    if !crate::prefs::check(&crate::prefs::AUTO_CHECK_UPDATES) { return; }
+    let s = status().lock().unwrap();
+    let due = s.started && !s.busy && s.ready.is_none()
+        && s.last.is_none_or(|last| last.elapsed() >= Duration::from_secs(21600));
+    drop(s);
+    if due { start_check(false); }
 }
 pub fn ready() -> bool { status().lock().unwrap().ready.is_some() }
 pub fn display() -> (&'static str,String) {
@@ -542,7 +587,7 @@ pub fn diagnostic(args: &[String]) -> i32 {
                 Ok(format!("ML Studio build {VERSION}\n{detail}"))
             },
             Some("--cleanup-updates") => Ok(format!("Removed {} obsolete update folders; newest two rollback backups retained", retention::run(&std::env::current_exe()?,VERSION,None)?)),
-            Some("--check-update-feed") => Ok(format!("{}",if check()?.is_some(){"Update downloaded and verified"}else{"Signed feed verified; up to date"})),
+            Some("--check-update-feed") => Ok(format!("{}",if matches!(check(|| true)?, CheckResult::Downloaded(_)){"Update downloaded and verified"}else{"Signed feed verified; up to date"})),
             Some("--verify-update") => {
                 let path=Path::new(args.get(1).ok_or("Manifest path required")?);
                 let m=verify_newer_than(&fs::read(path)?,&public_key()?,0)?;
@@ -559,6 +604,36 @@ pub fn diagnostic(args: &[String]) -> i32 {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer,SigningKey};
+    #[test]
+    fn update_check_can_report_availability_without_staging_a_download() {
+        let key = SigningKey::from_bytes(&[23; 32]);
+        let mut manifest = Manifest {
+            product: PRODUCT.into(),
+            version: VERSION + 1,
+            label: "New release".into(),
+            notes: String::new(),
+            files: expected_files().into_iter().map(|name| File {
+                name: name.into(), size: 1, sha256: hex(&Sha256::digest(b"x")),
+            }).collect(),
+        };
+        let sign = |m: &Manifest| {
+            let payload = serde_json::to_string(m).unwrap();
+            let signature = hex(&key.sign(payload.as_bytes()).to_bytes());
+            serde_json::to_vec(&Signed { payload, signature }).unwrap()
+        };
+        let bytes = sign(&manifest);
+        let public = key.verifying_key();
+        assert!(matches!(check_release(&bytes, &public, || false).unwrap(),
+            CheckResult::Available(label) if label == "New release"));
+        let other_key = SigningKey::from_bytes(&[24; 32]).verifying_key();
+        assert!(check_release(&bytes, &other_key, || panic!("untrusted feed")).is_err());
+        manifest.files.clear();
+        assert!(check_release(&sign(&manifest), &public, || panic!("incomplete feed")).is_err());
+        manifest.version = VERSION;
+        assert!(matches!(check_release(&sign(&manifest), &public, || panic!("current version")).unwrap(),
+            CheckResult::Current));
+    }
+
     #[cfg(windows)]
     #[test]
     fn updater_cancelled_handoff_stops_while_parent_stays_open() {
@@ -727,6 +802,14 @@ mod tests {
         m.product="another-product".into();assert!(verify_with(&signed(&m),&key.verifying_key()).is_err());m.product=PRODUCT.into();
         m.version=VERSION;assert!(verify_with(&signed(&m),&key.verifying_key()).is_err());m.version=VERSION+1;
         fs::write(app.join("song.flp"),b"keep my project").unwrap();
+        let plugins = app.join("VST3");
+        let downloaded = root.join("profile/Plugin Downloads/Installed/octasine");
+        fs::create_dir_all(&plugins).unwrap();
+        fs::create_dir_all(&downloaded).unwrap();
+        let surge = plugins.join("Surge XT.vst3");
+        let octasine = downloaded.join("OctaSine.clap");
+        fs::write(&surge, b"existing instrument").unwrap();
+        fs::write(&octasine, b"existing portable instrument").unwrap();
         fs::write(stage.join("LICENSE"),b"bad").unwrap();assert!(install(&stage,&app.join(EXE),&m).is_err());assert_eq!(fs::read(app.join(EXE)).unwrap(),b"old payload");
         fs::write(stage.join("LICENSE"),b"new payload").unwrap();
         #[cfg(windows)] {
@@ -740,6 +823,8 @@ mod tests {
         assert_eq!(fs::read(app.join(EXE)).unwrap(),b"new payload");
         assert!(fs::read_dir(&app).unwrap().filter_map(std::result::Result::ok).any(|e|e.file_name().to_string_lossy().starts_with(".update-backup-") && fs::read(e.path().join(EXE)).is_ok_and(|b|b==b"old payload")));
         assert_eq!(fs::read(app.join("song.flp")).unwrap(),b"keep my project");
+        assert_eq!(fs::read(surge).unwrap(), b"existing instrument");
+        assert_eq!(fs::read(octasine).unwrap(), b"existing portable instrument");
         fs::remove_dir_all(root).unwrap();
     }
 }

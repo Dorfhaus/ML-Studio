@@ -6,6 +6,7 @@ pub fn q_of_width(width: f64) -> f64 {
 }
 const OFFSET: usize = STATE_LEN + 18;
 const VALUES: usize = BANDS * 4 + 2;
+pub(super) const STATE_END: usize = OFFSET + 4 + VALUES * 8 + 4 + 17 * 8;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Config {
     pub bands: [[f32; 4]; BANDS],
@@ -230,6 +231,9 @@ pub fn response_db(hz: f64, rate: f64, band: super::Band, gain: f64) -> f64 {
 struct Band {
     detect: Filter,
     eq: Filter,
+    target_coefficients: [f64; 5],
+    coefficient_step: [f64; 5],
+    coefficients_ready: bool,
     env: f64,
     gain: f64,
     auto_threshold: f32,
@@ -247,6 +251,7 @@ impl Band {
         &mut self,
         l: f64,
         r: f64,
+        key: Option<[f64; 2]>,
         route: u8,
         hz: f64,
         q: f64,
@@ -259,6 +264,8 @@ impl Band {
             self.env = 0.;
             self.gain = 0.;
             self.eq = Filter::default();
+            self.coefficients_ready = false;
+            self.clock = 0;
             return (l, r);
         }
         if self.hz != hz || self.q != q {
@@ -272,14 +279,16 @@ impl Band {
             self.p = p;
             self.slow_alpha = (-1. / (rate * 0.5)).exp();
         }
-        let (a, b) = match route {
+        let route_pair = |l: f64, r: f64| match route {
             1 => ((l + r) * 0.5, 0.),
             2 => ((l - r) * 0.5, 0.),
             3 => (l, 0.),
             4 => (r, 0.),
             _ => (l, r),
         };
-        let peak = self.detect.run(a, 0).abs().max(self.detect.run(b, 1).abs());
+        let (a, b) = route_pair(l, r);
+        let (detect_l, detect_r) = key.map_or((a, b), |[l, r]| route_pair(l, r));
+        let peak = self.detect.run(detect_l, 0).abs().max(self.detect.run(detect_r, 1).abs());
         let alpha = if peak > self.env {
             self.attack
         } else {
@@ -303,9 +312,25 @@ impl Band {
                 self.release.powi(32)
             };
             self.gain = target + (self.gain - target) * smooth;
-            self.eq.design(hz, q, Some(self.gain), rate, kind);
+            let mut target = Filter::default();
+            target.design(hz, q, Some(self.gain), rate, kind);
+            if self.coefficients_ready {
+                self.coefficient_step = std::array::from_fn(|i| (target.c[i] - self.eq.c[i]) / 32.0);
+            } else {
+                self.eq.c = target.c;
+                self.coefficient_step = [0.0; 5];
+                self.coefficients_ready = true;
+            }
+            self.target_coefficients = target.c;
         }
         self.clock = (self.clock + 1) % 32;
+        if self.clock == 0 && self.coefficients_ready {
+            self.eq.c = self.target_coefficients;
+        } else if self.coefficients_ready {
+            for (coefficient, step) in self.eq.c.iter_mut().zip(self.coefficient_step) {
+                *coefficient += step;
+            }
+        }
         let (x, y) = (self.eq.run(a, 0), self.eq.run(b, 1));
         match route {
             1 => {
@@ -392,6 +417,10 @@ impl Processor {
             .reset(self.config.harsh[0] > 0. || self.config.spectral != 0);
     }
     pub fn process(&mut self, l: &mut [f32], r: &mut [f32], s: &Settings, routes: [u8; 7]) {
+        self.process_keyed(l, r, s, routes, None);
+    }
+
+    pub fn process_keyed(&mut self, l: &mut [f32], r: &mut [f32], s: &Settings, routes: [u8; 7], key: Option<(&[f32], &[f32])>) {
         self.meters = [0.; 8];
         for k in 0..BANDS {
             if s.mask & (1 << k) == 0 || s.bands[k].kind == 0 {
@@ -410,10 +439,11 @@ impl Processor {
             }
             let hz = s.bands[k].hz();
             let q = q_of_width(s.bands[k].width);
-            for (l, r) in l.iter_mut().zip(r.iter_mut()) {
+            for (i, (l, r)) in l.iter_mut().zip(r.iter_mut()).enumerate() {
                 let (a, b) = self.bands[k].run(
                     f64::from(*l),
                     f64::from(*r),
+                    key.map(|(l, r)| [l, r].map(|samples| f64::from(samples.get(i).copied().unwrap_or(0.0)))),
                     routes[k],
                     hz,
                     q,
@@ -447,6 +477,26 @@ impl Processor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_dynamic_band_can_follow_an_external_signal() {
+        let rate = 48000.0;
+        let mut settings = Settings::default();
+        settings.bands[3].freq = super::super::freq_pos(1000.0);
+        settings.bands[3].kind = 6;
+        let mut config = Config::default();
+        config.bands[3] = [-12.0, -30.0, 1.0, 100.0];
+        let key: Vec<_> = (0..2400).map(|i| (std::f32::consts::TAU * 1000.0 * i as f32 / rate as f32).sin()).collect();
+        let mut l: Vec<_> = key.iter().map(|x| x * 0.001).collect();
+        let mut r = l.clone();
+        let mut eq = Processor::new(rate);
+        eq.configure(config);
+        eq.process(&mut l, &mut r, &settings, [0; 7]);
+        assert!(eq.meters[3].abs() < 0.01);
+        eq.process_keyed(&mut l, &mut r, &settings, [0; 7], Some((&key, &key)));
+        assert!(eq.meters[3] < -8.0, "{}", eq.meters[3]);
+        assert_eq!(l, r);
+    }
+
     #[test]
     fn block_sizes_rates_and_shelves_remain_stable() {
         for rate in [8000., 44100., 48000., 96000., 192000.] {

@@ -1227,11 +1227,14 @@ fn stretch_panel(ui:&mut Ui,a:&crate::stretch::Panel,lay:&Layout){
 fn cleanup_panel(ui:&mut Ui,a:&crate::cleanup::Panel,lay:&Layout){
  ui.c.fill_rect(Rect::new(0.,0.,lay.w,lay.h),plug::BG.with_alpha(210));
  let p=Rect::new((lay.w-620.)/2.,(lay.h-310.)/2.,620.,310.);ui.hit(p,Target::Cleanup(255));lemon::plug_panel(ui.c,p);
- ui.c.text(Font::new(18).bold(),p.x+18.,p.y+14.,brand::MAIN,"Clean up audio");
- ui.c.text(SMALL,p.x+18.,p.y+42.,plug::DIM,if a.linked{"Apply to track replaces this clip only. Rendered tuning/timing stays baked."}else{"Reduce steady hiss, hum and background noise. Preview before applying."});
+ ui.c.text(Font::new(18).bold(),p.x+18.,p.y+14.,brand::MAIN,if a.mode.deverb() {"Deverb"} else {"Clean up audio"});
+ ui.c.text(SMALL,p.x+18.,p.y+42.,plug::DIM,if a.linked{"Apply to track replaces this clip only. Rendered tuning/timing stays baked."}else if a.mode.deverb(){"Reduce late room reflections. Compare the preview with the original."}else{"Reduce steady hiss, hum and background noise. Preview before applying."});
  let enabled=!a.busy&&!a.awaiting;
- for (x,w,id,text) in [(18.,200.,4,"Learn selected noise"),(226.,166.,11,"Automatic estimate")]{let r=Rect::new(p.x+x,p.y+65.,w,28.);let col=ui.button(r,Target::Cleanup(id),false,enabled);ui.c.text_center(VALUE,r,col,text);}
- for (y,label,value,minus,plus) in [(106.,"REDUCTION",format!("{:.0} dB",a.reduction),0,1),(148.,"SENSITIVITY",format!("{:.2}x",a.sensitivity),2,3)]{
+ let modes = if a.mode.deverb() {[(18.,140.,13,"General"),(166.,140.,14,"Vocal")]}
+    else {[(18.,200.,4,"Learn selected noise"),(226.,166.,11,"Automatic estimate")]};
+ for (x,w,id,text) in modes{let r=Rect::new(p.x+x,p.y+65.,w,28.);let col=ui.button(r,Target::Cleanup(id),(id==13&&a.mode==crate::cleanup::Mode::General)||(id==14&&a.mode==crate::cleanup::Mode::Vocal),enabled);ui.c.text_center(VALUE,r,col,text);}
+ for (y,label,value,minus,plus) in [(106.,if a.mode.deverb(){"AMOUNT"}else{"REDUCTION"},if a.mode.deverb(){format!("{:.0}%",a.reduction)}else{format!("{:.0} dB",a.reduction)},0,1),(148.,"SENSITIVITY",format!("{:.2}x",a.sensitivity),2,3)]{
+  if a.mode.deverb()&&minus==2 {continue;}
   ui.c.text(VALUE,p.x+18.,p.y+y+8.,plug::DIM,label);
   for (x,id,text) in [(164.,minus,"−"),(350.,plus,"+")]{let r=Rect::new(p.x+x,p.y+y,32.,28.);let col=ui.button(r,Target::Cleanup(id),false,enabled);ui.c.text_center(VALUE,r,col,text);}
   ui.c.text_center(VALUE,Rect::new(p.x+202.,p.y+y,140.,28.),brand::TEXT,&value);
@@ -1239,5 +1242,5 @@ fn cleanup_panel(ui:&mut Ui,a:&crate::cleanup::Panel,lay:&Layout){
  ui.c.text_clip(SMALL,p.x+18.,p.y+192.,p.w-36.,brand::TEXT,&a.message);
  if a.busy{ui.c.fill_rrect(Rect::new(p.x+18.,p.y+214.,p.w-36.,4.),2.,plug::DIM);ui.c.fill_rrect(Rect::new(p.x+18.,p.y+214.,(p.w-36.)*a.progress as f32/100.,4.),2.,brand::MAIN);}
  for (x,w,id,text) in [(18.,100.,6,"Original"),(126.,140.,7,if a.busy{"Processing…"}else{"Preview cleaned"}),(274.,64.,10,"Stop")]{let r=Rect::new(p.x+x,p.y+230.,w,28.);let col=ui.button(r,Target::Cleanup(id),false,enabled);ui.c.text_center(VALUE,r,col,text);}
- for (x,w,id,text) in [(18.,130.,8,"Apply cleanup"),(156.,154.,12,"Apply to track"),(498.,104.,9,"Close")]{if id==12&&!a.linked{continue;}let r=Rect::new(p.x+x,p.y+270.,w,28.);let on=if id==9{!a.awaiting}else{enabled&&a.ready};let col=ui.button(r,Target::Cleanup(id),false,on);if id!=9&&on{ui.c.fill_rrect(r,4.,brand::MAIN);ui.c.text_center(VALUE,r,Color::rgb(0),text);}else{ui.c.text_center(VALUE,r,col,text);}}
+ for (x,w,id,text) in [(18.,130.,8,if a.mode.deverb(){"Apply Deverb"}else{"Apply cleanup"}),(156.,154.,12,"Apply to track"),(498.,104.,9,"Close")]{if id==12&&!a.linked{continue;}let r=Rect::new(p.x+x,p.y+270.,w,28.);let on=if id==9{!a.awaiting}else{enabled&&a.ready};let col=ui.button(r,Target::Cleanup(id),false,on);if id!=9&&on{ui.c.fill_rrect(r,4.,brand::MAIN);ui.c.text_center(VALUE,r,Color::rgb(0),text);}else{ui.c.text_center(VALUE,r,col,text);}}
 }

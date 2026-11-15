@@ -19,7 +19,7 @@ fn helper_guide_contains_live_menu_reference_and_mixer_selection() {
             assert!(topics().iter().any(|topic| topic.title == title), "Missing guide topic: {title}");
             assert!(text.contains(&format!("Settings > Visibility > {group} > {label}")));
             let article = text.split(&format!("### {title}\n")).nth(1).unwrap().split("\n### ").next().unwrap();
-            let default = if key == "visible_settings-debug" || key == crate::playlist_tracks::VISIBILITY { "off" } else { "on" };
+            let default = if crate::workspace_visibility::default_shown(key) { "on" } else { "off" };
             assert!(article.contains(&format!("default visibility is **{default}**")), "Wrong default: {title}");
         }
     }

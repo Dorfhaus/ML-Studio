@@ -7,3 +7,4 @@ Stereo separation = 96
 Phase offset = 512
 Phase offset placement = 1
 Inversion = 0
+Bass to mono = 0

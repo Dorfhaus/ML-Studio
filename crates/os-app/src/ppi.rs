@@ -166,6 +166,7 @@ mod tests {
         let mut app = App::new(None);
         app.state.display_scale = 1.5;
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         assert!(!app.hits.iter().any(|h| h.action == Action::Placeholder("Display PPI")), "not greyed out");
         assert_eq!(shown(&app).as_deref(), Some("(144 PPI/advised scaling: 150%)"));
@@ -221,6 +222,7 @@ mod tests {
         let mut app = App::new(None);
         app.state.display_scale = 2.0;
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         let r = ruler(&app);
         assert_eq!(r.w, 208.0);

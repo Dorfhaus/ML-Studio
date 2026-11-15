@@ -172,14 +172,23 @@ pub fn set_input(app:&mut App,row:u16,input:Option<crate::capture::Input>)->Opti
     if !writable(&app.state,row){return Some("Unlock or unfreeze this track before recording".into());}
     if owner(&app.state,row).is_some_and(|n|mixer::locked(&app.state,n)){return Some(mixer::LOCK_MESSAGE.into());}
     if app.audio_rec.is_some(){return Some("Stop the current take before changing its input".into());}
-    let n=if let Some(n)=owner(&app.state,row){n}else{
-        if input.is_none(){return None;}
-        if mixer::inserts(&app.state)>=4093{return Some("The mixer has reached its track limit".into());}
-        let s=&mut app.state;let snapshot=pl::capture(s);let selected=s.selected_mixer;let previous=s.history.begin_sequence();
+    let owner = owner(&app.state, row);
+    if owner.is_none() {
+        let input = input.as_ref()?;
+        if mixer::inserts(&app.state) >= 4093 {
+            return Some("The mixer has reached its track limit".into());
+        }
+        if let Err(message) = crate::mixer_recording::check_input(&app.state, None, input) {
+            return Some(message.into());
+        }
+    }
+    let previous = app.state.history.begin_sequence();
+    let n=if let Some(n)=owner {n}else{
+        let s=&mut app.state;let snapshot=pl::capture(s);let selected=s.selected_mixer;
         let name=pl::track_name(s,row);let color=pl::track_info(s,row).and_then(|t|t.color);
         let n=mixer::add_track(s,None);attached::bind(s,row,n);
         if let Some(m)=mixer::track_mut(s,n){m.name=Some(name);m.color=color;}
-        s.history.wrap_attached_instrument(snapshot,n,selected);s.history.end_sequence_named(previous,"Create recording track");n
+        s.history.wrap_attached_instrument(snapshot,n,selected);n
     };
     app.state.playlist.track=row;
     let requested=input.clone();
@@ -196,5 +205,6 @@ pub fn set_input(app:&mut App,row:u16,input:Option<crate::capture::Input>)->Opti
             attached::clear(&mut app.state);
         }
     }
+    app.state.history.end_sequence_named(previous, "Set Playlist recording input");
     app.invalidate();result
 }

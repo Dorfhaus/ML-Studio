@@ -609,6 +609,7 @@ mod tests {
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         let (r, x) = app
             .hits

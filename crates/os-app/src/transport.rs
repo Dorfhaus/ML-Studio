@@ -103,6 +103,7 @@ pub struct Shared {
     exporting: AtomicBool,
     shutdown: AtomicBool,
     export_permille: AtomicU32,
+    export_stage: AtomicU32,
     export_result: Mutex<Option<Result<(f64, Vec<PathBuf>), String>>>,
     /// Peak of the last block, f32 bits, per side.
     peak_l: AtomicU32,
@@ -495,7 +496,7 @@ enum Cmd {
     Listen(bool),
     Stop,
     /// Render with the hosted plugins and write the files (FILE > Export): project, mode, sample rate, the export.
-    Export(Box<Project>, PlayMode, u32, Box<crate::export::Job>),
+    Export(Box<Project>, PlayMode, u32, OfflineJob, Option<Arc<AtomicBool>>),
     /// The audio settings changed: move the playback to a new stream, close the live and preview streams.
     Reopen,
     PlaybackSettings,
@@ -510,6 +511,11 @@ enum Cmd {
     /// Tests: the open device fails as if it went away.
     #[cfg(test)]
     FailDevice,
+}
+
+enum OfflineJob {
+    File(Box<crate::export::Job>),
+    Mix(crate::mix_assistant::RenderRequest, Sender<Result<crate::mix_assistant::Render, String>>),
 }
 
 /// Where an export is (`Transport::export_status`).
@@ -698,11 +704,43 @@ impl Transport {
     /// the audio thread: playback, previews and live notes stop at once and nothing else processes the plugins
     /// meanwhile. Follow it with `export_status`.
     pub fn export(&self, project: &Project, mode: PlayMode, rate: u32, job: crate::export::Job) {
+        self.export_cancellable(project, mode, rate, job, None);
+    }
+
+    pub fn export_cancellable(&self, project: &Project, mode: PlayMode, rate: u32, job: crate::export::Job, cancel: Option<Arc<AtomicBool>>) {
+        self.queue_offline(project, mode, rate, OfflineJob::File(Box::new(job)), cancel);
+    }
+
+    pub(crate) fn render_mix(
+        &self, project: &Project, rate: u32, request: crate::mix_assistant::RenderRequest,
+        cancel: Arc<AtomicBool>,
+    ) -> mpsc::Receiver<Result<crate::mix_assistant::Render, String>> {
+        let (send, receive) = mpsc::channel();
+        self.queue_offline(project, PlayMode::Song, rate, OfflineJob::Mix(request, send), Some(cancel));
+        receive
+    }
+
+    pub(crate) fn export_stage(&self) -> &'static str {
+        match self.shared.export_stage.load(Ordering::Relaxed) {
+            1 => "Encoding and writing files",
+            2 => "Resetting plug-ins",
+            _ => "Rendering",
+        }
+    }
+
+    pub(crate) fn offline_progress(&self) -> f32 {
+        self.shared.export_permille.load(Ordering::Relaxed) as f32 / 1000.0
+    }
+
+    fn queue_offline(&self, project: &Project, mode: PlayMode, rate: u32, job: OfflineJob, cancel: Option<Arc<AtomicBool>>) {
         self.shared.generation.fetch_add(1, Ordering::AcqRel);
         self.shared.state.store(STOPPED, Ordering::Release);
         self.shared.export_permille.store(0, Ordering::Relaxed);
+        self.shared.export_stage.store(0, Ordering::Relaxed);
         self.shared.exporting.store(true, Ordering::Release);
-        let _ = self.tx.send(Cmd::Export(Box::new(project.clone()), mode, rate, Box::new(job)));
+        if self.tx.send(Cmd::Export(Box::new(project.clone()), mode, rate, job, cancel)).is_err() {
+            self.shared.exporting.store(false, Ordering::Release);
+        }
     }
 
     /// The running export's progress, or its outcome once (then `Idle` again).
@@ -1504,8 +1542,9 @@ fn engine(project: &Project, library: &mut SampleLibrary, rate: u32, mode: PlayM
 /// Renders a whole song (or one pass of a pattern, or a span of either) with the hosted plugins and writes the files of
 /// `job`; returns the written length in seconds and the files. Runs on the audio thread with no stream open.
 // spec: audio/export.md
-fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job, library: &mut SampleLibrary, inst: &Instruments, shared: &Shared) -> Result<(f64, Vec<PathBuf>), String> {
-    if shared.shutdown.load(Ordering::Acquire) { return Err("Export cancelled during shutdown".into()); }
+fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job, library: &mut SampleLibrary, inst: &Instruments, shared: &Shared, cancel: Option<&AtomicBool>) -> Result<(f64, Vec<PathBuf>), String> {
+    let stopping = || shared.shutdown.load(Ordering::Acquire) || cancel.is_some_and(|flag| flag.load(Ordering::Acquire));
+    if stopping() { return Err("Audio export cancelled".into()); }
     let o = &job.options;
     let mut e = if let Some(rows) = &job.instrument_rows {
         let (mut list, fx) = inst.lock().map(|l|(l.inst.clone(),l.fx.clone())).unwrap_or_default();
@@ -1529,7 +1568,7 @@ fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job
     let cap = if o.tail == crate::export::Tail::Cut { len } else { len + u64::from(rate) * EXPORT_TAIL_MAX_SECS };
     let mut audio: Vec<f32> = Vec::with_capacity(2 * (len as usize + rate as usize));
     loop {
-        if shared.shutdown.load(Ordering::Acquire) { return Err("Export cancelled during shutdown".into()); }
+        if stopping() { return Err("Audio export cancelled".into()); }
         let done = e.render_ticks(1, &mut audio);
         let frames = audio.len() as u64 / 2;
         shared.export_permille.store((frames * 1000 / len).min(999) as u32, Ordering::Relaxed);
@@ -1542,8 +1581,9 @@ fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job
     drop(e);
     // The file's length: the song, plus the tail when it rings out.
     let frames = if o.tail == crate::export::Tail::Ring { audio.len() as u64 / 2 } else { len };
-    if shared.shutdown.load(Ordering::Acquire) { return Err("Export cancelled during shutdown".into()); }
-    let files = crate::export::write_cancellable(job, rate, audio, tracks, len,Some(&shared.shutdown))?;
+    if stopping() { return Err("Audio export cancelled".into()); }
+    shared.export_stage.store(1, Ordering::Relaxed);
+    let files = crate::export::write_cancellable(job, rate, audio, tracks, len,cancel.or(Some(&shared.shutdown)))?;
     Ok((frames as f64 / f64::from(rate), files))
 }
 
@@ -2119,7 +2159,7 @@ fn audio_thread(rx: Receiver<Cmd>, shared: Arc<Shared>, latest: Arc<Mutex<Option
             }
             #[cfg(test)]
             Ok(Cmd::FailDevice) => device.fail("test"),
-            Ok(Cmd::Export(project, mode, rate, job)) => {
+            Ok(Cmd::Export(project, mode, rate, job, cancel)) => {
                 picker_previews.clear();
                 // Every stream that could process the plugins goes at once (no fade), and they start from silence.
                 session = None;
@@ -2132,12 +2172,31 @@ fn audio_thread(rx: Receiver<Cmd>, shared: Arc<Shared>, latest: Arc<Mutex<Option
                 reset_instruments(&inst);
                 reset_pending = false;
                 shared.rewind(0.0);
-                let result = export(&project, mode, rate, &job, &mut library, &inst, &shared);
-                reset_instruments(&inst);
-                if let Ok(mut slot) = shared.export_result.lock() {
-                    *slot = Some(result);
+                match job {
+                    OfflineJob::File(job) => {
+                        let result = export(&project, mode, rate, &job, &mut library, &inst, &shared, cancel.as_deref());
+                        shared.export_stage.store(2, Ordering::Relaxed);
+                        reset_instruments(&inst);
+                        if let Ok(mut slot) = shared.export_result.lock() {
+                            *slot = Some(result);
+                        }
+                        shared.exporting.store(false, Ordering::Release);
+                    }
+                    OfflineJob::Mix(request, result) => {
+                        let progress = |value| shared.export_permille.store(value, Ordering::Relaxed);
+                        let cancelled = || shared.shutdown.load(Ordering::Acquire)
+                            || cancel.as_ref().is_some_and(|flag| flag.load(Ordering::Acquire));
+                        let rendered = if cancelled() {
+                            Err("Mix analysis cancelled".into())
+                        } else {
+                            let engine = engine(&project, &mut library, rate, mode, &inst, true);
+                            crate::mix_assistant::render(engine, rate, request, cancelled, progress)
+                        };
+                        reset_instruments(&inst);
+                        shared.exporting.store(false, Ordering::Release);
+                        let _ = result.send(rendered);
+                    }
                 }
-                shared.exporting.store(false, Ordering::Release);
                 listen_retry = true;
             }
             Err(RecvTimeoutError::Timeout) => {}

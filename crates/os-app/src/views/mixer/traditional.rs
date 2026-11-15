@@ -118,7 +118,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let inspector=Rect::new(if left {r.x} else {r.right()-panel_w},r.y,panel_w,r.h);
     let r=if left {Rect::new(r.x+panel_w,r.y,r.w,r.h)} else {r};
     let client = crate::views::window_frame_ex(ui, Win::Mixer, Rect::new(r.x, r.y, r.w - panel_w, r.h), "", 0.0, false, inner.is_some());
-    super::title_tools(ui, s, r);
+    super::title_tools(ui, s, r, r.right() - panel_w);
     if r.h < 2.0 * TITLE_H {
         // Collapsed to the title bar: only the slot panel's title with the window buttons.
         s.cables.borrow_mut().clear();
@@ -391,7 +391,6 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
             let c = if selected && lemon { lk::ink_on_lit(ui.t) } else if selected || hov { ui.t.tx(0x9aa1a5) } else { ui.t.s(0x6d7275) };
             ui.c.text_center(Font::new(17), Rect::new(left, ly.y(HEAD_Y0), width, 21.0), c, &n.to_string());
         }
-        if crate::workspace_visibility::shown("visible_mixer-drag-handles") {super::drag_handle(ui,n,Rect::new(hr.x+1.,hr.y,9.,hr.h));}
     }
 
     // Dark head panel (name, LED, pan) with a rounded bottom.
@@ -459,7 +458,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     }
     if extra {plugin_list(ui,s,n,Rect::new(left+57.,ly.y(PANEL_Y0)+4.,width-61.,bottom-ly.y(PANEL_Y0)-175.));}
     let kx=left+cx;
-    let enabled = track.is_none_or(|m| m.enabled);
+    let enabled = mx::audible(s, n);
     let led_y = ly.y(LED_Y);
     // In the narrow modern layouts, share the control row below the name.
     let shared_row = !s.vintage_2005 && matches!(layout_index(s), 0 | 2)

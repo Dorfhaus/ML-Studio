@@ -137,10 +137,22 @@ def configure():
     if os.name!='nt': CONFIG.chmod(0o600)
     print('Connected. Future publishing uses the saved credential without a browser login.')
 
+MIX_REFERENCE_PATH = 'mix-references/1/ML Studio Mix References.mlmixref'
+
+def verify_mix_reference_pack(path):
+    data = Path(path).read_bytes()
+    header, _, body = data.partition(b'\n')
+    if len(data) > 65536 or header != b'MLMIXREF/1':
+        raise RuntimeError('Invalid website Mix References pack')
+    parsed = json.loads(body)
+    if not isinstance(parsed, dict) or not isinstance(parsed.get('profiles'), dict) or not parsed['profiles']:
+        raise RuntimeError('Missing profiles in website Mix References pack')
+
+
 def permitted(rel,scope):
     p=PurePosixPath(rel)
     if p.is_absolute() or '..' in p.parts or '\\' in rel: return False
-    if scope=='website': return rel=='index.html'
+    if scope=='website': return rel in ('index.html', MIX_REFERENCE_PATH)
     if scope=='helper': return bool(re.fullmatch(r'helper/\d+/melli-(?:windows|linux|mac-arm64|mac-x86_64)-v\d+\.zip',rel))
     if scope=='windows-linux':
         return bool(re.fullmatch(r'(?:downloads|linux|updates)/\d+/[^/]+',rel) or re.fullmatch(r'updates/linux-x64/\d+/[^/]+',rel) or rel in ('platforms/windows.json','platforms/linux.json','updates/stable.json','updates/linux-x64/stable.json'))
@@ -215,7 +227,12 @@ def _publish(plan_path):
     import importlib.util
     spec=importlib.util.spec_from_file_location('private_build',Path(__file__).resolve().parents[1]/'private_build.py')
     boundary=importlib.util.module_from_spec(spec);spec.loader.exec_module(boundary)
-    for e in entries: boundary.require_public_artifact(plan_path.parent/e['local'])
+    for e in entries:
+        artifact = plan_path.parent/e['local']
+        if scope == 'website' and e['path'] == MIX_REFERENCE_PATH:
+            verify_mix_reference_pack(artifact)
+        else:
+            boundary.require_public_artifact(artifact)
     cfg=read_config()
     if cfg.get('publish_via_ssh'):
         relay_publish(cfg,plan_path,plan);return
@@ -235,7 +252,7 @@ def _publish(plan_path):
         # publish() holds this computer's OS lock. Its previous process has exited.
     ftp.storbinary('STOR '+lock+'/owner.json',io.BytesIO(json.dumps(owner).encode()),1024)
     try:
-        for e in sorted(entries,key=lambda x: x['path'].startswith('platforms/') or x['path'].endswith('/stable.json')):
+        for e in sorted(entries,key=lambda x: x['path'] == 'index.html' or x['path'].startswith('platforms/') or x['path'].endswith('/stable.json')):
             rel=e['path'];p=plan_path.parent/e['local'];mutable=rel.startswith('platforms/') or rel.endswith('/stable.json') or rel=='index.html'
             if mutable:
                 old=bytearray()

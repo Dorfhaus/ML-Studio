@@ -472,6 +472,16 @@ impl App {
             // UI-only snapshot now, then run it after releasing the DSP lock.
             let defer_poll = poll_time >= POLL_BUDGET;
             let list = ui.lists.get_mut(&key).expect("parameter list initialized");
+            // Reverse immediately changes the visible waveform. Its single native parameter
+            // read follows attention even when the rest of the bank is polled in batches.
+            if sampler
+                && let Some(reverse) = list.params.iter().find(|entry| entry.name == "Reverse")
+                && !list.gestures.contains_key(&reverse.id)
+                && let Some(value) = p.param_value(reverse.id).filter(|v| v.is_finite())
+            {
+                list.values.borrow_mut().insert(reverse.id, value);
+                stretch.push((key, reverse.name.clone(), value));
+            }
             let start = if count > 64 { list.poll_index.min(count.saturating_sub(1)) } else { 0 };
             let end = if count > 64 { (start + POLL_BATCH).min(count) } else { count };
             let values_job = if defer_poll { None } else if count > 64 {
@@ -483,7 +493,7 @@ impl App {
             }
             if !defer_poll && values_job.is_none() {
                 let at = std::time::Instant::now();
-                if let Some(l)=ui.lists.get_mut(&key){for entry in &l.params[start..end] {if !l.gestures.contains_key(&entry.id){if let Some(v)=p.param_value(entry.id){l.values.borrow_mut().insert(entry.id,v);if sampler&&entry.name=="Reverse"{stretch.push((key,entry.name.clone(),v));}}}}}
+                if let Some(l)=ui.lists.get_mut(&key){for entry in &l.params[start..end] {if !l.gestures.contains_key(&entry.id){if let Some(v)=p.param_value(entry.id){l.values.borrow_mut().insert(entry.id,v);}}}}
                 poll_time += at.elapsed();
             }
             // "Create automation clip" picked in the plugin's own menu (CLAP context menu).

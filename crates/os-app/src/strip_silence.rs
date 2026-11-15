@@ -649,7 +649,8 @@ mod tests {
         app.state.playlist.sel = vec![i, i + 1];
         let original = pl::clips(&app.state).to_vec();
         let menu = pl::clip_menu(&app.state, i, 0., 0.);
-        assert!(menu.items.iter().any(|v| v.cmd == pl::Cmd::StripSilence(i)));
+        assert!(menu.items.iter().filter(|p| p.label == "Audio processing")
+            .flat_map(|p| &p.children).any(|v| v.cmd == pl::Cmd::StripSilence(i) && v.enabled));
         pl::run(&mut app, pl::Cmd::StripSilence(i)).unwrap_or_default();
         wait(&mut app);
         let mut canvas = os_ui::Canvas::new(1280, 900, 1.).unwrap();

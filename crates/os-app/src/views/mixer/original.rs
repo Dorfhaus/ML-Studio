@@ -162,15 +162,21 @@ pub(super) fn knob(ui: &mut Ui, x: f32, y: f32, r: f32, value: f32, cap: Color, 
     if !ui.c.visible(Rect::new(x-r-5.,y-r-5.,2.*r+10.,2.*r+10.)) {return;}
     let r = r.max(1.);
     let extent = r * 1.25;
+    let custom = ui.mixer_skin.original_knob_colors;
+    let palette = ui.mixer_skin.palette(ui.t);
+    let cap = if custom & 1 != 0 { palette.skin_knob_cap } else { cap };
+    let pointer = if custom & 4 != 0 { palette.skin_knob_pointer } else { Color::rgb(0xece0bc) };
     let sprite = super::vintage_cap::for_color(cap);
     ui.c.image_rgba(Rect::new(x-extent,y-extent,2.*extent,2.*extent),sprite.size,sprite.size,&sprite.pixels);
+    if custom & 2 != 0 { ui.c.stroke_circle(x, y, r * 1.06, 1., palette.skin_knob_rim); }
+    if custom & 8 != 0 { ui.c.arc(x, y, r * 1.1, 0.75 * PI, 1.5 * PI * value.clamp(0., 1.), 1., palette.skin_knob_ring); }
     let a = (-225. + 270. * value.clamp(0., 1.)) * PI / 180.;
     let (dx,dy) = (a.cos()*r,a.sin()*r);
     let face_y=y-r*0.12;
     let start=(x+dx*0.39,face_y+dy*0.37);
     let end=(x+dx*0.84,face_y+dy*0.80);
     ui.c.line(start.0+0.45,start.1+0.55,end.0+0.45,end.1+0.55,(r*0.16).clamp(0.9,2.1),Color::rgb(0x564432));
-    ui.c.line(start.0,start.1,end.0,end.1,(r*0.13).clamp(0.8,1.7),if hover {Color::rgb(0xfff6d9)} else {Color::rgb(0xece0bc)});
+    ui.c.line(start.0,start.1,end.0,end.1,(r*0.13).clamp(0.8,1.7),if hover {pointer.shade(0.12)} else {pointer});
 
 }
 pub(super) fn rocker(ui: &mut Ui, r: Rect, on: bool, hover: bool) {

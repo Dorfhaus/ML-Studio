@@ -10,3 +10,4 @@ Release shape = 1
 Split frequency = 80
 Split balance = 80
 Processing = 1
+Transient range = 0

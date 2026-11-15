@@ -60,6 +60,20 @@ pub fn input_menu(s: &State,t: u16,x: f32,y: f32)->Popup {
     if items.len()==2 { items.push(PItem::new("No audio inputs found: check Settings > Audio",Cmd::Nothing).off()); }
     Popup{x,y,items,sub:None,scroll:[0;2], cascade: Vec::new()}
 }
+/// Validate before creating a Playlist-owned mixer insert.
+pub(crate) fn check_input(s: &crate::app::State, track: Option<u16>, input: &Input) -> Result<(), &'static str> {
+    let recording = &s.mixer.recording;
+    if recording.armed.len() >= 64 && !track.is_some_and(|t| recording.armed.contains(&t)) {
+        return Err("Up to 64 inputs can be armed together");
+    }
+    if recording.armed.iter().filter(|&&n| Some(n) != track).any(|n| {
+        recording.inputs.get(n).is_some_and(|i| i.device != input.device || i.asio != input.asio)
+    }) {
+        return Err("Simultaneous recording uses inputs from the same audio interface. Disarm the other device first");
+    }
+    Ok(())
+}
+
 impl App {
     pub(crate) fn set_mixer_input(&mut self,t:u16,input:Option<Input>)->Option<String> {
         if crate::mixer::locked(&self.state, t)
@@ -73,9 +87,8 @@ impl App {
         self.state.selected_mixer=t;
         match input {
             Some(i)=> {
-                if self.state.mixer.recording.armed.len() >= 64 && !self.state.mixer.recording.armed.contains(&t) { return Some("Up to 64 inputs can be armed together".into()); }
-                if self.state.mixer.recording.armed.iter().filter(|&&n| n != t).any(|n| self.state.mixer.recording.inputs.get(n).is_some_and(|a| a.device != i.device || a.asio != i.asio)) {
-                    return Some("Simultaneous recording uses inputs from the same audio interface. Disarm the other device first".into());
+                if let Err(message) = check_input(&self.state, Some(t), &i) {
+                    return Some(message.into());
                 }
                 let label=format!("{} - {}",i.device,i.label());
                 crate::capture::set_last_input(&i);

@@ -606,7 +606,7 @@ mod tests {
         assert_eq!(outputs(&a.state, 1), BTreeSet::from([1, 2]));
     }
     #[test]
-    fn audio_import_uses_destination_only_while_attached() {
+    fn audio_import_keeps_explicit_audio_track_routing_while_detached() {
         let dir = std::env::temp_dir().join(format!("track-links-import-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("audio.wav");
@@ -624,6 +624,12 @@ mod tests {
         assert_eq!(route(&a.state, i), 2);
         crate::history::undo(&mut a.state);
         assert_eq!(a.state.project, before);
+        attached::toggle(&mut a);
+        let i = pl::add_audio_clip(&mut a.state, &path.to_string_lossy(), 1, 0).unwrap();
+        assert_eq!(route(&a.state, i), 2, "detaching the mixer keeps explicit Audio track routing");
+        crate::history::undo(&mut a.state);
+        attached::toggle(&mut a);
+        assert_eq!(run(&mut a, Command::Free(1)), None);
         attached::toggle(&mut a);
         let i = pl::add_audio_clip(&mut a.state, &path.to_string_lossy(), 1, 0).unwrap();
         assert_eq!(

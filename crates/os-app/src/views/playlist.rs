@@ -78,7 +78,21 @@ fn clip_controls(ui: &mut Ui, s: &State, strip: Rect) {
     }
     let Some(kind) = s.playlist.controls.shown else {
         let label = Rect::new(strip.x,strip.y,strip.w-if attached{50.}else if add{25.}else{0.},strip.h);
-        ui.c.text_center(Font::new(11), label, ui.t.text_faint, if crate::attached_mixer::active(s){"MIXER TRACKS"}else{"TRACKS"});
+        let name = if attached { "MIXER TRACKS" } else { "TRACKS" };
+        if crate::workspace_visibility::shown(crate::scoring::TRACKS_MENU)
+            && crate::scoring::tracks_menu_available()
+        {
+            let hot = ui.hit(label, Action::PlTimelineTracks, "Show or hide timeline tracks");
+            let ink = if hot { ui.t.text } else { ui.t.text_dim };
+            let text = Rect::new(label.x, label.y, (label.w - 15.0).max(0.0), label.h);
+            ui.c.text_center(Font::new(11), text, ink, name);
+            let x = label.right() - 9.0;
+            let y = label.cy();
+            ui.c.line(x - 3.0, y - 1.5, x, y + 1.5, 1.0, ink);
+            ui.c.line(x, y + 1.5, x + 3.0, y - 1.5, 1.0, ink);
+        } else {
+            ui.c.text_center(Font::new(11), label, ui.t.text_faint, name);
+        }
         return;
     };
     for (i, (k, hint)) in [(PickKind::Audio, "Audio clip controls"), (PickKind::Automation, "Automation editing controls"), (PickKind::Pattern, "Pattern note colors")].into_iter().enumerate() {
@@ -298,7 +312,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
 
     // Overview (horizontal scroll bar with a miniature of the clips) + ruler. The song extends 16 bars past
     // its last clip, at least 100 bars; 500 tracks.
-    let last = pl::clips(s).iter().map(|c| c.end() as f32 / bar_t).fold(0.0, f32::max);
+    let last = pl::clips(s).iter().map(|c| c.end() as f32 / bar_t)
+        .fold(crate::scoring::timeline_end(s) as f32 / bar_t, f32::max);
     // A finite content-derived end: navigating to it must not move the goalpost.
     let bars = if crate::elastic_scroll::adaptive(crate::app::Scroll::PlaylistX) {last.ceil().max(grid_w/bar_w)} else {(last.ceil() + 16.0).max(100.0).max((sx + grid_w) / bar_w)};
     let (_, vbar) = bar_sizes();
@@ -429,14 +444,15 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     // Paint the source clips first, automation second regardless of saved clip ordering.
     let brightness = s.playlist_brightness();
     let show_waveforms = crate::workspace_visibility::shown("visible_playlist-waves");
+    let motion = s.playlist_motion.borrow();
     for automation in [false,true] {
         for (i,c) in pl::clips(s).iter().enumerate() {
             if (pl::source_kind(s,c.source)==PickKind::Automation)!=automation{continue;}
-            let glide=s.playlist_motion.borrow_mut().offset(s.project.current_arrangement,pl::clips(s).len(),i,std::time::Instant::now());
-            if let Some((left,right,down))=glide{
-                let mut at=g.clone();at.scroll_y-=down;
-                if (left-right).abs()<0.01{at.scroll_x-=left;clip_paint(ui,s,&at,i,c,brightness,show_waveforms);}
-                else{clip_paint(ui,s,&at,i,&pl::with_edges(s,&g,c,left,right),brightness,show_waveforms);}
+            if let Some(offset) = motion.offset(s.project.current_arrangement, pl::clips(s).len(), i) {
+                let (at, drawn) = crate::playlist_motion::placement(s, &g, c, offset);
+                if ui.c.visible(at.clip_rect(&drawn).outset(2.0)) {
+                    clip_paint(ui, s, &at, i, &drawn, brightness, show_waveforms);
+                }
             }else if ui.c.visible(g.clip_rect(c).outset(2.0)){clip_paint(ui,s,&g,i,c,brightness,show_waveforms);}
         }
     }
@@ -525,6 +541,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         }
     }
     ui.c.pop_clip();
+    crate::scoring::paint(ui, s, &g, grid.y - crate::scoring::height(s), heads);
     // Paint the inspector rim after adjacent header chrome: at fractional DPI its
     // antialiased corner must not soften or overwrite the panel's final edge.
     let inspector_w=crate::attached_mixer::width(s);
@@ -537,7 +554,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
 
 /// The overview bar above `grid` (a miniature of the clips that is also the horizontal scroll bar, §1).
 pub fn overview_rect(s: &State, grid: Rect) -> Rect {
-    let lane_y = grid.y - if pl::markers(s).is_empty() { 0.0 } else { MARKER_H };
+    let lane_y = grid.y - crate::scoring::height(s) - if pl::markers(s).is_empty() { 0.0 } else { MARKER_H };
     Rect::new(grid.x, lane_y - 41.0, grid.w, bar_sizes().0)
 }
 
@@ -566,6 +583,7 @@ pub struct ScrollParts {
     pub grid: Rect,
     pub ruler: Rect,
     pub lane: Option<Rect>,
+    pub scoring: Option<Rect>,
     pub heads: Rect,
     pub overview: Rect,
     /// The vertical scroll bar's column.
@@ -580,6 +598,10 @@ pub fn scroll_parts(s: &State, grid: Rect) -> ScrollParts {
         grid,
         ruler: ruler_rect(s, grid),
         lane: (!pl::markers(s).is_empty()).then(|| Rect::new(grid.x, overview.y + 41.0, grid.w, MARKER_H)),
+        scoring: (crate::scoring::height(s) > 0.0).then(|| {
+            let h = crate::scoring::height(s);
+            Rect::new(grid.x, grid.y - h, grid.w, h)
+        }),
         heads: Rect::new(grid.x-width-5.,grid.y,width,grid.h),
         vbar: Rect::new(grid.right(), overview.y, 4.0 + bar_sizes().1, grid.bottom() - overview.y),
         overview,
@@ -600,7 +622,7 @@ pub(crate) fn grid_rect(s: &State, r: Rect, client: Rect) -> Rect {
     // Keep the timeline anchored when reclaiming the old left frame padding.
     let grid_x = r.x + crate::clip_picker::width(s,r) + crate::attached_mixer::width(s) + 2.0 + header_width(s) + 10.0;
     let grid_w = (r.right() - grid_x - 4.0 - bar_sizes().1).max(1.0);
-    let grid_y = client.y + 42.0 + if pl::markers(s).is_empty() { 0.0 } else { MARKER_H };
+    let grid_y = client.y + 42.0 + crate::scoring::height(s) + if pl::markers(s).is_empty() { 0.0 } else { MARKER_H };
     Rect::new(grid_x, grid_y, grid_w, (r.bottom() - grid_y).max(0.0))
 }
 
@@ -705,31 +727,35 @@ fn ruler_paint(ui: &mut Ui, s: &State, g: &PGeom, ruler: Rect, f: &FrameInfo) {
         let x = g.x_of(p as f32).clamp(ruler.x, ruler.right());
         ui.c.fill_rect(Rect::span(ruler.x, x, ruler.y, ruler.bottom()), offset(face, -8));
     }
-    let bar_w = g.bar_w;
-    let every = label_step(bar_w);
-    // From the bars whose numbers still reach into view (a number is up to ~40 px wide): which labels are drawn must
-    // not depend on the scroll position, or a scrolled ruler would differ from a repainted one.
-    let first_bar = ((g.scroll_x - 48.0) / bar_w).floor().max(0.0) as i32;
-    let last_bar = ((g.scroll_x + ruler.w) / bar_w).ceil() as i32 + 1;
-    let digits = Font { width: 5, ..Font::vintage(11) };
-    let number_y = if vintage {
-        (ruler.bottom() - 2.0 - (15.0 + ui.c.line_height(digits)) * 0.5)
-            .max(ruler.y + 1.0)
-    } else { ruler.y };
-    for b in first_bar.max(sb)..last_bar {
-        let n = b - sb;
-        if n % every != 0 {
-            continue;
-        }
-        let x = g.xs(f64::from(b) * f64::from(bar_w));
-        let major = n % (every * 4) == 0;
-        let label = (n + 1).to_string();
-        if vintage {
-            let ink = Color::rgb(if major { 0xc0c7d3 } else { 0xa8afc0 });
-            ui.c.text(digits, x + 2.0, number_y, ink, &label);
-        } else {
-            let size = if major { 15.0 } else { 13.0 };
-            ui.c.text(super::fnt(size), x + 2.0, ruler.bottom() - 17.0 + (16.0 - size), t.ruler_text, &label);
+    if crate::scoring::time_ruler(s) {
+        crate::scoring::paint_seconds(ui, s, g, ruler);
+    } else {
+        let bar_w = g.bar_w;
+        let every = label_step(bar_w);
+        // From the bars whose numbers still reach into view (a number is up to ~40 px wide): which labels are drawn must
+        // not depend on the scroll position, or a scrolled ruler would differ from a repainted one.
+        let first_bar = ((g.scroll_x - 48.0) / bar_w).floor().max(0.0) as i32;
+        let last_bar = ((g.scroll_x + ruler.w) / bar_w).ceil() as i32 + 1;
+        let digits = Font { width: 5, ..Font::vintage(11) };
+        let number_y = if vintage {
+            (ruler.bottom() - 2.0 - (15.0 + ui.c.line_height(digits)) * 0.5)
+                .max(ruler.y + 1.0)
+        } else { ruler.y };
+        for b in first_bar.max(sb)..last_bar {
+            let n = b - sb;
+            if n % every != 0 {
+                continue;
+            }
+            let x = g.xs(f64::from(b) * f64::from(bar_w));
+            let major = n % (every * 4) == 0;
+            let label = (n + 1).to_string();
+            if vintage {
+                let ink = Color::rgb(if major { 0xc0c7d3 } else { 0xa8afc0 });
+                ui.c.text(digits, x + 2.0, number_y, ink, &label);
+            } else {
+                let size = if major { 15.0 } else { 13.0 };
+                ui.c.text(super::fnt(size), x + 2.0, ruler.bottom() - 17.0 + (16.0 - size), t.ruler_text, &label);
+            }
         }
     }
     // Song position: a flag ◤ on the playhead while playing the song, else on the start position (§7: its left edge
@@ -764,7 +790,7 @@ fn markers_paint(ui: &mut Ui, s: &State, g: &PGeom, lane: Rect) {
     // A tab per marker (§7a): flat left edge on its position, rounded top-right corner, slanted right edge; its action's
     // icon, then its name.
     for m in pl::markers(s) {
-        let x64 = g.x64(f64::from(m.position));
+        let x64 = g.x64(crate::scoring::marker_x(s, m));
         let x = x64 as f32;
         let w = pl::marker_w(m);
         if x > lane.right() || x + w < lane.x {
@@ -842,6 +868,7 @@ fn marker_glyph(ui: &mut Ui, kind: u8, x: f32, cy: f32) {
 
 /// A marker's label: its name; a time signature first shows the signature (spec: ui/pattern-time-signature.md §2).
 pub(crate) fn marker_label(m: &TimeMarker) -> String {
+    if m.linear_us.is_some() { return format!("[Time] {}", m.name); }
     if m.kind == TimeMarker::SIGNATURE {
         // FL names a new signature marker after its signature ("3/8", spec: ui/pattern-time-signature.md §4): shown once.
         let sig = format!("{}/{}", m.numerator, m.denominator);
@@ -1782,7 +1809,8 @@ pub fn paint_overlays(ui: &mut Ui, s: &State) {
         super::typein::paint(ui, s, e, t, norm);
     } else if let Some(e) = &s.playlist.edit {
         let t = ui.t;
-        let r = Rect::new(e.at.0, e.at.1, 150.0, 20.0);
+        let width = if matches!(e.target, pl::EditTarget::VisualText(..)) { 240. } else { 150. };
+        let r = Rect::new(e.at.0, e.at.1, width, 20.0);
         ui.hit(r, Action::Swallow, "Type, Enter accepts, Esc cancels");
         ui.c.fill_rect(r, ui.t.s(0x0e1214));
         ui.c.stroke_rrect(r, 0.0, 1.0, t.glyph);

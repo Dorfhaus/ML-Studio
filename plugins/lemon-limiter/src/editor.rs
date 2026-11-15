@@ -132,6 +132,7 @@ pub enum Cmd {
     Automate(String),
     /// Display menu: "0.2 dB limiter safety".
     Safety,
+    PeakGuard,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -470,6 +471,10 @@ impl Logic {
             MenuReq::Display => {
                 let mut m = MenuDef::new(MenuStyle::Context);
                 m.add(MenuItem::item("0.2 dB limiter safety").mark(Mark::Check(self.safety())), Cmd::Safety);
+                if os_plugkit::visibility::stock_dsp_controls() {
+                    let active = self.params.raw_copy().ends_with(os_engine::effects::dynamics::PEAK_GUARD_TAG);
+                    m.add(MenuItem::item("True-peak guard (4x)").mark(Mark::Check(active)), Cmd::PeakGuard);
+                }
                 let mut about = MenuDef::new(MenuStyle::Context);
                 about.head("ML Limiter", Cmd::None);
                 about.add(MenuItem::item(&format!("Version {}", env!("CARGO_PKG_VERSION"))).enabled(false), Cmd::None);
@@ -493,6 +498,14 @@ impl Logic {
             Cmd::TypeIn(id) => return vec![Act::TypeIn(id, x, y)],
             Cmd::Automate(id) => return params::index(&id).map(Act::Automate).into_iter().collect(),
             Cmd::Safety => self.params.edit_raw(|b| b[params::FLAGS_BYTE] ^= FLAG_EXACT_CEILING),
+            Cmd::PeakGuard => self.params.edit_raw(|b| {
+                let tag = os_engine::effects::dynamics::PEAK_GUARD_TAG;
+                if b.ends_with(tag) {
+                    b.truncate(b.len() - tag.len());
+                } else {
+                    b.extend_from_slice(tag);
+                }
+            }),
         }
         vec![Act::Repaint]
     }

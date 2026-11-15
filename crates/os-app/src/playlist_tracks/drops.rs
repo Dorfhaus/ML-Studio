@@ -155,7 +155,7 @@ pub fn instrument(app:&mut App,index:usize,row:u16,tick:u32,sample:Option<String
     let creates_output=super::owner(&app.state,row).is_none();
     let previous=app.state.history.begin_sequence();
     crate::playlist_links::snapshot(&mut app.state,"Drop instrument on track header");
-    crate::plugin_menu::add_generator(app,index,None);
+    crate::plugin_menu::add_generator_for_playlist(app,index);
     let s=&mut app.state;
     let ch=s.selected_channel;
     let n=super::owner(s,row).unwrap_or_else(||mixer::add_track(s,None));

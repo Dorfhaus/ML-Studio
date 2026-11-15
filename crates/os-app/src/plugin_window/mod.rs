@@ -221,6 +221,7 @@ pub enum FrameEvent {
     Raise,
     /// The menu arrow was clicked: the app opens the window menu at this screen point.
     Menu(i32, i32),
+    ExportMp4(i32, i32),
     /// The Presets box was clicked: the app opens the preset list at this screen point (spec: plugins/presets.md).
     Presets(i32, i32),
     /// The Presets box arrows (or the wheel over the box): next (+1) / previous (-1) preset.
@@ -335,6 +336,7 @@ struct State {
     /// 2026-10-15: acting on the press made accidental closes easy).
     armed: Option<Part>,
     show_detach: bool,
+    visual_export: bool,
     hover_detach: bool,
     can_attach: bool,
     // Reattaching from another monitor may put the frame outside the DAW workspace.
@@ -378,6 +380,7 @@ impl State {
             armed: None,
             show_detach: crate::workspace_visibility::shown(DETACH_VISIBILITY),
             hover_detach: false,
+            visual_export: false,
             can_attach: true,
             fit_on_attach: false,
             detached,
@@ -505,6 +508,7 @@ enum Part {
     Menu,
     /// The Presets box and its previous / next arrows (spec: plugins/presets.md).
     Presets,
+    ExportMp4,
     PresetPrev,
     PresetNext,
     /// Page tab `i`; `i == pages.len()` is the Misc tab.
@@ -574,6 +578,7 @@ fn parts(st: &State) -> Vec<(Rect, Part)> {
     let (w, h) = st.size();
     let p = presets_rect(st);
     let mut v = Vec::new();
+    if let Some(r) = export_rect(st) { v.push((r, Part::ExportMp4)); }
     if max_w(st) > 0.0 {
         v.push((Rect::new(w - 42.0, 7.0, 17.0, 17.0), Part::Maximize));
     }
@@ -662,6 +667,11 @@ fn presets_rect(st: &State) -> Rect {
     let right = st.size().0 - 49.0 - max_w(st) - detach_space;
     let left = (right - PRESETS_W).max(48.0);
     Rect::new(left, 6.0, right - left, 19.0)
+}
+
+fn export_rect(st: &State) -> Option<Rect> {
+    (st.visual_export && crate::workspace_visibility::shown(crate::visualizer_video::VISIBILITY))
+        .then(|| Rect::new(presets_rect(st).x - 106., 6., 97., 19.))
 }
 
 /// The room the maximize button takes in the title bar: a resizable editor's frame has one.
@@ -756,7 +766,8 @@ fn title_bar(c: &mut Canvas, st: &State, w: f32) {
         c.text_center(Font::new(12),r,c_text(),"Drag to size");
         r.right()+6.
     }else{48.};
-    let room = (p.x - 8.0 - nx).max(0.0);
+    let text_end = export_rect(st).map_or(p.x, |r| r.x) - 8.;
+    let room = (text_end - nx).max(0.0);
     let nw = c.text_width(f, &st.info.name).min(room);
     c.text_clip(f, nx, ty, room, c_text(), &st.info.name);
     let pending_track = st.displayed_track();
@@ -766,7 +777,7 @@ fn title_bar(c: &mut Canvas, st: &State, w: f32) {
         format!("({})", track_name(pending_track))
     };
     let tx = nx + nw + c.text_width(f, " ");
-    let troom = (p.x - 8.0 - tx).max(0.0);
+    let troom = (text_end - tx).max(0.0);
     c.text_clip(f, tx, ty, troom, c_grey(), &target);
     let tw = c.text_width(f, &target).min(troom);
     let off = st.off_hint.map(crate::app::off_text).or_else(|| st.box_hint.map(|k| st.box_text(k)));
@@ -791,12 +802,18 @@ fn title_bar(c: &mut Canvas, st: &State, w: f32) {
         let hy = (19.0 - c.ascent(hf)).round();
         // A tab splits the hint: the part after it sits right-aligned before the Presets box (spec: plugins/host-link.md).
         let (left, right) = hint.split_once('\t').unwrap_or((hint, ""));
-        let end = p.x - 8.0;
+        let end = text_end;
         let rw = if right.is_empty() { 0.0 } else { c.text_width(hf, right).min((end - hx).max(0.0)) };
         if rw > 0.0 {
             c.text_clip(hf, end - rw, hy, rw, c_caption(), right);
         }
         c.text_clip(hf, hx, hy, (end - rw - 10.0 - hx).max(0.0), c_caption(), left);
+    }
+    if let Some(rect) = export_rect(st) {
+        let palette = os_theme::current();
+        c.fill_rrect(rect, 4., palette.accent.shade(-0.48));
+        c.stroke_rrect(rect, 4., 1., palette.accent.shade(-0.10));
+        c.text_center(Font::new(13), rect, palette.text, "Export MP4");
     }
     // Presets box: the loaded preset's name, or "Presets" (spec: plugins/presets.md).
     c.fill_rrect(p, if lemon { 6.0 } else { 3.0 }, c_presets());
@@ -1026,6 +1043,14 @@ impl State {
                 let (sx, sy) = screen(m.x, m.bottom());
                 self.events.push(FrameEvent::Menu(sx, sy));
                 os_clap::wake();
+                return Reply::None;
+            }
+            Some(Part::ExportMp4) => {
+                if let Some(r) = export_rect(self) {
+                    let (sx, sy) = screen(r.x, r.bottom());
+                    self.events.push(FrameEvent::ExportMp4(sx, sy));
+                    os_clap::wake();
+                }
                 return Reply::None;
             }
             Some(Part::Presets) => {
@@ -1492,6 +1517,18 @@ fn misc_hint(st: &mut State, h: Option<crate::misc_page::Hit>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visualizer_title_exports_from_its_plugin_frame() {
+        let mut st = state(false, "Insert 3");
+        assert!(export_rect(&st).is_none());
+        st.visual_export = true;
+        let rect = export_rect(&st).unwrap();
+        assert!(rect.right() < presets_rect(&st).x);
+        assert!(rect.x > GEAR_RECT.right());
+        st.left_down(rect.cx(), rect.cy(), false, &|x, y| (x.round() as i32 + 1000, y.round() as i32 + 500));
+        assert_eq!(st.events, vec![FrameEvent::ExportMp4(rect.x.round() as i32 + 1000, rect.bottom().round() as i32 + 500)]);
+    }
 
     fn state(strip: bool, target: &str) -> State {
         let info = ChannelInfo { name: "Keys".into(), target: target.into(), enabled: true, volume: 0.78, pan: 0.0, pitch_cents: 0, range: 2, track: 0, max_track: 125, sidechain: None, misc: Some(Default::default()) };

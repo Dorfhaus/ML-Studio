@@ -13,3 +13,5 @@ LFO 3 wave = 1024
 Cross type = 65
 Cross cutoff = 4635
 Wet only = 96
+Delay interpolation = 0
+Dry level = 0

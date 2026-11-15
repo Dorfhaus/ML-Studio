@@ -329,8 +329,16 @@ struct Line {
 }
 
 impl Line {
-    fn new(len: usize) -> Line {
-        Line { buf: vec![0.0; len.max(1)], pos: 0 }
+    fn new(capacity: usize, len: usize) -> Line {
+        let mut line = Line { buf: Vec::with_capacity(capacity), pos: 0 };
+        line.resize_empty(len);
+        line
+    }
+
+    fn resize_empty(&mut self, len: usize) {
+        self.buf.clear();
+        self.buf.resize(len.max(1), 0.0);
+        self.pos = 0;
     }
     #[inline]
     fn out(&self) -> f32 {
@@ -380,6 +388,12 @@ struct History {
 impl History {
     fn new(len: usize) -> History {
         History { buf: vec![0.0; len.max(2)], w: 0 }
+    }
+
+    fn resize_empty(&mut self, len: usize) {
+        self.buf.clear();
+        self.buf.resize(len.max(2), 0.0);
+        self.w = 0;
     }
     #[inline]
     fn ago(&self, k: usize) -> f32 {
@@ -464,15 +478,20 @@ impl Reverb {
         let geom = Geometry::new(settings.knobs[ROOM], irate);
         let c = Coefs::new(&settings, &geom, irate, bpm);
         let mod_len = (0.004_535_147_5 * f64::from(irate)).ceil() as usize + 4;
-        let mut r = Reverb {
+        let settings_room = settings.knobs[ROOM];
+        let largest = Geometry::new(RANGES[ROOM].1, irate);
+        let mut early = History { buf: Vec::with_capacity(largest.early.0.max(largest.early.1) + 2), w: 0 };
+        early.resize_empty(geom.early.0.max(geom.early.1) + 2);
+        let lines = geom.lengths.iter().zip(largest.lengths).map(|(&n, max)| Line::new(max, n)).collect();
+        Reverb {
             irate,
             bpm,
             settings,
             geom: geom.clone(),
             c,
-            room: None,
-            lines: Vec::new(),
-            early: History::new(1),
+            room: Some(settings_room),
+            lines,
+            early,
             pre: History::new(2 * irate as usize + 2),
             mod_a: History::new(mod_len),
             mod_b: History::new(mod_len),
@@ -485,9 +504,7 @@ impl Reverb {
             depth: 0.0,
             ramp: None,
             peak: 0.0,
-        };
-        r.size_lines();
-        r
+        }
     }
 
     pub fn from_state(state: &[u8], sample_rate: u32) -> Option<Reverb> {
@@ -510,10 +527,11 @@ impl Reverb {
         }
         self.room = Some(room);
         self.geom = Geometry::new(room, self.irate);
-        self.lines = self.geom.lengths.iter().map(|&n| Line::new(n)).collect();
+        for (line, length) in self.lines.iter_mut().zip(self.geom.lengths) {
+            line.resize_empty(length);
+        }
         let (ol, or, _, _) = self.geom.early;
-        self.early = History::new(ol.max(or) + 2);
-        self.early.clear();
+        self.early.resize_empty(ol.max(or) + 2);
     }
 
     /// New settings (from the editor or the host). Levels glide when they change.

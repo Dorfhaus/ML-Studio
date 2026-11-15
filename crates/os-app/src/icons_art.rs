@@ -1021,6 +1021,10 @@ pub fn artwork(icon: Icon, family: u8) -> &'static Art {
             ];
             &ART
         },
+        Icon::Score => {
+            static SCORE: [Art; 27] = [const { Art::outline(super::original::SCORE_PATH) }; 27];
+            &SCORE
+        }
         Icon::PianoRoll => {
             static ART: [Art; 27] = [
             Art::outline("M 3 4 L 21 4 L 21 20 L 3 20 Z M 8 4 L 8 20 M 13 4 L 13 20 M 18 4 L 18 20 M 6 4 L 6 12 L 10 12 L 10 4 M 15 4 L 15 12 L 19 12 L 19 4"),

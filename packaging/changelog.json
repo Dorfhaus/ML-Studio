@@ -3,6 +3,25 @@
   "intro": "The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.",
   "sections": [
     {
+      "date": "2026-11-15",
+      "title": "Mix Assistant, Score Editor, custom mixer pages and creative workflow updates \u00b7 public build 2026111501",
+      "changes": [
+        "Added an offline Mix Assistant. Review detected sources and routing, confirm roles and focus, include or exclude buses, choose a genre, then preview and apply gain and stock processing in one undoable step.",
+        "Mix Assistant measures the song before suggesting compressor, EQ and level changes. Its review explains skipped processing. The optional Mix References pack is available on the download website.",
+        "Added a detachable Score Editor and Arrangement Score for editing written parts, importing MusicXML, and exporting scores and parts. Added Playlist chord, tempo, hit-point and reference video tools for scoring to picture.",
+        "Channel Strip Mixer adds SSL 360 Link pages for Filters/EQ, Dynamics and Fader. All effects lists available insert effects. Dock a compatible editor and save custom page widths per plug-in and editor shape.",
+        "Plugin Downloads shows which plug-ins were found by the scanner and offers clearer Favorites controls. Updates preserve ordinary and portable plug-in files.",
+        "Plug-in delay compensation now refreshes during playback when an effect slot or the whole chain is bypassed.",
+        "Playlist audio and MIDI selections transpose together by semitones with Alt+Up/Down or by octaves with Ctrl+Alt+Up/Down. Fixed clip dragging, automation redraw, Quick Chop Undo and Redo, and sample waveform refresh.",
+        "New Channel Rack samples and instruments can route to a free Mixer insert or the insert linked to an attached Playlist lane. On Windows, samples can also be dragged from a detached Browser. Added a compact Channel Rack.",
+        "Added Full Mixer size presets and a movable, resizable floating Hint Bar. Removed the visible Mixer drag grips while retaining insert reordering. Fader wheel changes are grouped for Undo.",
+        "Added a detachable ML Visualizer workspace with Playlist scene sequencing, fades and dissolves. Windows x64 can export the built-in visualizer with the song mix to MP4.",
+        "Added optional stock DSP controls including distortion and clipping oversampling, true-peak limiting, cleaner delay and chorus modes, stereo bass-to-mono, and external sidechain detection for ML EQ dynamic bands.",
+        "Added Mixer shortcuts for clip ARA editing, Split by Channel for patterns, and Tesla Deverb. Improved compatible plug-in resizing.",
+        "Improved autosave during playback, export cleanup and recovery of interrupted jobs. Reorganized General settings and expanded the bundled User Guide with the new controls and workflows."
+      ]
+    },
+    {
       "date": "2026-11-14",
       "title": "Bounce routing, sample fitting, Mixer dragging and a more helpful Melli \u00b7 public build 2026111403",
       "changes": [

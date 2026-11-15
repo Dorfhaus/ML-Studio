@@ -94,6 +94,10 @@ impl KnobId {
         }
     }
 
+    pub fn mixer_control(self) -> bool {
+        matches!(self, Self::MixPan(_) | Self::MixSep(_) | Self::Send(..) | Self::SlotMix(..) | Self::Strip(..) | Self::Eq(..))
+    }
+
     /// Value restored by a middle click.
     pub fn default_value(self) -> f32 {
         match self {
@@ -359,6 +363,11 @@ impl State {
             KnobId::Arp(k) => self.arp.set.text(k),
             KnobId::PianoDlg(k) => self.piano_dlg.text(k, u32::from(self.project.ppq.max(4))),
         }
+    }
+
+    pub fn knob_hint(&self, id: KnobId) -> String {
+        let text=self.knob_text(id);
+        if id.mixer_control() {format!("{text} | Shift-drag: fine | Right-click: type value / reset")} else {text}
     }
 }
 

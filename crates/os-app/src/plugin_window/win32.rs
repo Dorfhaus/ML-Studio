@@ -415,6 +415,11 @@ impl FrameWindow {
         }
     }
 
+    pub fn enable_visual_export(&self) {
+        self.state.borrow_mut().visual_export = true;
+        unsafe { InvalidateRect(self.hwnd, std::ptr::null(), 0); }
+    }
+
     pub fn set_info(&self, info: ChannelInfo) {
         let mut st = self.state.borrow_mut();
         if st.set_info(info) {

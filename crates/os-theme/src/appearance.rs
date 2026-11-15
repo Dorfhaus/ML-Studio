@@ -240,20 +240,33 @@ impl Appearance {
     }
 
     pub(crate) fn apply(mut self, palette: &mut Palette, colors: &[(&'static str, Color)]) {
-        let inherited = |key: &str, default: Color| colors.iter().find(|(name,_)| *name==key).map(|(_,c)|*c).unwrap_or(default);
-        let white=inherited("key_white",palette.key_white);
-        let black=inherited("key_black",palette.key_black);
-        let black_left=inherited("key_black_left",palette.key_black_left);
-        let accent=inherited("accent",palette.accent);
-        palette.playlist_key_white=white.mix(palette.sunken,0.12);
-        palette.playlist_key_black=black_left.mix(black,0.25);
-        palette.playlist_key_frame=black_left.mix(palette.sunken,0.35);
-        palette.playlist_key_separator=white.mix(black,0.38);
-        palette.playlist_key_white_active=accent;
-        palette.playlist_key_black_active=accent;
-        palette.playlist_activity_halo=accent;
-        palette.playlist_waveform=palette.text_dim;
-        palette.playlist_waveform_active=accent;
+        let overridden = |key: &str| colors.iter().find(|(name, _)| *name == key).map(|(_, c)| *c);
+        let white = overridden("key_white");
+        let black = overridden("key_black");
+        let black_left = overridden("key_black_left");
+        if let Some(white) = white {
+            palette.playlist_key_white = white.mix(palette.sunken, 0.12);
+        }
+        if black.is_some() || black_left.is_some() {
+            palette.playlist_key_black = black_left.unwrap_or(palette.key_black_left)
+                .mix(black.unwrap_or(palette.key_black), 0.25);
+        }
+        if let Some(black_left) = black_left {
+            palette.playlist_key_frame = black_left.mix(palette.sunken, 0.35);
+        }
+        if white.is_some() || black.is_some() {
+            palette.playlist_key_separator = white.unwrap_or(palette.key_white)
+                .mix(black.unwrap_or(palette.key_black), 0.38);
+        }
+        if let Some(accent) = overridden("accent") {
+            palette.playlist_key_white_active = accent;
+            palette.playlist_key_black_active = accent;
+            palette.playlist_activity_halo = accent;
+            palette.playlist_waveform_active = accent;
+        }
+        if let Some(text) = overridden("text_dim") {
+            palette.playlist_waveform = text;
+        }
         for &(name, color) in colors {
             if let Some(slot) = palette.get_mut(name) {
                 *slot = color;

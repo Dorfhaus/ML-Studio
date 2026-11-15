@@ -5,9 +5,9 @@ use std::path::Path;
 #[derive(Serialize,Deserialize)]
 struct Profile {version:u8,ppq:u16,markers:Vec<Marker>}
 #[derive(Serialize,Deserialize)]
-struct Marker {#[serde(default)] color:Option<u32>,position:u32,kind:u8,name:String,numerator:u8,denominator:u8,scale:u16}
+struct Marker {#[serde(default)] color:Option<u32>,#[serde(default)] linear_us:Option<u64>,position:u32,kind:u8,name:String,numerator:u8,denominator:u8,scale:u16}
 fn encode(s:&State)->Result<Vec<u8>,String> {
-    let markers=pl::markers(s).iter().map(|m|Marker{color:m.color,position:m.position,kind:m.kind,name:m.name.clone(),numerator:m.numerator,denominator:m.denominator,scale:m.scale}).collect();
+    let markers=pl::markers(s).iter().map(|m|Marker{color:m.color,linear_us:m.linear_us,position:m.position,kind:m.kind,name:m.name.clone(),numerator:m.numerator,denominator:m.denominator,scale:m.scale}).collect();
     serde_json::to_vec_pretty(&Profile{version:1,ppq:s.project.ppq,markers}).map_err(|e|e.to_string())
 }
 fn load(s:&mut State,data:&[u8],merge:bool)->Result<(),String> {
@@ -18,7 +18,7 @@ fn load(s:&mut State,data:&[u8],merge:bool)->Result<(),String> {
     for m in profile.markers {
         let pos=(u64::from(m.position)*u64::from(s.project.ppq)+u64::from(profile.ppq)/2)/u64::from(profile.ppq);
         if pos>u32::MAX as u64{return Err("Marker position exceeds project range".into());}
-        markers.push(os_model::TimeMarker{color:m.color.map(|c|c&0xffffff),position:pos as u32,kind:m.kind,name:m.name,numerator:m.numerator,denominator:m.denominator,scale:m.scale});
+        markers.push(os_model::TimeMarker{color:m.color.map(|c|c&0xffffff),linear_us:m.linear_us.filter(|u|m.kind==0&&*u<=86_400_000_000),position:pos as u32,kind:m.kind,name:m.name,numerator:m.numerator,denominator:m.denominator,scale:m.scale});
     }
     pl::snapshot_as(s,"Load marker profile");
     let dest=&mut pl::arr_mut(s).markers;

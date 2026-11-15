@@ -93,6 +93,7 @@ pub enum Icon {
     Repeat,
     Tick,
     Power,
+    Score,
 }
 
 pub const CHOICES: &[(Icon, &str, &str)] = &[
@@ -173,6 +174,7 @@ pub const CHOICES: &[(Icon, &str, &str)] = &[
     (Icon::Repeat, "Repeat", "LemonStudioStyle.icon-74-color"),
     (Icon::Tick, "Tick", "LemonStudioStyle.icon-75-color"),
     (Icon::Power, "Power", "LemonStudioStyle.icon-76-color"),
+    (Icon::Score, "Score Editor", "LemonStudioStyle.icon-77-color"),
 ];
 
 pub fn playlist_tool(tool: crate::playlist::PlTool) -> Icon {

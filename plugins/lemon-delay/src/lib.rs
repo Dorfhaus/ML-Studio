@@ -102,6 +102,9 @@ impl Plugin for LemonDelay {
             }
             None => self.dsp = Some(Delay::with_settings(rate, &s, 120.0)),
         }
+        if let Some(delay) = &mut self.dsp {
+            delay.set_clean_echo(self.raw.ends_with(os_engine::effects::delay::CLEAN_ECHO_TAG));
+        }
         true
     }
 
@@ -115,6 +118,7 @@ impl Plugin for LemonDelay {
         let s = self.settings();
         let Some(dsp) = &mut self.dsp else { return ProcessStatus::Normal };
         dsp.set(&s);
+        dsp.set_clean_echo(self.raw.ends_with(os_engine::effects::delay::CLEAN_ECHO_TAG));
         if let Some(bpm) = ctx.transport().tempo {
             dsp.set_tempo(bpm);
         }

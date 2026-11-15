@@ -636,12 +636,10 @@ mod tests {
         }
         app.state.plugdb.rebuild(&app.plugins);
         let queue = tasks(&app);
-        assert_eq!(
-            queue.len(),
-            2,
-            "bundled images skipped; each shell class retained"
-        );
-        assert_ne!(queue[0].uid, queue[1].uid);
+        let shell: Vec<_> = queue.iter().filter(|task| task.path == Path::new("SameShell.dll")).collect();
+        assert_eq!(shell.len(), 2, "each shell class is retained");
+        assert_ne!(shell[0].uid, shell[1].uid);
+        assert!(!queue.iter().any(|task| task.name == crate::citrus::CITRUS), "bundled Citrus image is skipped");
         assert_ne!(queue[0].id, queue[1].id);
         assert_eq!(queue[0].path, queue[1].path);
     }

@@ -1,9 +1,37 @@
 {
-  "generated_articles": 381,
-  "guide_articles": 624,
+  "generated_articles": 420,
+  "guide_articles": 682,
   "records": [
     {
       "title": "Visibility: Host and join sessions (Collaboration)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Split by channel (Pattern tools)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Score Editor (Pattern tools)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Arrangement Score mode (Pattern tools)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Staff note entry (Pattern tools)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Score export buttons (Pattern tools)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Score notation tools (Pattern tools)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: MusicXML import (Pattern tools)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -91,6 +119,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Score Editor shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Project Picker shortcut (Toolbar window shortcuts)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -104,6 +136,10 @@
     },
     {
       "title": "Visibility: Touch Controller shortcut (Toolbar window shortcuts)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Advanced DSP controls (Stock plugins)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -211,6 +247,14 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Tesla Deverb / Playlist Deverb action (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Create ARA shortcuts in Mixer (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Update button (Toolbar extras)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -279,6 +323,38 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Tempo track and Time Warp (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Chord chart and extraction (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Reference video track (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Visuals lane (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Visual scene fade handles (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Visual scene automation controls (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Playlist Tracks menu (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Marker timebase controls (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Instrument keyboard and note activity (Playlist)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -324,6 +400,10 @@
     },
     {
       "title": "Visibility: Clip pitch and timing history (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Transpose selected clips menu (Playlist)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -447,6 +527,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Step grid (Channel Rack)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Mixer routing menu (Channel Rack)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -491,11 +575,43 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: SSL 360 Link section pages (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Custom plug-in pages in Channel Strip Mixer (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: ML Visualizer in Mixer effect menus (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Visualizer video export in plugin windows and Mixer slots (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: ML Visualizer workspace (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Mixer recording pickup button (Mixer)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Full Mixer size selector (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Mixer channel lock buttons (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Channel Strip control size (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Mix Assistant (Mixer)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -547,10 +663,6 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
-      "title": "Visibility: Mixer drag handles (Mixer)",
-      "source": "crates/os-app/src/workspace_visibility.rs"
-    },
-    {
       "title": "Visibility: Mini EQ panel (Mixer)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -560,6 +672,10 @@
     },
     {
       "title": "Visibility: Mini EQ bypass button (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Update preferences (Workspace)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -663,6 +779,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Setting: Auto-route Channel Rack samples and instruments",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
       "title": "Setting: Main GUI scaling",
       "source": "crates/os-app/src/prefs.rs"
     },
@@ -764,10 +884,6 @@
     },
     {
       "title": "Setting: Hide plugin window toolbar by default",
-      "source": "crates/os-app/src/prefs.rs"
-    },
-    {
-      "title": "Setting: Auto-route Channel Rack samples to mixer inserts",
       "source": "crates/os-app/src/prefs.rs"
     },
     {
@@ -1023,6 +1139,14 @@
       "source": "crates/os-app/src/prefs.rs"
     },
     {
+      "title": "Setting: Automatically check for updates",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
+      "title": "Setting: Automatically download program updates",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
       "title": "Setting: Piano Roll zoom keys",
       "source": "crates/os-app/src/prefs.rs"
     },
@@ -1155,6 +1279,10 @@
       "source": "crates/os-app/src/mixer.rs"
     },
     {
+      "title": "Mixer - menu labels 4",
+      "source": "crates/os-app/src/mixer.rs"
+    },
+    {
       "title": "Mixer - unavailable menu placeholders 1",
       "source": "crates/os-app/src/mixer.rs"
     },
@@ -1169,6 +1297,14 @@
     {
       "title": "Mpe - menu labels 1",
       "source": "crates/os-app/src/mpe.rs"
+    },
+    {
+      "title": "Marks - menu labels 1",
+      "source": "crates/os-app/src/notation/marks.rs"
+    },
+    {
+      "title": "Notation - control hints 1",
+      "source": "crates/os-app/src/notation.rs"
     },
     {
       "title": "One Click - menu labels 1",
@@ -1331,6 +1467,18 @@
       "source": "crates/os-app/src/route_picker.rs"
     },
     {
+      "title": "Video - control hints 1",
+      "source": "crates/os-app/src/scoring/video.rs"
+    },
+    {
+      "title": "Scoring - menu labels 1",
+      "source": "crates/os-app/src/scoring.rs"
+    },
+    {
+      "title": "Strip Layout - control hints 1",
+      "source": "crates/os-app/src/strip_layout.rs"
+    },
+    {
       "title": "Theme Library - menu labels 1",
       "source": "crates/os-app/src/theme_library.rs"
     },
@@ -1471,6 +1619,14 @@
       "source": "crates/os-app/src/views/vintage_toolbar.rs"
     },
     {
+      "title": "Visual Scenes - menu labels 1",
+      "source": "crates/os-app/src/visual_scenes.rs"
+    },
+    {
+      "title": "Visualizer Video - menu labels 1",
+      "source": "crates/os-app/src/visualizer_video.rs"
+    },
+    {
       "title": "View - control hints 1",
       "source": "crates/os-app/src/vocal/view.rs"
     },
@@ -1515,7 +1671,7 @@
       "source": "plugins/lemon-sampler"
     },
     {
-      "title": "ML Chorus - parameter names 1",
+      "title": "Small Fx - parameter names 1",
       "source": "plugins/lemon-small-fx"
     },
     {
@@ -1529,8 +1685,8 @@
   ],
   "explicit_exclusions": {
     "settings_comments_needing_reverification": 16,
-    "dynamic_or_nonliteral_hints": 544,
-    "dynamic_menu_labels": 202
+    "dynamic_or_nonliteral_hints": 567,
+    "dynamic_menu_labels": 213
   },
   "scope": "Static preference declarations, direct editor hints, literal menu labels, configurable command shortcuts and constructor parameter names. Dynamic controls and behavioral completeness require manual review; catalog presence is not a claim that every feature is fully documented."
 }

@@ -126,7 +126,7 @@ pub(super) fn knob(
 fn knob_impl(ui: &mut Ui, id: KnobId, x: f32, y: f32, r: f32, value: f32,
     cap: Color, hover: bool, body_only: bool) {
     if ui.t.style.vintage_2005 {
-        let size = (r * 2.0 + 2.0).round().clamp(7.0, 22.0);
+        let size = (r * 2.0 + 2.0).round().clamp(7.0, 44.0);
         let bounds = Rect::new(x - size / 2.0, y - size / 2.0, size, size);
         crate::vintage_rack_art::knob(ui.c, bounds, value);
         return;

@@ -10,6 +10,7 @@ use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGMutablePath;
 use objc2_quartz_core::{CAShapeLayer, CATransaction};
 use crate::strip_geometry::*;
+use crate::strip_layout::{Edit, Preview, native::Paging};
 
 #[derive(Clone, Copy)]
 enum PointerAction {
@@ -279,7 +280,7 @@ impl MappedEvent {
 pub struct Editor {
     outer:Retained<StripView>, scroll:Retained<NSScrollView>, document:Retained<StripView>, zoom_view:Retained<NSView>, inner:Retained<NSView>,
     hidden_since:Option<Instant>,
-    pub owner:isize, pub scale:f32, backing:f64, size:(u32,u32), profile:Profile, pages:Vec<Page>, page:usize,
+    pub owner:isize, pub scale:f32, backing:f64, size:(u32,u32), paging:Paging,pages:Vec<Page>, page:usize,
     rect:[i32;4], clip:Vec<[i32;4]>, page_left:f32, page_width:f32, slide:Option<(Instant,f32,f32)>, layout_changed:bool,
 }
 impl Editor {
@@ -300,12 +301,21 @@ impl Editor {
         let inner=NSView::initWithFrame(NSView::alloc(mtm),rect(0.,0.,560.,700.));
         inner.setAutoresizesSubviews(false);
         zoom_view.addSubview(&inner); document.addSubview(&zoom_view); scroll.setDocumentView(Some(&document)); outer.addSubview(&scroll); parent.addSubview(&outer);
-        Ok(Self{hidden_since:None,outer,scroll,document,zoom_view,inner,owner,scale,backing,size:(1,1),profile:Profile::Whole,pages:vec![Page{left:0.,right:1.}],page:0,rect:[0;4],clip:vec![],page_left:0.,page_width:1.,slide:None,layout_changed:false})
+        Ok(Self{hidden_since:None,outer,scroll,document,zoom_view,inner,owner,scale,backing,size:(1,1),paging:Paging::default(),pages:vec![Page{left:0.,right:1.}],page:0,rect:[0;4],clip:vec![],page_left:0.,page_width:1.,slide:None,layout_changed:false})
     }
     pub fn area(&self)->*mut c_void {Retained::as_ptr(&self.inner) as *mut c_void}
     pub fn accept_size(&mut self,size:(u32,u32))->bool {
         if !crate::rack_mixer::vertical_shape(size){return false;}
-        if self.size!=size {self.size=size;self.pages=pages(self.profile,size);self.page=self.page.min(self.pages.len()-1);self.slide=None;self.page_left=self.pages[self.page].left;self.page_width=self.pages[self.page].width();self.layout();} true
+        if let Some(next) = self.paging.update(size) {
+            self.size = size;
+            self.pages = next;
+            self.page = self.page.min(self.pages.len() - 1);
+            self.slide = None;
+            self.page_left = self.pages[self.page].left;
+            self.page_width = self.pages[self.page].width();
+            self.layout();
+        }
+        true
     }
     fn zoom(&self)->f64 {mac_strip_zoom(self.size.1,self.rect[3]-self.rect[1])}
     fn layout(&self){
@@ -337,6 +347,9 @@ impl Editor {
     }
     pub fn minimum_content_height(&self)->Option<f32>{None}
     pub fn page_info(&self)->(usize,usize){(self.page,self.pages.len())}
+    pub fn edit(&self, track: u16, slot: u8) -> Option<Edit> { self.paging.edit(track, slot, self.size) }
+    pub fn has_shape(&self, edit: &Edit) -> bool { edit.same_shape(self.size) }
+    pub fn full_span(&self) -> (f32, f32) { (0., self.size.0 as f32 * self.zoom() as f32 / self.scale) }
     pub fn page_by(&mut self,delta:i8){
         let next=(self.page as isize+delta as isize).clamp(0,self.pages.len() as isize-1) as usize;
         if next!=self.page {self.page=next;self.slide=Some((Instant::now(),self.page_left,self.page_width));}
@@ -392,6 +405,7 @@ impl crate::plugins::Plugins {
         if h.window.is_some(){return Err("Close the plugin window before docking this strip.".into());}
         let e=Editor::new(owner,scale)?;
         let mut p=h.plugin.lock().map_err(|_|"Plugin busy")?;
+        if !p.has_editor() { return Err("This effect has no native editor to dock.".into()); }
         let result=p.open_editor(e.area(),e.backing as f32);p.close_editor();
         let size=result?;
         if !crate::rack_mixer::vertical_shape(size){return Err("This plugin reported an invalid editor size.".into());}
@@ -399,7 +413,7 @@ impl crate::plugins::Plugins {
     }
     pub fn close_rack(&mut self,key:usize){if let Some(h)=self.hosted.get_mut(&key){if h.rack_editor.is_some(){if let Ok(mut p)=h.plugin.lock(){p.close_editor();}h.rack_editor=None;}h.rack_error=None;}}
     pub fn close_racks(&mut self){let keys:Vec<_>=self.hosted.keys().copied().collect();for key in keys{self.close_rack(key);}}
-    pub fn show_rack(&mut self,key:usize,owner:isize,scale:f32,r:[i32;4],clip:[i32;4],covers:&[[i32;4]]){
+    pub fn show_rack(&mut self,key:usize,owner:isize,scale:f32,r:[i32;4],clip:[i32;4],covers:&[[i32;4]],preview: Option<&Preview>){
         let page=self.hosted.get(&key).and_then(|h|h.rack_editor.as_ref()).map_or(0,|e|e.page);
         let backing=unsafe {(owner as *const NSView).as_ref()}.and_then(|v|v.window()).map_or(1.,|w|w.backingScaleFactor());
         if self.hosted.get(&key).and_then(|h|h.rack_editor.as_ref()).is_some_and(|e|e.owner!=owner||e.scale!=scale||e.backing!=backing){self.close_rack(key);}
@@ -410,7 +424,7 @@ impl crate::plugins::Plugins {
             let result=(||{
                 let mut e=Editor::new(owner,scale)?;e.rect=r;
                 let track=crate::plugins::fx_of(key).map(|(t,_)|t);e.outer.ivars().track.set(track);e.document.ivars().track.set(track);
-                e.profile=profile(p.desc());
+                e.paging.assign(p.desc());e.paging.preview(preview);
                 let result=p.open_editor(e.area(),e.backing as f32);
                 let size=match result {Ok(size)=>size,Err(err)=>{p.close_editor();return Err(err);}};
                 if !crate::rack_mixer::vertical_shape(size){p.close_editor();return Err("This plugin reported an invalid editor size.".into());}
@@ -421,6 +435,10 @@ impl crate::plugins::Plugins {
             })();
             match result {Ok(e)=>h.rack_editor=Some(e),Err(e)=>{h.rack_error=Some(e);return;}}
         }
-        if let Some(e)=&mut h.rack_editor{e.place(r,clip,covers);}
+        if let Some(e)=&mut h.rack_editor{
+            e.paging.preview(preview);
+            e.accept_size(e.size);
+            e.place(r,clip,covers);
+        }
     }
 }

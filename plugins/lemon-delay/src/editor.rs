@@ -17,7 +17,7 @@ use nih_plug::prelude::*;
 use os_engine::effects::delay as dsp;
 use os_plugkit::vals::Vals;
 use os_plugkit::MenuDef;
-use os_ui::kit::menu::{MenuItem, MenuStyle};
+use os_ui::kit::menu::{Mark, MenuItem, MenuStyle};
 
 use crate::params::{self, DelayParams, DEFS};
 use crate::view::{self, Target, ViewState};
@@ -120,6 +120,7 @@ pub enum Cmd {
     PasteValue(String),
     TypeIn(String),
     Automate(String),
+    CleanEcho,
     About,
 }
 
@@ -343,6 +344,9 @@ impl Logic {
                 m.sep(Cmd::None);
                 m.add(MenuItem::item("Create automation clip").enabled(self.hosted), Cmd::Automate(id.clone()));
                 m.sep(Cmd::None);
+                if os_plugkit::visibility::stock_dsp_controls() {
+                    m.add(MenuItem::item("Clean echoes (HQ)").mark(Mark::Check(self.params.clean_echo())), Cmd::CleanEcho);
+                }
                 m.add(MenuItem::item("About ML Delay..."), Cmd::About);
                 m
             }
@@ -368,6 +372,7 @@ impl Logic {
             }
             Cmd::TypeIn(id) => return vec![Act::TypeIn(id, x, y)],
             Cmd::Automate(id) => return ids().position(|i| i == id).map(Act::Automate).into_iter().collect(),
+            Cmd::CleanEcho => self.params.toggle_clean_echo(),
             Cmd::About => return vec![Act::Menu(MenuReq::About, x, y)],
         }
         vec![Act::Repaint]

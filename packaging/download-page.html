@@ -106,6 +106,7 @@
         <article class="card"><h3>Linux</h3><p>x86-64 package · glibc 2.36 or later</p><div class="links" id="linux"><div class="download-group" data-platform="linux"><a class="button" href="https://michaellanemusic.de/ml-studio/linux/2026111101/Lemon-Studio-Linux-x86_64-2026111101.tar.gz">Download Linux x86-64</a><a class="source-link" href="https://michaellanemusic.de/ml-studio/updates/2026111101/Lemon%20Studio%20Source.zip" aria-label="Linux x86-64 source code">Source</a></div></div></article>
       </div>
       <p class="download-meta"><a href="https://github.com/Dorfhaus/ML-Studio/releases/latest">Release notes and checksums on GitHub ↗</a></p>
+      <p class="download-meta"><a href="https://michaellanemusic.de/lemon-studio/mix-references/1/ML%20Studio%20Mix%20References.mlmixref" download>Download optional Mix References</a>. Put the file in your ML Studio user folder and reopen Mix Assistant.</p>
       <details class="feature install-notes"><summary>Installation and compatibility</summary><ul><li>Windows, macOS, and Linux support signed automatic updates. Older Mac and Linux builds need one manual upgrade. Install the Mac app or Linux folder somewhere your user can write to.</li><li>Mac builds are ad-hoc signed and require manual approval on first launch. Intel Mac checks use Rosetta. See the release notes for Linux runtime testing status.</li><li>Third-party plugins need compatible platform builds and their own licences. MPE requires a compatible instrument and patch mapping.</li><li>FLP and FST import support varies by plugin and saved setting. ARA integration is available, with known Auto-Tune ARA and Melodyne transport limitations.</li></ul></details>
     </section>
     <section class="section" id="features" aria-labelledby="features-title">
@@ -131,7 +132,22 @@
 <p>The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.</p>
 <label for="change-search">Search changes</label><input id="change-search" type="search" placeholder="Try Chop, mixer or recording">
 <p id="change-empty" hidden>No changes match your search.</p>
-<details class="change-entry" open><summary>2026-11-14</summary><ul>
+<details class="change-entry" open><summary>2026-11-15</summary><ul>
+<li>Added an offline Mix Assistant. Review detected sources and routing, confirm roles and focus, include or exclude buses, choose a genre, then preview and apply gain and stock processing in one undoable step.</li>
+<li>Mix Assistant measures the song before suggesting compressor, EQ and level changes. Its review explains skipped processing. The optional Mix References pack is available on the download website.</li>
+<li>Added a detachable Score Editor and Arrangement Score for editing written parts, importing MusicXML, and exporting scores and parts. Added Playlist chord, tempo, hit-point and reference video tools for scoring to picture.</li>
+<li>Channel Strip Mixer adds SSL 360 Link pages for Filters/EQ, Dynamics and Fader. All effects lists available insert effects. Dock a compatible editor and save custom page widths per plug-in and editor shape.</li>
+<li>Plugin Downloads shows which plug-ins were found by the scanner and offers clearer Favorites controls. Updates preserve ordinary and portable plug-in files.</li>
+<li>Plug-in delay compensation now refreshes during playback when an effect slot or the whole chain is bypassed.</li>
+<li>Playlist audio and MIDI selections transpose together by semitones with Alt+Up/Down or by octaves with Ctrl+Alt+Up/Down. Fixed clip dragging, automation redraw, Quick Chop Undo and Redo, and sample waveform refresh.</li>
+<li>New Channel Rack samples and instruments can route to a free Mixer insert or the insert linked to an attached Playlist lane. On Windows, samples can also be dragged from a detached Browser. Added a compact Channel Rack.</li>
+<li>Added Full Mixer size presets and a movable, resizable floating Hint Bar. Removed the visible Mixer drag grips while retaining insert reordering. Fader wheel changes are grouped for Undo.</li>
+<li>Added a detachable ML Visualizer workspace with Playlist scene sequencing, fades and dissolves. Windows x64 can export the built-in visualizer with the song mix to MP4.</li>
+<li>Added optional stock DSP controls including distortion and clipping oversampling, true-peak limiting, cleaner delay and chorus modes, stereo bass-to-mono, and external sidechain detection for ML EQ dynamic bands.</li>
+<li>Added Mixer shortcuts for clip ARA editing, Split by Channel for patterns, and Tesla Deverb. Improved compatible plug-in resizing.</li>
+<li>Improved autosave during playback, export cleanup and recovery of interrupted jobs. Reorganized General settings and expanded the bundled User Guide with the new controls and workflows.</li>
+</ul></details>
+<details class="change-entry"><summary>2026-11-14</summary><ul>
 <li>Bounced Playlist tracks and instruments now keep their original Mixer routing by default, leaving Mixer effects live. An optional setting prints the processing and routes the bounce to a clean free insert, with undo and redo support.</li>
 <li>Added optional automatic project-tempo fitting for samples dropped into the Playlist, using filename BPM or detected rhythm. Unrecognized material keeps its original speed.</li>
 <li>Added visible drag handles across Mixer layouts, clearer insertion markers and cancellation when dropping outside the Mixer. Selected insert groups keep their routing when moved.</li>

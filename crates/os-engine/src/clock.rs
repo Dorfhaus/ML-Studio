@@ -31,6 +31,15 @@ impl Clock {
         Clock { spt: samples_per_tick(rate, ppq, bpm), sum: 0.0, start: 0, end: 0, ticks: 0 }
     }
 
+    pub(crate) fn at_position(ticks: u64, samples: f64, spt: f64) -> Self {
+        let position = samples.round_ties_even() as u64;
+        Self { spt, sum: samples, start: position, end: position, ticks }
+    }
+
+    pub(crate) fn set_samples_per_tick(&mut self, spt: f64) {
+        self.spt = spt;
+    }
+
     /// Starts the next tick and returns its first sample and its length (at least 1). Its length is settled with the
     /// tempo in force; a tempo set afterwards sizes the ticks after it.
     pub fn advance(&mut self) -> (u64, usize) {

@@ -27,6 +27,8 @@ pub mod stereo_enhancer;
 pub mod stereo_shaper;
 pub mod transient_processor;
 pub mod view;
+mod quality;
+pub use os_plugkit::visibility::STOCK_DSP_CONTROLS;
 
 use std::marker::PhantomData;
 use std::num::NonZeroU32;
@@ -130,6 +132,8 @@ pub struct Spec {
     pub about: &'static str,
     /// The settings in the original's saved order.
     pub settings: &'static [Setting],
+    /// Number of ML-specific settings at the end of the list.
+    pub studio_settings: usize,
     /// The version the original's saved state starts with (an int before the settings), if it has one. A stored
     /// state with a higher version is not read (spec §5), unless `any_version`.
     pub version: Option<i32>,
@@ -164,6 +168,10 @@ impl Spec {
     /// Setting index of an id.
     pub fn index(&self, id: &str) -> Option<usize> {
         self.settings.iter().position(|s| s.id == id)
+    }
+
+    pub fn legacy_settings(&self) -> usize {
+        self.settings.len() - self.studio_settings
     }
 
     /// The settings a new instance starts on.
@@ -347,7 +355,7 @@ mod tests {
                     assert_eq!((s.text)(k, back), t, "{} {} {v}", s.name, set.id);
                 }
             }
-            assert!(s.name.starts_with("Lemon "));
+            assert!(s.name.starts_with("ML "));
         }
         let ids = [
             <hall::LemonHall as ClapPlugin>::CLAP_ID,
@@ -404,10 +412,11 @@ mod tests {
     #[test]
     fn factory_presets_list_every_parameter_and_hold_fls_states() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/os-app/factory-presets");
+        let source_name = |spec: &Spec| spec.name.replacen("ML ", "Lemon ", 1);
         // Every preset of a plugin, as `[category/]name`.
         let all = |spec: &Spec| -> Vec<String> {
             let mut names = Vec::new();
-            for e in std::fs::read_dir(root.join(spec.name)).unwrap() {
+            for e in std::fs::read_dir(root.join(source_name(spec))).unwrap() {
                 let e = e.unwrap();
                 let name = e.file_name().into_string().unwrap();
                 if e.file_type().unwrap().is_dir() {
@@ -422,11 +431,11 @@ mod tests {
             names
         };
         let read = |spec: &Spec, preset: &str| -> Vec<i32> {
-            let text = std::fs::read_to_string(root.join(spec.name).join(format!("{preset}.ospreset"))).unwrap();
+            let text = std::fs::read_to_string(root.join(source_name(spec)).join(format!("{preset}.ospreset"))).unwrap();
             let mut lines = text.lines();
             assert_eq!(lines.next(), Some("OSPRESET 1"));
             let head = lines.next().unwrap();
-            assert!(head.starts_with(&format!("plugin={}	", spec.name)), "{head}");
+            assert!(head.starts_with(&format!("plugin={}	", source_name(spec))), "{head}");
             let mut v: Vec<Option<i32>> = vec![None; spec.settings.len()];
             for l in lines.filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
                 let (name, steps) = l.split_once(" = ").unwrap();
@@ -449,15 +458,15 @@ mod tests {
             }
             assert_eq!(read(spec, "Default"), start, "{}", spec.name);
         }
-        assert_eq!(read(fast_distortion::SPEC, "Compressor"), [192, 1, 0, 104, 93]);
-        assert_eq!(read(fast_distortion::SPEC, "Warmth"), [82, 7, 0, 128, 128]);
-        assert_eq!(read(stereo_enhancer::SPEC, "For strings"), [-18, 256, -54, -248, 1, 0]);
-        assert_eq!(read(stereo_enhancer::SPEC, "Subtle"), [0, 256, -40, -24, 1, 0]);
-        assert_eq!(read(transient_processor::SPEC, "Overdriven"), [120, 110, 160, 53, 2, 1, 50, 80, 1]);
-        assert_eq!(read(transient_processor::SPEC, "Subtle attack"), [132, 0, 80, 80, 0, 1, 0, 80, 1]);
-        assert_eq!(std::fs::read_dir(root.join(transient_processor::SPEC.name)).unwrap().count(), 10);
-        assert_eq!(read(chorus::SPEC, "Detune"), [40, 4375, 149, 3229, 0, 781, 587, 0, 1024, 65, 4531, 491]);
-        assert_eq!(read(chorus::SPEC, "Ensemble"), [115, 3669, 0, 1458, 0, 0, 0, 0, 0, 0, 1719, 0]);
+        assert_eq!(read(fast_distortion::SPEC, "Compressor"), [192, 1, 0, 104, 93, 0]);
+        assert_eq!(read(fast_distortion::SPEC, "Warmth"), [82, 7, 0, 128, 128, 0]);
+        assert_eq!(read(stereo_enhancer::SPEC, "For strings"), [-18, 256, -54, -248, 1, 0, 0]);
+        assert_eq!(read(stereo_enhancer::SPEC, "Subtle"), [0, 256, -40, -24, 1, 0, 0]);
+        assert_eq!(read(transient_processor::SPEC, "Overdriven"), [120, 110, 160, 53, 2, 1, 50, 80, 1, 0]);
+        assert_eq!(read(transient_processor::SPEC, "Subtle attack"), [132, 0, 80, 80, 0, 1, 0, 80, 1, 0]);
+        assert_eq!(std::fs::read_dir(root.join(source_name(transient_processor::SPEC))).unwrap().count(), 10);
+        assert_eq!(read(chorus::SPEC, "Detune"), [40, 4375, 149, 3229, 0, 781, 587, 0, 1024, 65, 4531, 491, 0, 0]);
+        assert_eq!(read(chorus::SPEC, "Ensemble"), [115, 3669, 0, 1458, 0, 0, 0, 0, 0, 0, 1719, 0, 0, 0]);
         assert_eq!(all(chorus::SPEC).len(), 8);
         // The Stereo Shaper's presets without the difference output (it has no parameter): FL's 21 of 25.
         assert_eq!(read(stereo_shaper::SPEC, "Mixing/LR to MS"), [8076, 8076, -8076, 8076, 0, 0, 1]);

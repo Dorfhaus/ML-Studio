@@ -443,9 +443,33 @@ fn confirming(s: &State) -> &'static crate::messages::Message {
 /// after it, right after the current one in channel order (later patterns move up with their clips, as Insert one),
 /// with the original's colour, markers and other settings but only that channel's notes. Every playlist clip of the
 /// original gets one clip per new pattern at the same place, under it. No notes: nothing happens. One undo step.
+pub const SPLIT_VISIBILITY: &str = "visible_split-by-channel";
+
 pub fn split_by_channel(s: &mut State) {
+    let _ = split(s, None);
+}
+
+pub fn confirm_split(app: &mut crate::app::App) -> Option<String> {
+    let s = &mut app.state;
     let cur = s.pattern.max(1);
-    let Some(orig) = s.project.pattern(cur).cloned() else { return };
+    if !crate::workspace_visibility::shown(SPLIT_VISIBILITY) { return None; }
+    let count = s.project.pattern(cur).map_or(0, |p| s.project.channels.iter()
+        .filter(|ch| p.notes.iter().any(|n| n.channel == ch.index)).take(2).count());
+    if count == 2 && s.project.arrangements.iter().any(|a| a.clips.iter().any(|c| c.source == ClipSource::Pattern(cur))) {
+        use crate::dialog::{Answer, Kind, Msg, Then};
+        app.show_msg(Msg::new(Kind::Question, "Split by channel", vec![
+            ("Create an instrument track for each pattern, or group the new tracks below the first pattern.".into(), false)
+        ], &[Answer::Yes, Answer::No, Answer::Cancel], Then::SplitPattern(cur))
+            .labelled(&["Instrument tracks", "Group below first", "Cancel"]));
+        None
+    } else {
+        split(s, None)
+    }
+}
+
+pub fn split(s: &mut State, group: Option<bool>) -> Option<String> {
+    let cur = s.pattern.max(1);
+    let orig = s.project.pattern(cur).cloned()?;
     let chans: Vec<(u16, String)> = s
         .project
         .channels
@@ -454,14 +478,36 @@ pub fn split_by_channel(s: &mut State) {
         .filter(|(_, c)| orig.notes.iter().any(|n| n.channel == c.index))
         .map(|(r, c)| (c.index, crate::rack::channel_name(s, r)))
         .collect();
-    let Some(((first, name), rest)) = chans.split_first() else { return };
+    let ((first, name), rest) = chans.split_first()?;
     let k = rest.len() as u16;
     // Room for the new numbers: no used pattern may move past the last one.
-    let last = s.project.patterns.iter().filter(|p| used(p)).map(|p| p.number).max().unwrap_or(cur).max(cur);
+    let placed = s.project.arrangements.iter().flat_map(|a| {
+        a.clips.iter().chain(a.tracks.iter().filter_map(|t| t.frozen.as_ref()).flatten())
+    }).filter_map(|clip| match clip.source {
+        ClipSource::Pattern(n) => Some(n),
+        _ => None,
+    });
+    let last = s.project.patterns.iter().filter(|p| used(p)).map(|p| p.number)
+        .chain(placed).chain(std::iter::once(cur)).max().unwrap_or(cur);
     if usize::from(last) + rest.len() > usize::from(MAX) {
-        return;
+        return Some("There are too many patterns to split this pattern.".into());
     }
-    let undo = crate::history::Snap::Patterns { patterns: s.project.patterns.clone(), current: cur };
+    let extra = crate::history::Snap::Patterns { patterns: s.project.patterns.clone(), current: cur };
+    let undo = if group.is_some() {
+        for arr in &s.project.arrangements {
+            let rows = split_rows(arr, cur);
+            if rows.is_empty() { continue; }
+            let last_clip = arr.clips.iter().map(|c| c.track as usize).max().unwrap_or(0);
+            let last_track = arr.tracks.iter().enumerate().rposition(|(i, t)| *t != os_model::PlaylistTrack::new(i as u32 + 1)).unwrap_or(0);
+            if last_clip.max(last_track) + rows.len() * rest.len() >= usize::from(crate::playlist::TRACKS) {
+                return Some("There are too few free Playlist rows to fit the split patterns.".into());
+            }
+            if rows.iter().any(|&row| arr.tracks.get(usize::from(row)).is_some_and(|t| t.locked || t.frozen.is_some() || t.folder || t.comp.is_some())) {
+                return Some("Unlock or unfreeze the source Playlist track before splitting.".into());
+            }
+        }
+        crate::history::Snap::Several(vec![extra, crate::history::Snap::PatternArrangements(s.project.arrangements.clone())])
+    } else { extra };
     crate::playlist::snapshot_with(s, "Split by channel", undo);
     // Notes of a channel no longer in the rack stay with the original.
     let p = pat_mut(s, cur);
@@ -469,13 +515,93 @@ pub fn split_by_channel(s: &mut State) {
     p.name = Some(name.clone());
     s.piano.dirty = true;
     if k == 0 {
-        return;
+        return None;
     }
-    renumber(s, |n| Some(if n > cur { n + k } else { n }));
+    let mapped = |n| if n > cur { n + k } else { n };
+    let active = s.project.arrangement().map(|arr| arr.number);
+    renumber(s, |n| Some(mapped(n)));
+    if group.is_some() {
+        for arrangement in s.project.arrangements.iter_mut().filter(|a| Some(a.number) != active) {
+            for clip in arrangement.clips.iter_mut()
+                .chain(arrangement.tracks.iter_mut().filter_map(|t| t.frozen.as_mut()).flatten()) {
+                if let ClipSource::Pattern(n) = &mut clip.source {
+                    *n = mapped(*n);
+                }
+            }
+        }
+    }
+    for lane in &mut s.project.instrument_lanes {
+        lane.3 = mapped(lane.3);
+    }
     for (j, (ch, name)) in (1..).zip(rest) {
         // Control points stay with the original (only notes are divided).
         let notes = orig.notes.iter().filter(|n| n.channel == *ch).copied().collect();
         *pat_mut(s, cur + j) = Pattern { number: cur + j, name: Some(name.clone()), notes, controls: Vec::new(), ..orig.clone() };
+    }
+    if let Some(grouped) = group {
+        let part_tracks = chans.iter().map(|(id, name)| {
+            let channel = s.project.channel(*id).unwrap();
+            (*id, name.clone(), channel.mixer_track, channel.color)
+        }).collect::<Vec<_>>();
+        for number in s.project.arrangements.iter().map(|arr| arr.number).collect::<Vec<_>>() {
+            let rows = split_rows(s.project.arrangements.iter().find(|a| a.number == number).unwrap(), cur);
+            for row in rows.into_iter().rev() {
+                if Some(number) == active {
+                    while crate::playlist::arr_mut(s).tracks.len() < usize::from(crate::playlist::TRACKS) {
+                        let a = crate::playlist::arr_mut(s);
+                        a.tracks.push(os_model::PlaylistTrack::new(a.tracks.len() as u32 + 1));
+                    }
+                    for _ in 0..k { crate::playlist::insert_track(s, row + 1); }
+                } else {
+                    let arr = s.project.arrangements.iter_mut().find(|a| a.number == number).unwrap();
+                    let shift = |track: u16| if track > row { track + k } else { track };
+                    for clip in &mut arr.clips { clip.track = shift(clip.track); }
+                    for t in &mut arr.tracks {
+                        if let Some(clips) = &mut t.frozen {
+                            for clip in clips { clip.track = shift(clip.track); }
+                        }
+                    }
+                    arr.attached_order.iter_mut().for_each(|r| *r = shift(*r));
+                    for link in &mut s.project.instrument_lanes {
+                        if link.1 == number { link.2 = shift(link.2); }
+                    }
+                    while arr.tracks.len() <= usize::from(row) {
+                        arr.tracks.push(os_model::PlaylistTrack::new(arr.tracks.len() as u32 + 1));
+                    }
+                    for _ in 0..k { arr.tracks.insert(usize::from(row + 1), os_model::PlaylistTrack::new(0)); }
+                    arr.tracks.truncate(usize::from(crate::playlist::TRACKS));
+                    for (i, track) in arr.tracks.iter_mut().enumerate().skip(usize::from(row + 1)) {
+                        track.number = i as u32 + 1;
+                    }
+                }
+                let arr = s.project.arrangements.iter_mut().find(|a| a.number == number).unwrap();
+                let original = arr.clips.iter().filter(|clip| clip.track == row && clip.source == ClipSource::Pattern(cur)).cloned().collect::<Vec<_>>();
+                for (i, (id, name, track, color)) in part_tracks.iter().enumerate() {
+                    let part = i as u16;
+                    let lane = row + part;
+                    let track_info = &mut arr.tracks[usize::from(lane)];
+                    if part != 0 || track_info.name.is_none() { track_info.name = Some(name.clone()); }
+                    if part != 0 || track_info.color.is_none() { track_info.color = *color; }
+                    if grouped {
+                        track_info.grouped = part != 0;
+                    } else {
+                        track_info.mode = os_model::PlaylistTrackMode::Instrument;
+                        track_info.attached_mixer = Some(*track);
+                        s.project.instrument_lanes.retain(|x| x.1 != number || x.2 != lane);
+                        s.project.instrument_lanes.push((*id, number, lane, cur + part));
+                    }
+                    if part == 0 { continue; }
+                    arr.clips.extend(original.iter().cloned().map(|mut c| {
+                        c.source = ClipSource::Pattern(cur + part);
+                        c.track = lane;
+                        c.name = None;
+                        c
+                    }));
+                }
+                arr.clips.sort_by_key(|c| c.position);
+            }
+        }
+        return None;
     }
     if let Some(a) = s.project.arrangement_mut() {
         // Clips are drawn in record order: the new ones go just before their original, which stays on top.
@@ -488,6 +614,15 @@ pub fn split_by_channel(s: &mut State) {
         }
         a.clips = clips;
     }
+    None
+}
+
+fn split_rows(arrangement: &os_model::Arrangement, pattern: u16) -> Vec<u16> {
+    let mut rows = arrangement.clips.iter().filter(|c| c.source == ClipSource::Pattern(pattern))
+        .map(|c| c.track).collect::<Vec<_>>();
+    rows.sort_unstable();
+    rows.dedup();
+    rows
 }
 
 /// Ok in the delete confirmation (channels waiting in the rack go to the app, which removes them). With Remember my
@@ -888,5 +1023,47 @@ mod tests {
         suggest(s, 4, 3);
         assert_eq!(name_of(s, 1), "Chorus");
         assert!(s.pat_ui.name_box.is_none());
+    }
+}
+
+
+#[cfg(test)]
+mod split_workflow_tests {
+    use super::*;
+    use crate::{app::App, dialog::{Answer, Reply}, playlist as pl};
+    use os_model::{Clip, Note, PlaylistTrackMode};
+
+    #[test]
+    fn arranged_split_workflows_preserve_placements_lanes_and_undo() {
+        for grouped in [false, true] {
+            let mut app = App::new(None);
+            app.state.project = crate::app::test_project();
+            app.state.pattern = 1;
+            pat_mut(&mut app.state, 1).notes = vec![Note::step(0, 0), Note::step(1, 24)];
+            let mut source = Clip::new(384, 192, 2, ClipSource::Pattern(1));
+            source.window = Some((24.0, 216.0));
+            let original = vec![source.clone(), Clip::new(768, 192, 3, ClipSource::Pattern(2))];
+            pl::arr_mut(&mut app.state).clips = original.clone();
+            let mut alternate = pl::arr_mut(&mut app.state).clone();
+            alternate.number = 2;
+            app.state.project.arrangements.push(alternate);
+            confirm_split(&mut app);
+            app.answer(Reply::Button(if grouped { Answer::No } else { Answer::Yes }));
+            for arrangement in &app.state.project.arrangements {
+                let new_clip = &arrangement.clips[1];
+                assert_eq!((new_clip.position, new_clip.length, new_clip.window, new_clip.track), (384, 192, source.window, 3));
+                assert_eq!(new_clip.source, ClipSource::Pattern(2));
+                assert_eq!(arrangement.clips[2].track, 4);
+                assert_eq!(arrangement.clips[2].source, ClipSource::Pattern(3));
+                assert_eq!(arrangement.tracks[3].grouped, grouped);
+                if !grouped {
+                    assert_eq!(arrangement.tracks[3].mode, PlaylistTrackMode::Instrument);
+                    assert!(app.state.project.instrument_lanes.iter().any(|v| *v == (1, arrangement.number, 3, 2)));
+                }
+            }
+            pl::run(&mut app, pl::Cmd::Undo);
+            assert!(app.state.project.arrangements.iter().all(|a| a.clips == original));
+            assert_eq!(app.state.project.pattern(1).unwrap().notes.len(), 2);
+        }
     }
 }

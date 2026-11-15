@@ -67,6 +67,7 @@ pub fn paint(ui: &mut Ui, s: &State) {
             Body::Ai => ai_box(ui,s,m),
             Body::VoiceAssistant => voice_box(ui, s, m),
             Body::RoutePicker(f) => route_picker_box(ui,s,m,f),
+            Body::MixAssistant(form) => crate::mix_assistant::paint(ui, s, m, form),
             Body::MixerInsert(f) => mixer_insert_box(ui, s, m, f),
             Body::Headphones(f) => headphones_box(ui,s,m,f),
             Body::Msg(msg) => msg_box(ui, s, m, msg),
@@ -83,7 +84,7 @@ pub(super) fn hit(ui: &mut Ui, r: Rect, h: DHit, hint: &'static str) -> bool {
 }
 
 /// Where a dialog of `w` x `h` sits: where its caption was dragged, else centred; inside the window either way.
-pub(super) fn place(s: &State, m: &Modal, w: f32, h: f32) -> Rect {
+pub(crate) fn place(s: &State, m: &Modal, w: f32, h: f32) -> Rect {
     let (sw, sh) = s.screen;
     let (x, y) = m.at.unwrap_or(((sw - w) / 2.0, (sh - h) / 2.0));
     let r = Rect::new(x.min(sw - w).max(0.0).round(), y.min(sh - h).max(0.0).round(), w, h);
@@ -92,7 +93,7 @@ pub(super) fn place(s: &State, m: &Modal, w: f32, h: f32) -> Rect {
 }
 
 /// Border, caption (title, ×) and the frame colour under everything else.
-pub(super) fn frame(ui: &mut Ui, r: Rect, title: &str) {
+pub(crate) fn frame(ui: &mut Ui, r: Rect, title: &str) {
     let title=tr(title);
     let t = ui.t;
     let lemon = lemon(ui);
@@ -324,7 +325,7 @@ fn icon(ui: &mut Ui, kind: Kind, cx: f32, cy: f32) {
 
 /// A dialog button (spec §1d, §3). `main`: the focused (message box) or default (file dialog) button. `accel`: the first
 /// letter gets the dotted underline.
-pub(super) fn button(ui: &mut Ui, b: Rect, label: &str, main: bool, hov: bool, down: bool, accel: bool) {
+pub(crate) fn button(ui: &mut Ui, b: Rect, label: &str, main: bool, hov: bool, down: bool, accel: bool) {
     let label=tr(label);
     let t = ui.t;
     let ink = if lemon(ui) {

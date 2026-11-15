@@ -18,13 +18,15 @@ use crate::params::{db_text, leading_number, nearest, parse_db};
 use crate::{Card, Control, Kind, Mark, Setting, SmallFx, Sound, Spec};
 
 /// The settings in the original's order (spec §5).
-pub const SETTINGS: [Setting; dsp::PARAMS] = [
+const BASS_MONO: usize = dsp::PARAMS;
+pub const SETTINGS: [Setting; dsp::PARAMS + 1] = [
     Setting { id: "pan", name: "Pan", range: dsp::RANGES[dsp::PAN], start: dsp::DEFAULTS[dsp::PAN], magnet: Some(0) },
     Setting { id: "volume", name: "Volume", range: dsp::RANGES[dsp::VOLUME], start: dsp::DEFAULTS[dsp::VOLUME], magnet: Some(256) },
     Setting { id: "separation", name: "Stereo separation", range: dsp::RANGES[dsp::SEPARATION], start: dsp::DEFAULTS[dsp::SEPARATION], magnet: Some(0) },
     Setting { id: "phase", name: "Phase offset", range: dsp::RANGES[dsp::PHASE], start: dsp::DEFAULTS[dsp::PHASE], magnet: Some(0) },
     Setting { id: "placement", name: "Phase offset placement", range: dsp::RANGES[dsp::PLACEMENT], start: dsp::DEFAULTS[dsp::PLACEMENT], magnet: None },
     Setting { id: "invert", name: "Inversion", range: dsp::RANGES[dsp::INVERT], start: dsp::DEFAULTS[dsp::INVERT], magnet: None },
+    Setting { id: "bass_mono", name: "Bass to mono", range: (0, 250), start: 0, magnet: Some(0) },
 ];
 
 /// Editor layout (spec §2), as the original's: the separation, the phase offset between its placement and the
@@ -36,13 +38,14 @@ const CARDS: [Card; 4] = [
     Card { x0: 340.0, x1: 492.0, y0: 28.0, y1: 116.0, heading: "OUTPUT" },
 ];
 
-const CONTROLS: [Control; 6] = [
+const CONTROLS: [Control; 7] = [
     Control::Knob { id: "separation", cx: 46.0, cy: 64.0, r: 20.0, caption: "+     -", bipolar: true },
     Control::Choice { id: "placement", x: 102.0, top: 49.0, names: &["PRE", "POST"] },
     Control::Knob { id: "phase", cx: 206.0, cy: 62.0, r: 24.0, caption: "L       R", bipolar: true },
     Control::Choice { id: "invert", x: 274.0, top: 41.0, names: &["NONE", "LEFT", "RIGHT"] },
     Control::Knob { id: "pan", cx: 378.0, cy: 64.0, r: 20.0, caption: "PAN", bipolar: true },
     Control::Knob { id: "volume", cx: 454.0, cy: 64.0, r: 20.0, caption: "VOL", bipolar: false },
+    Control::Tile { id: "bass_mono", x0: 8.0, x1: 166.0, y0: 153.0, y1: 199.0, caption: "BASS TO MONO" },
 ];
 
 pub const SPEC: &Spec = &Spec {
@@ -50,11 +53,12 @@ pub const SPEC: &Spec = &Spec {
     word: "STEREO ENHANCER",
     about: "ML Studio's stereo enhancer",
     settings: &SETTINGS,
+    studio_settings: 1,
     version: None,
     any_version: false,
     fields: &[],
     tail: &[],
-    size: (500, 154),
+    size: (500, 207),
     cards: &CARDS,
     controls: &CONTROLS,
     display: None,
@@ -75,6 +79,7 @@ pub fn phase_ms(k: i32) -> f64 {
 /// Value texts (spec §3, Lemon Studio's choice).
 fn text(k: usize, v: i32) -> String {
     match k {
+        BASS_MONO => if v == 0 { "Off".into() } else { format!("{v} Hz") },
         dsp::PAN => side_text(v),
         dsp::VOLUME => db_text(dsp::volume_gain(v)),
         dsp::SEPARATION => match v {
@@ -102,6 +107,11 @@ fn parse(k: usize, s: &str) -> Option<i32> {
     // A signed number; `neg` in the text makes it negative.
     let signed = |neg: &str| leading_number(&low).map(|x| if low.contains(neg) { -x.abs() } else { x });
     match k {
+        BASS_MONO => if s.trim().eq_ignore_ascii_case("off") {
+            Some(0)
+        } else {
+            leading_number(s).map(|hz| (hz.round() as i32).clamp(0, 250))
+        },
         dsp::PAN => parse_side(range, s),
         dsp::VOLUME => parse_db(range, s, dsp::volume_gain),
         dsp::SEPARATION if low.starts_with("none") => Some(0),
@@ -130,6 +140,7 @@ impl Enhancer {
 impl Sound for Enhancer {
     fn set(&mut self, v: &[i32]) {
         self.0.set(&settings(v));
+        self.0.set_bass_mono(v.get(BASS_MONO).copied().unwrap_or_default());
     }
     fn set_sample_rate(&mut self, rate: u32) {
         self.0.set_sample_rate(rate);
@@ -149,6 +160,7 @@ impl Sound for Enhancer {
 /// creation values in its pre-roll, which a plugin has none of).
 fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
     let mut e = StereoEnhancer::with_settings(rate, &settings(v));
+    e.set_bass_mono(v.get(BASS_MONO).copied().unwrap_or_default());
     e.flush();
     Box::new(Enhancer(e))
 }

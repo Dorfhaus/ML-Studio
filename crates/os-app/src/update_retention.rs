@@ -2,7 +2,7 @@
 use super::*;
 const KEEP: usize = 2;
 
-fn plain(path: &Path) -> bool {
+pub(crate) fn plain(path: &Path) -> bool {
     let Ok(m) = fs::symlink_metadata(path) else { return false; };
     if m.file_type().is_symlink() { return false; }
     #[cfg(windows)] {
@@ -23,7 +23,7 @@ fn numbered(name: &str, prefix: &str, suffix: &str) -> Option<(u64, u128)> {
 fn inventory(root: &Path, allowed: &[String]) -> Result<Vec<PathBuf>> {
     if !plain(root) || !fs::symlink_metadata(root)?.is_dir() { return Err("Unsafe cleanup folder".into()); }
     fn visit(root: &Path, path: &Path, allowed: &[String], paths: &mut Vec<PathBuf>, depth: usize) -> Result<()> {
-        if depth > 6 || paths.len() > 128 { return Err("Unexpected update folder layout".into()); }
+        if depth > 12 || paths.len() > (allowed.len().saturating_mul(2)).clamp(128, 20_000) { return Err("Unexpected update folder layout".into()); }
         for e in fs::read_dir(path)? {
             let p = e?.path();
             if !plain(&p) { return Err("Linked update item preserved".into()); }

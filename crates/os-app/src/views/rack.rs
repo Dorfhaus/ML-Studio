@@ -16,6 +16,7 @@ use crate::vintage_rack_art as art;
 use crate::rack::{self as rk, FillHit, FillType, Tab};
 
 mod studio;
+pub(crate) const STUDIO_FRAME_RADIUS: f32 = 10.0;
 
 pub const ROW_H: f32 = 36.0;
 pub const STEP_W: f32 = 26.0;
@@ -121,19 +122,43 @@ pub fn base_w(s: &State) -> f32 {
 /// Smallest width (Lemon Studio's; FL's is 4 steps, §5): four beats of the project's signature, and never under the
 /// default 16 steps, below which the title bar's right group runs into the speaker and the "Channel rack" title.
 pub fn min_w(s: &State) -> f32 {
+    if !rk::show_steps() {
+        return compact_width(s);
+    }
     let steps = (4 * rk::beat_steps(s)).max(16);
     let grid = base_w(s) + step_width(s) * (steps - 1) as f32;
-    if s.vintage_2005 { grid } else { grid.max(750.0) }
+    let preferred = if s.vintage_2005 { grid } else { grid.max(750.0) };
+    // Fit fewer whole steps on narrower workspaces, retaining the controls and
+    // horizontal scrollbar. The preferred minimum still applies on larger screens.
+    let base = base_w(s);
+    let step = step_width(s);
+    let header = if s.vintage_2005 { base } else { base.max(490.0 + cols(s).dx) };
+    let first = ((header - base) / step).ceil().max(0.0);
+    let last = ((s.work_rect().w - base) / step).floor();
+    preferred.min(base + step * last.max(first))
+}
+
+fn compact_width(s: &State) -> f32 {
+    let columns = cols(s);
+    if s.vintage_2005 {
+        (columns.step_x + 28.0).max(180.0)
+    } else {
+        (columns.step_x + STUDIO_MARGIN + STUDIO_SCROLL_GUTTER).max(414.0)
+    }
 }
 
 /// Snap a dragged size so whole steps and rows appear (§5), at least [`min_w`] and one row.
 pub fn snap_size(s: &State, w: f32, h: f32) -> (f32, f32) {
-    let b = base_w(s);
-    let w = b + step_width(s) * ((w - b) / step_width(s)).round();
+    let w = if rk::show_steps() {
+        let b = base_w(s);
+        (b + step_width(s) * ((w - b) / step_width(s)).round()).max(min_w(s))
+    } else {
+        compact_width(s)
+    };
     let pitch = row_pitch(s);
     let overhead = height_overhead(s);
     let h = overhead + pitch * ((h - overhead) / pitch).round();
-    (w.max(min_w(s)), h.max(min_h(s)))
+    (w, h.max(min_h(s)))
 }
 
 /// Whether every note of channel `ch` in the pattern is a plain step (§6: otherwise the row shows
@@ -144,7 +169,8 @@ fn plain_steps(notes: &[os_model::Note], ch: u16) -> bool {
 
 /// The window's outer rectangle.
 pub fn rect(s: &State) -> Rect {
-    Rect::new(s.rack_pos.0, s.rack_pos.1, s.rack_size.0.max(min_w(s)), s.rack_size.1.max(min_h(s)))
+    let width = if rk::show_steps() { s.rack_size.0.max(min_w(s)) } else { compact_width(s) };
+    Rect::new(s.rack_pos.0, s.rack_pos.1, width, s.rack_size.1.max(min_h(s)))
 }
 
 /// Where the window paints: its rect and the graph editor, which hangs below it (§14).
@@ -188,6 +214,7 @@ pub(crate) fn row_view(s: &State) -> Rect {
 
 /// Steps that fit the window width (§3: 16 at the default width, 36 at 819 px).
 pub fn visible_steps(s: &State) -> u32 {
+    if !rk::show_steps() { return 0; }
     (((rect(s).w - base_w(s)) / step_width(s)).floor() as i32 + 1).max(1) as u32
 }
 
@@ -220,7 +247,7 @@ pub fn layout(s: &State) -> Vec<RowPos> {
 }
 
 fn graph_lane(s: &State, row: &RowPos) -> f32 {
-    if !s.vintage_2005 && s.rack.graph_open && row.row == s.selected_channel && !row.zipped {
+    if !s.vintage_2005 && s.rack.graph_open && row.row == s.selected_channel && !row.zipped && rk::show_steps() {
         STUDIO_GRAPH_H
     } else {
         0.0
@@ -285,6 +312,7 @@ pub fn name_rect(s: &State, r: usize) -> Option<Rect> {
 
 /// The step column under screen x `x` (any row), if inside the step area.
 pub fn step_at(s: &State, x: f32) -> Option<u32> {
+    if !rk::show_steps() { return None; }
     let c = cols(s);
     let left = s.rack_pos.0 + c.step_x;
     if !s.vintage_2005 && (x < left || x >= left + visible_steps(s) as f32 * STEP_W) {
@@ -310,7 +338,7 @@ pub fn fit_name_w(s: &State) -> f32 {
 
 /// Graph editor panel (§14) under the focused row: steps area wide, `GRAPH_H` tall.
 pub fn graph_rect(s: &State) -> Option<Rect> {
-    if !s.rack.graph_open || !s.shown(Win::ChannelRack) {
+    if !s.rack.graph_open || !rk::show_steps() || !s.shown(Win::ChannelRack) {
         return None;
     }
     let p = layout(s).into_iter().find(|p| p.row == s.selected_channel && !p.zipped)?;
@@ -327,6 +355,7 @@ pub fn graph_rect(s: &State) -> Option<Rect> {
 /// The columns of the steps playing at ticks `a` and `b` in pattern mode, when they differ: lit steps down the
 /// column and the footer marker (§16) are all that a new step changes.
 pub fn step_columns(s: &State, a: f64, b: f64) -> Vec<Rect> {
+    if !rk::show_steps() { return Vec::new(); }
     let per_step = f64::from(rk::per_step(s).max(1));
     let len = rk::pattern_steps(s).max(1);
     let step = |t: f64| (t / per_step).floor().max(0.0) as u32 % len;
@@ -377,6 +406,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
         return studio::paint(ui, s, f);
     }
     let t = ui.t;
+    let show_steps = rk::show_steps();
     let win = rect(s);
     let (x, y, w, h) = (win.x, win.y, win.w, win.h);
     let c = cols(s);
@@ -418,12 +448,13 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
     let rows_clip = row_view(s);
     let scroll = scroll(s);
     let steps_shown = visible_steps(s);
-    let len = rk::pattern_steps(s);
-    let sx = sx(s);
+    let len = if show_steps { rk::pattern_steps(s) } else { 0 };
+    let sx = if show_steps { sx(s) } else { 0.0 };
     let total_steps = len.max(steps_shown) + 256;
     let first_step = (sx / step_width(s)).floor() as u32;
     let per_step = rk::per_step(s);
-    let (group, bars) = (rk::beat_steps(s), rk::pattern_bars(s, len * per_step));
+    let group = rk::beat_steps(s);
+    let bars = if show_steps { rk::pattern_bars(s, len * per_step) } else { Vec::new() };
     let pat = s.project.pattern(s.pattern);
     let notes: &[os_model::Note] = pat.map_or(&[], |p| &p.notes);
     // Playback position (pattern mode): the current step (§16).
@@ -576,6 +607,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
             ui.c.fill_rect(Rect::new(fr.x, fr.y, 1.0, fr.h), t.accent);
             ui.c.fill_rect(Rect::new(fr.right() - 1.0, fr.y, 1.0, fr.h), t.accent);
         }
+        if !show_steps { continue; }
         // Steps (§3, §9), clipped to the step area.
         let step_area = Rect::span(step_x0 - 1.0, steps_right, rows_clip.y, rows_clip.bottom());
         if ch.kind == os_model::ChannelKind::AudioClip && ch.sample_path.is_some() {
@@ -662,6 +694,8 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
         add_button(ui, button_left, button_width, y + h);
         scroll_left = scroll_left.max(button_left + button_width + 4.);
     } else { add_button(ui, x + c.name_x, c.name_w, y + h); }
+    resize_handles(ui, s, win, show_steps);
+    if !show_steps { return; }
     if let Some(k) = cur_step {
         let k = k % len.max(1);
         let px = step_x0 + step_width(s) * k as f32 - sx;
@@ -694,13 +728,21 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
     ui.c.polyline(&[(x + w - 23.0, cy - 3.0), (x + w - 20.0, cy), (x + w - 23.0, cy + 3.0)], 1.3, chev);
     }
 
-    // Resize zones: right edge, bottom edge, corner (§5).
-    let (r, b) = (win.right(), win.bottom());
-    ui.hit(Rect::span(r - 3.0, r + 4.0, y + 29.0, b - 8.0), Action::RackResize(EDGE_RIGHT), "Drag to resize");
-    ui.hit(Rect::span(x, r - 8.0, b - 3.0, b + 4.0), Action::RackResize(EDGE_BOTTOM), "Drag to resize");
-    ui.hit(Rect::span(r - 10.0, r + 4.0, b - 10.0, b + 4.0), Action::RackResize(EDGE_RIGHT | EDGE_BOTTOM), "Drag to resize");
-
     graph_editor(ui, s, sx, first_step, steps_shown);
+}
+
+fn resize_handles(ui: &mut Ui, s: &State, win: Rect, show_steps: bool) {
+    let (right, bottom) = (win.right(), win.bottom());
+    let bottom_end = if show_steps { right - 8.0 } else { right + 4.0 };
+    ui.hit(Rect::span(win.x, bottom_end, bottom - 3.0, bottom + 4.0),
+        Action::RackResize(EDGE_BOTTOM), "Drag to resize");
+    if show_steps {
+        let top = win.y + if s.vintage_2005 { 29.0 } else { STUDIO_TITLE_H };
+        ui.hit(Rect::span(right - 3.0, right + 4.0, top, bottom - 8.0),
+            Action::RackResize(EDGE_RIGHT), "Drag to resize");
+        ui.hit(Rect::span(right - 10.0, right + 4.0, bottom - 10.0, bottom + 4.0),
+            Action::RackResize(EDGE_RIGHT | EDGE_BOTTOM), "Drag to resize");
+    }
 }
 
 /// Title bar contents (§2, §7). Left items follow the name column; the right group follows the right edge.
@@ -708,6 +750,10 @@ fn title_bar(ui: &mut Ui, s: &State, win: Rect, c: Cols, f: &FrameInfo) {
     let t = ui.t;
     let lemon = super::lemon(ui);
     let (x, y, r) = (win.x, win.y, win.right());
+    if !rk::show_steps() {
+        vintage_compact_title(ui, s, win, f);
+        return;
+    }
     if s.vintage_2005 && crate::vintage_skin::available() {
         native_title(ui,s,win,f);
         return;
@@ -909,6 +955,32 @@ fn title_bar(ui: &mut Ui, s: &State, win: Rect, c: Cols, f: &FrameInfo) {
     let close = Rect::new(r - 22.0, y + 6.0, 16.0, 16.0);
     let hov = ui.hit(close, Action::CloseWin(Win::ChannelRack), "Close");
     icons::draw(ui.c, Icon::Close, close.inset(1.5), if hov { ui.t.tx(0xffffff) } else { t.glyph });
+}
+
+fn vintage_compact_title(ui: &mut Ui, s: &State, win: Rect, f: &FrameInfo) {
+    let title = Rect::new(win.x, win.y, win.w, 22.0);
+    if crate::vintage_skin::available() {
+        crate::vintage_skin::draw(ui.c, "RackMiddle", 0, title);
+    } else {
+        ui.c.fill_rect_gradient(title, ui.t.window_title_hi, ui.t.window_body, 0.0);
+    }
+    let playing = f.playing && !f.paused && !f.song;
+    for (x, icon, action, caption, active) in [
+        (win.x + 5.0, Icon::Gear, Action::RackOptions, "Channel options", false),
+        (win.x + 25.0, if playing { Icon::Stop } else { Icon::Play }, Action::RackSpeaker, "Play pattern", playing),
+        (win.x + 45.0, Icon::Repeat, Action::RackLoop, "Loop mode", s.rack.loop_mode),
+        (win.right() - 23.0, Icon::Close, Action::CloseWin(Win::ChannelRack), "Close", false),
+    ] {
+        if action == Action::RackLoop && !crate::workspace_visibility::shown("visible_rack-loop") { continue; }
+        let rect = Rect::new(x, win.y + 2.0, 18.0, 18.0);
+        let hot = ui.hit(rect, action, caption);
+        if hot {
+            ui.c.fill_rrect(rect, 2.0, ui.t.button_hi);
+        }
+        icons::draw(ui.c, icon, rect.inset(3.0), if active { ui.t.accent } else { ui.t.glyph });
+    }
+    let caption = crate::prefs::language::Language::current().text("Channel rack");
+    ui.c.text_clip(Font::vintage(11), win.x + 72.0, win.y + 5.0, win.w - 101.0, ui.t.text, caption);
 }
 
 /// One step button (§3): bordered, lighter at the top, a dark dash below the top edge (red at the play position).

@@ -10,21 +10,26 @@ impl Logic {
   }else{self.hint="Return link expired. Reopen Cleanup from the Playlist clip.".into();}
  }
  fn cleanup_open(&mut self){
+  let deverb=self.shared.cleanup_link.lock().unwrap().as_ref().is_some_and(|s|s.deverb.load(Ordering::Acquire));
+  self.cleanup_open_as(if deverb {crate::cleanup::Mode::General} else {crate::cleanup::Mode::Denoise});
+ }
+ fn cleanup_open_as(&mut self, mode: crate::cleanup::Mode){
   if self.stretch_job.is_some()||self.shared.armed.load(Ordering::Acquire)||self.doc(|d|d.frames()==0){self.hint="Load audio and stop recording first.".into();return;}
   self.stop();self.drag=None;self.cleanup_ready=None;
   let linked=self.shared.cleanup_link.lock().unwrap().as_ref().is_some_and(|s|s.active.load(Ordering::Acquire));
-  let mut panel=crate::cleanup::Panel{linked,..Default::default()};
-  if self.cleanup_profile.is_some(){panel.message="Noise profile learned. Preview, then apply to the selection or whole sample.".into();}
+  let mut panel=crate::cleanup::Panel{linked,mode,..Default::default()};
+  if mode.deverb() {panel.reduction=65.;panel.message="Choose a source type, then preview and compare against the original.".into();}
+  if !mode.deverb()&&self.cleanup_profile.is_some(){panel.message="Noise profile learned. Preview, then apply to the selection or whole sample.".into();}
   self.view.cleanup=Some(panel);
  }
  fn cleanup_close(&mut self){self.cleanup_job=None;self.shared.preview(None);self.stop();self.cleanup_ready=None;self.view.cleanup=None;}
  fn cleanup_click(&mut self,id:u8)->Vec<Act>{
   if id==9 {self.cleanup_close();return vec![Act::Repaint];}
   let Some(panel)=self.view.cleanup.as_ref()else{return vec![]};if panel.busy||panel.awaiting{return vec![];}
-  if matches!(id,0|1|2|3|11){
+  if matches!(id,0|1|2|3|11|13|14){
    self.stop();self.shared.preview(None);self.cleanup_ready=None;
    let p=self.view.cleanup.as_mut().unwrap();p.ready=false;
-   match id {0=>p.reduction=(p.reduction-3.).max(0.),1=>p.reduction=(p.reduction+3.).min(36.),2=>p.sensitivity=(p.sensitivity-0.25).max(0.5),3=>p.sensitivity=(p.sensitivity+0.25).min(4.),11=>{self.cleanup_profile=None;p.message="Automatic estimate selected. Use a noise-only profile for best results.".into();},_=>{}}
+   match id {0=>p.reduction=(p.reduction-if p.mode.deverb(){5.}else{3.}).max(0.),1=>p.reduction=(p.reduction+if p.mode.deverb(){5.}else{3.}).min(if p.mode.deverb(){100.}else{36.}),2=>p.sensitivity=(p.sensitivity-0.25).max(0.5),3=>p.sensitivity=(p.sensitivity+0.25).min(4.),11=>{self.cleanup_profile=None;p.message="Automatic estimate selected. Use a noise-only profile for best results.".into();},13=>p.mode=crate::cleanup::Mode::General,14=>p.mode=crate::cleanup::Mode::Vocal,_=>{}}
    return vec![Act::Repaint];
   }
   if id==6 { // Original, never committed to the document.
@@ -37,10 +42,10 @@ impl Logic {
    if id==7&&self.cleanup_ready.is_some(){self.cleanup_audition();return vec![Act::Repaint];}
    let(source,version,range,selection)=self.doc(|d|(d.sample.clone(),d.version,d.range(),d.sel));let Some(range)=range else{return vec![]};
    if id==4&&selection.is_none(){self.view.cleanup.as_mut().unwrap().message="Close this panel and select noise only, then choose Learn selected noise.".into();return vec![Act::Repaint];}
-   let(reduction,sensitivity)=(panel.reduction,panel.sensitivity);let profile=self.cleanup_profile.clone();let progress=Arc::new(crate::cleanup::Progress::default());
+   let(reduction,sensitivity,mode)=(panel.reduction,panel.sensitivity,panel.mode);let profile=self.cleanup_profile.clone();let progress=Arc::new(crate::cleanup::Progress::default());
    let task_progress=progress.clone();let input=source.clone();let(tx,rx)=std::sync::mpsc::channel();
    self.stop();self.shared.preview(None);
-   std::thread::spawn(move||{let result=std::panic::catch_unwind(||if id==4{crate::cleanup::learn(&input,range,false,&task_progress).map(crate::cleanup::Outcome::Profile)}else{crate::cleanup::render(&input,range,profile.as_ref(),reduction,sensitivity,&task_progress).map(crate::cleanup::Outcome::Audio)}).unwrap_or_else(|_|Err("Cleanup failed. Original preserved.".into()));let _=tx.send(result);});
+   std::thread::spawn(move||{let result=std::panic::catch_unwind(||if id==4{crate::cleanup::learn(&input,range,false,&task_progress).map(crate::cleanup::Outcome::Profile)}else if mode.deverb(){crate::cleanup::deverb(&input,range,reduction,mode,&task_progress).map(crate::cleanup::Outcome::Audio)}else{crate::cleanup::render(&input,range,profile.as_ref(),reduction,sensitivity,&task_progress).map(crate::cleanup::Outcome::Audio)}).unwrap_or_else(|_|Err("Cleanup failed. Original preserved.".into()));let _=tx.send(result);});
    self.cleanup_job=Some(crate::cleanup::Job{rx,source,version,range,progress});let p=self.view.cleanup.as_mut().unwrap();p.busy=true;p.message=if id==4{"Learning noise…"}else{"Rendering preview… Cancel preserves the original."}.into();
   }
   vec![Act::Repaint]

@@ -76,6 +76,14 @@ fn main() {
             "Release requires Master Assistant and LEMON_MASTER_BUNDLE");
     }
     std::fs::write(PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("master-engine.zip"), bytes).unwrap();
+    let score_out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("score-engine.zip");
+    println!("cargo:rerun-if-env-changed=LEMON_SCORE_BUNDLE");
+    if let Some(path) = std::env::var_os("LEMON_SCORE_BUNDLE") {
+        println!("cargo:rerun-if-changed={}", PathBuf::from(&path).display());
+        std::fs::copy(path, score_out).expect("Could not embed Verovio score bundle");
+    } else {
+        std::fs::write(score_out, []).unwrap();
+    }
     factory_presets();
     // `plugin_windows`: plugin editors open in Lemon Studio's frame windows (Win32 on Windows, X11 on Linux, AppKit on
     // macOS).

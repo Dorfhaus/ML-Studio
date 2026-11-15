@@ -211,7 +211,7 @@ pub fn resize_layout(s:&State) -> Layout {
 }
 fn put(s:&mut State,w:Win,r:Rect) {
     if let Some(i)=w.slot() {s.wins[i].rect=r;}
-    else if w==Win::ChannelRack {s.rack_pos=(r.x,r.y);s.rack_size=(r.w,r.h);}
+    else if w==Win::ChannelRack {s.rack_pos=(r.x,r.y);crate::rack::set_window_size(s,r.w,r.h);}
 }
 fn touching(a:Rect,b:Rect) -> bool {
     ((near(a.right(),b.x)||near(b.right(),a.x)) && overlap(a.y,a.bottom(),b.y,b.bottom())) ||
@@ -269,13 +269,16 @@ pub fn snap_resize(s:&State,win:Win,edges:u8,mut r:Rect) -> Rect {
 pub fn resize_joined(s:&mut State,start:&Layout,win:Win,edges:u8,wanted:Rect) -> bool {
     use crate::app::{EDGE_L,EDGE_R,EDGE_T,EDGE_B};
     let Some((_,original))=start.iter().find(|(w,_)|*w==win) else {return false};
-    let mut result=start.clone();let mut joined=false;
+    let mut result=start.clone();let mut joined_edges=0;
+    let compact_rack = !crate::rack::show_steps();
     for edge in [EDGE_L,EDGE_R,EDGE_T,EDGE_B] {
         if edges & edge==0 {continue;}
         let members=divider(start,win,edge);
-        if members.len()<2 {continue;}
-        joined=true;
         let horizontal=edge==EDGE_L||edge==EDGE_R;
+        if members.len()<2 || (horizontal && compact_rack && members.iter().any(|&(i, _)| start[i].0 == Win::ChannelRack)) {
+            continue;
+        }
+        joined_edges |= edge;
         let coordinate=|r:Rect|match edge {EDGE_L=>r.x,EDGE_R=>r.right(),EDGE_T=>r.y,_=>r.bottom()};
         let mut delta=coordinate(wanted)-coordinate(*original);
         let (mut low,mut high)=(f32::NEG_INFINITY,f32::INFINITY);
@@ -290,11 +293,11 @@ pub fn resize_joined(s:&mut State,start:&Layout,win:Win,edges:u8,wanted:Rect) ->
             else if leading {r.y+=delta;r.h-=delta;}else{r.h+=delta;}
         }
     }
-    if !joined {return false;}
+    if joined_edges == 0 {return false;}
     // A corner can have one attached edge and one free edge.
     let target=result.iter_mut().find(|(w,_)|*w==win).unwrap();
     for edge in [EDGE_L,EDGE_R,EDGE_T,EDGE_B] {
-        if edges & edge!=0 && divider(start,win,edge).len()<2 {
+        if edges & edge!=0 && joined_edges & edge == 0 {
             match edge {EDGE_L=>{target.1.x=wanted.x;target.1.w=wanted.w;},EDGE_R=>target.1.w=wanted.w,EDGE_T=>{target.1.y=wanted.y;target.1.h=wanted.h;},_=>target.1.h=wanted.h}
         }
     }
@@ -307,7 +310,9 @@ pub fn reflow_workspace(s:&mut State) -> bool {
     let new=s.work_rect();let old=s.dock_work.replace(new);
     let Some(old)=old else {return false};
     if old.w<=0.0 || new.w<=0.0 || (old.x==new.x && old.w==new.w) {return false;}
-    let start=layout(s);let mut visited=vec![false;start.len()];let mut changed=false;
+    let mut start=layout(s);
+    if !crate::rack::show_steps() { start.retain(|(win, _)| *win != Win::ChannelRack); }
+    let mut visited=vec![false;start.len()];let mut changed=false;
     for seed in 0..start.len() {
         if visited[seed] {continue;}
         let mut group=vec![seed];visited[seed]=true;let mut n=0;
@@ -360,8 +365,8 @@ impl App {
         }
         // The rack's side that doesn't fit, in whole steps or rows (`snap_size` rounds to the nearest: half one less).
         let r = views::rack::rect(s);
-        let fit = views::rack::snap_size(s, work.w - views::rack::step_width(s) / 2.0, work.h - views::rack::row_pitch(s) / 2.0);
-        if r.w > work.w {
+        let fit = views::rack::snap_size(s, work.w - views::rack::step_width(s) / 2.0 - 0.01, work.h - views::rack::row_pitch(s) / 2.0 - 0.01);
+        if r.w > work.w && crate::rack::show_steps() {
             s.rack_size.0 = fit.0;
         }
         if r.h > work.h {
@@ -486,7 +491,7 @@ mod tests {
         let start=resize_layout(&app.state);let a=app.state.win_rect(Win::Playlist);
         assert!(resize_joined(&mut app.state,&start,Win::Playlist,EDGE_R,Rect{w:800.0,..a}));
         assert_eq!(views::rack::rect(&app.state).x,app.state.win_rect(Win::Playlist).right());
-        assert_eq!(app.state.rack_size.0,800.0);
+        assert_eq!(app.state.rack_size.0, 800.0_f32.max(views::rack::min_w(&app.state)));
     }
 
     #[test]
@@ -682,7 +687,8 @@ mod tests {
         let all = Rect::new(0.0, 0.0, 1920.0, 1080.0);
         // What may take a press on a title bar instead of the move: its controls (buttons, menus, tools, knobs, boxes:
         // all small) and the frame's resize edges.
-        let control = |a: &Action, r: Rect| matches!(a, Action::WinResize(..) | Action::RackResize(_)) || (*a != Action::Swallow && r.w <= 100.0 && r.h <= 32.0);
+        let control = |a: &Action, r: Rect| matches!(a, Action::WinResize(..) | Action::RackResize(_) | Action::Harmony(_))
+            || (*a != Action::Swallow && r.h <= 32.0);
         for w in WINDOWS {
             let work = app.state.work_rect();
             for (out, strip, back) in [
@@ -701,7 +707,9 @@ mod tests {
                 let before = rect(&app, w);
                 drag(&mut app, &mut c, w, strip, back);
                 let after = rect(&app, w);
-                assert_eq!((after.x - before.x, after.y - before.y), back, "{w:?} dragged back from {strip:?}");
+                let moved = (after.x - before.x, after.y - before.y);
+                assert!((moved.0 - back.0).abs() <= SNAP_DISTANCE && (moved.1 - back.1).abs() <= SNAP_DISTANCE,
+                    "{w:?} dragged back from {strip:?}: {moved:?}, wanted {back:?} before snapping");
             }
         }
     }

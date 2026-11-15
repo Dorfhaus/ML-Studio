@@ -277,6 +277,7 @@ impl Split {
 }
 
 pub struct TransientProcessor {
+    full_band: bool,
     rate: u32,
     applied: [i32; PARAMS],
     /// The gliding settings' positions and targets (indexed by setting).
@@ -312,6 +313,7 @@ impl TransientProcessor {
     /// followers, filters and counts at 0, the copies at attack 0, release 0, drive 0.01.
     pub fn with_settings(sample_rate: u32, s: &Settings) -> TransientProcessor {
         let mut t = TransientProcessor {
+            full_band: false,
             rate: sample_rate,
             applied: s.v,
             pos: [0.0; PARAMS],
@@ -428,6 +430,10 @@ impl TransientProcessor {
         }
     }
 
+    pub fn set_full_band(&mut self, full_band: bool) {
+        self.full_band = full_band;
+    }
+
     /// One sample pair (spec "The split", "The gain, per sample", "Saturation and output").
     fn frame(&mut self, l: f32, r: f32) -> (f32, f32) {
         if self.count.is_multiple_of(8) {
@@ -447,7 +453,8 @@ impl TransientProcessor {
         self.high1 = high;
 
         let k = self.consts;
-        let m = mul(add(high[1].abs(), high[0].abs()), 0.5);
+        let shaped = if self.full_band { x } else { high };
+        let m = mul(add(shaped[1].abs(), shaped[0].abs()), 0.5);
         let [e1, e2, e3, e4, e5] = &mut self.e;
         *e1 = if m > *e1 { m } else { mul(*e1, k.kf) };
         *e2 = if m > *e2 { add(mul(sub(m, *e2), k.ka), *e2) } else { mul(*e2, k.kf) };
@@ -493,7 +500,7 @@ impl TransientProcessor {
         let d = self.drive_copy;
         let mut out = [0.0f32; 2];
         for ch in 0..2 {
-            let u = mul(d, mul(high[ch], g));
+            let u = mul(d, mul(shaped[ch], g));
             let sat = if u < -3.0 {
                 -1.0
             } else if u > 3.0 {
@@ -502,7 +509,11 @@ impl TransientProcessor {
                 div(mul(add(mul(u, u), 27.0), u), add(mul(mul(u, 9.0), u), 27.0))
             };
             let y = div(sat, d);
-            out[ch] = mul(add(mul(self.lo, low[ch]), mul(self.hi, y)), self.out_gain);
+            out[ch] = if self.full_band {
+                mul(y, self.out_gain)
+            } else {
+                mul(add(mul(self.lo, low[ch]), mul(self.hi, y)), self.out_gain)
+            };
         }
 
         self.attack_copy = add(sub(self.attack, self.attack_copy), self.attack_copy);

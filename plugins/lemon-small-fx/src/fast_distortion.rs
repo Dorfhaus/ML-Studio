@@ -12,31 +12,36 @@ use nih_plug::prelude::*;
 use os_engine::effects::fast_dist::{self as dsp, FastDist, Settings};
 use os_ui::{Canvas, Rect};
 
+use crate::quality::{Oversampler, OVERSAMPLING};
 use crate::params::{db_text, leading_number, nearest, parse_db};
 use crate::{view, Card, Control, Display, Kind, Mark, Setting, SmallFx, Sound, Spec};
 
 /// The settings in the original's order (spec §5).
-pub const SETTINGS: [Setting; dsp::PARAMS] = [
+const QUALITY: usize = dsp::PARAMS;
+pub const SETTINGS: [Setting; dsp::PARAMS + 1] = [
     Setting { id: "pre", name: "Pre amp", range: dsp::RANGES[dsp::PRE], start: dsp::DEFAULTS[dsp::PRE], magnet: Some(128) },
     Setting { id: "threshold", name: "Threshold", range: dsp::RANGES[dsp::THRESHOLD], start: dsp::DEFAULTS[dsp::THRESHOLD], magnet: None },
     Setting { id: "type", name: "Type", range: dsp::RANGES[dsp::TYPE], start: dsp::DEFAULTS[dsp::TYPE], magnet: None },
     Setting { id: "mix", name: "Mix", range: dsp::RANGES[dsp::MIX], start: dsp::DEFAULTS[dsp::MIX], magnet: None },
     Setting { id: "post", name: "Post gain", range: dsp::RANGES[dsp::POST], start: dsp::DEFAULTS[dsp::POST], magnet: None },
+    Setting { id: "quality", name: "Oversampling", range: (0, 2), start: 0, magnet: None },
 ];
 
 /// Editor layout (spec §2), as the original's: the knobs and the type switch in a row over the wordmark, the curve at
 /// the right.
-const CARDS: [Card; 2] = [
+const CARDS: [Card; 3] = [
     Card { x0: 8.0, x1: 312.0, y0: 28.0, y1: 116.0, heading: "DISTORTION" },
     Card { x0: 318.0, x1: 468.0, y0: 28.0, y1: 146.0, heading: "CURVE" },
+    Card { x0: 8.0, x1: 312.0, y0: 167.0, y1: 224.0, heading: "" },
 ];
 
-const CONTROLS: [Control; 5] = [
+const CONTROLS: [Control; 6] = [
     Control::Knob { id: "pre", cx: 44.0, cy: 64.0, r: 20.0, caption: "PRE AMP", bipolar: false },
     Control::Knob { id: "threshold", cx: 108.0, cy: 64.0, r: 20.0, caption: "THRESHOLD", bipolar: false },
     Control::Choice { id: "type", x: 146.0, top: 49.0, names: &["A", "B"] },
     Control::Knob { id: "mix", cx: 212.0, cy: 64.0, r: 20.0, caption: "MIX", bipolar: false },
     Control::Knob { id: "post", cx: 276.0, cy: 64.0, r: 20.0, caption: "POST GAIN", bipolar: false },
+    Control::Choice { id: "quality", x: 18.0, top: 172.0, names: &OVERSAMPLING },
 ];
 
 pub const SPEC: &Spec = &Spec {
@@ -44,11 +49,12 @@ pub const SPEC: &Spec = &Spec {
     word: "FAST DISTORTION",
     about: "ML Studio's fast distortion",
     settings: &SETTINGS,
+    studio_settings: 1,
     version: None,
     any_version: false,
     fields: &[],
     tail: &[],
-    size: (476, 154),
+    size: (476, 232),
     cards: &CARDS,
     controls: &CONTROLS,
     display: Some(Display { r: Rect::new(326.0, 36.0, 134.0, 102.0), draw: curve }),
@@ -65,6 +71,7 @@ pub const SPEC: &Spec = &Spec {
 /// as A or B, the mix as the share of the distorted signal.
 fn text(k: usize, v: i32) -> String {
     match k {
+        QUALITY => OVERSAMPLING[v.clamp(0, 2) as usize].into(),
         dsp::THRESHOLD => v.to_string(),
         dsp::TYPE => if v == dsp::TYPE_A { "A" } else { "B" }.into(),
         dsp::MIX => format!("{:.1}%", f64::from(dsp::knob(v)) * 100.0),
@@ -75,6 +82,7 @@ fn text(k: usize, v: i32) -> String {
 fn parse(k: usize, s: &str) -> Option<i32> {
     let range = SETTINGS[k].range;
     match k {
+        QUALITY => OVERSAMPLING.iter().position(|name| name.eq_ignore_ascii_case(s.trim())).map(|k| k as i32),
         dsp::TYPE => match s.trim().to_ascii_lowercase().as_str() {
             "a" | "0" => Some(dsp::TYPE_A),
             "b" | "1" => Some(dsp::TYPE_B),
@@ -106,21 +114,34 @@ fn curve(c: &mut Canvas, r: Rect, v: &[i32]) {
     });
 }
 
-struct Dist(FastDist);
+struct Dist {
+    shaper: FastDist,
+    oversampling: Oversampler,
+}
 
 impl Sound for Dist {
     fn set(&mut self, v: &[i32]) {
-        self.0.set(&settings(v));
+        self.shaper.set(&settings(v));
+        self.oversampling.set(v.get(QUALITY).copied().unwrap_or_default());
     }
-    fn set_sample_rate(&mut self, _rate: u32) {}
-    fn reset(&mut self) {}
+
+    fn set_sample_rate(&mut self, _rate: u32) {
+        self.reset();
+    }
+
+    fn reset(&mut self) {
+        self.oversampling.reset();
+    }
+
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        self.0.process(left, right);
+        self.oversampling.process(left, right, |sample| self.shaper.sample(sample));
     }
 }
 
 fn sound(_rate: u32, v: &[i32]) -> Box<dyn Sound> {
-    Box::new(Dist(FastDist::with_settings(&settings(v))))
+    let mut dist = Dist { shaper: FastDist::with_settings(&settings(v)), oversampling: Oversampler::default() };
+    dist.set(v);
+    Box::new(dist)
 }
 
 pub struct FastDistortionKind;
@@ -155,6 +176,26 @@ mod tests {
         assert_eq!(parse(dsp::MIX, "100%"), Some(128));
         assert_eq!(parse(dsp::POST, "-inf"), Some(0));
         assert_eq!(parse(dsp::PRE, "0"), Some(128));
+    }
+
+    #[test]
+    fn oversampling_reduces_an_audible_alias() {
+        let rate = 48_000.0;
+        let tone = |hz: f64, at: usize| (std::f64::consts::TAU * hz * at as f64 / rate).sin();
+        let input: Vec<_> = (0..9600).map(|at| (0.5 * tone(13000.0, at)) as f32).collect();
+        let measure = |quality| {
+            let mut effect = sound(rate as u32, &[192, 10, 1, 128, 128, quality]);
+            let mut left = input.clone();
+            effect.process(&mut left, &mut vec![0.0; input.len()]);
+            let bin = |hz| {
+                let (a, b) = left.iter().enumerate().skip(4800).fold((0.0, 0.0), |(a, b), (at, &x)| {
+                    (a + f64::from(x) * tone(hz, at), b + f64::from(x) * (std::f64::consts::TAU * hz * at as f64 / rate).cos())
+                });
+                a.hypot(b)
+            };
+            bin(9000.0) / bin(13000.0)
+        };
+        assert!(measure(2) < 0.5 * measure(0));
     }
 
     #[test]

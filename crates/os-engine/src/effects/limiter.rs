@@ -31,7 +31,9 @@ impl Limiter {
         let p = ints::<PARAMS>(state, 1)?;
         let key = if version >= 6 { field(state, SIDECHAIN_FIELD).unwrap_or(0).max(0) as usize } else { 0 };
         let flags = if version >= 7 { state.get(FLAGS_BYTE).copied().unwrap_or(0) } else { 0 };
-        Some(Limiter { d: Dynamics::new(f64::from(sample_rate), p, flags), key, l: Vec::new(), r: Vec::new(), kl: Vec::new(), kr: Vec::new() })
+        let mut d = Dynamics::new(f64::from(sample_rate), p, flags);
+        d.set_peak_guard(state.ends_with(super::dynamics::PEAK_GUARD_TAG));
+        Some(Limiter { d, key, l: Vec::new(), r: Vec::new(), kl: Vec::new(), kr: Vec::new() })
     }
 
     fn run(&mut self, buf: &mut [f32], key: Option<&[f32]>) {

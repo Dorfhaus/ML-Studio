@@ -24,6 +24,10 @@ mod ara;
 mod ai_control;
 mod voice_assistant;
 mod studio_helper;
+mod visualizer;
+mod visualizer_video;
+mod visual_scenes;
+mod notation;
 mod helper_install;
 mod voice_runtime;
 mod voice_plan;
@@ -35,6 +39,7 @@ mod auto_close;
 mod autoscroll;
 mod backup;
 mod safe_save;
+mod job_scratch;
 #[cfg(test)] mod audit_fixes;
 #[cfg(test)]
 mod audio_bench;
@@ -99,10 +104,12 @@ mod mpe;
 mod midi_out;
 mod midi_play;
 mod mixer;
+mod mix_assistant;
 mod attached_mixer;
 mod playlist_tracks;
 mod playlist_links;
 mod rack_mixer;
+mod strip_layout;
 #[cfg(any(windows,target_os="macos"))] mod strip_geometry;
 #[cfg(windows)] mod strip_editor;
 #[cfg(target_os="macos")] #[path="strip_editor_mac.rs"] mod strip_editor;
@@ -142,6 +149,7 @@ mod route_picker;
 mod patterns;
 mod perf;
 mod playlist;
+mod scoring;
 mod loop_fit;
 mod stem_separation;
 mod playlist_controls;
@@ -420,6 +428,29 @@ fn set_maximized(window: &Window, on: bool) {
 #[cfg(not(any(windows, target_os = "macos")))]
 fn screen_state(_: &Window) -> Option<((i32, i32), (i32, i32, i32, i32))> {
     None
+}
+
+fn client_point(window: &Window) -> Option<(f64, f64)> {
+    let at = screen_state(window).map(|(at, _)| at);
+    #[cfg(target_os = "linux")]
+    let at = at.or_else(crate::plugin_window::pointer);
+    let (x, y) = at?;
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::POINT;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let RawWindowHandle::Win32(main) = window.window_handle().ok()?.as_raw() else { return None };
+        let under_cursor = unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT) };
+        if under_cursor != main.hwnd.get() as _ {
+            return None;
+        }
+    }
+    let origin = window.inner_position().ok()?;
+    let size = window.inner_size();
+    let (x, y) = (i64::from(x) - i64::from(origin.x), i64::from(y) - i64::from(origin.y));
+    (x >= 0 && y >= 0 && x < i64::from(size.width) && y < i64::from(size.height))
+        .then_some((x as f64, y as f64))
 }
 
 /// Move / resize the window to `rect` (left, top, right, bottom) in one call.
@@ -992,6 +1023,19 @@ impl ApplicationHandler for Shell {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if matches!(event, WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. })
+            && self.app.state.native_input == Some(app::Win::Browser)
+            && self.app.dragging_browser_samples()
+            && let Some(window) = self.window.clone()
+            && let Some((x, y)) = client_point(&window)
+        {
+            self.prepare_main();
+            let at = self.to_app(&window, x, y);
+            self.app.drop_browser_samples_on_main(at);
+            self.main_mouse = at;
+            self.pending = true;
+            return;
+        }
         if self.detached.owns(_id) {if self.app.state.native_view.is_none(){self.main_mouse=self.app.mouse;}self.detached.event(&mut self.app,el,_id,event,&mut self.tool_cursors);self.prepare_main();self.pending|=self.app.has_damage();return;}
         self.prepare_main();
         if matches!(event,WindowEvent::MouseInput{state:ElementState::Pressed,..}|WindowEvent::KeyboardInput{..}|WindowEvent::Focused(true)) {
@@ -1010,6 +1054,22 @@ impl ApplicationHandler for Shell {
             _ => false,
         };
         if press && self.app.loading() {
+            use winit::keyboard::{Key, NamedKey};
+            if self.app.mix_assistant.busy() && crate::mix_assistant::is_open(&self.app) {
+                match &event {
+                    WindowEvent::KeyboardInput { event, .. } if event.logical_key == Key::Named(NamedKey::Escape) => {
+                        crate::mix_assistant::command(&mut self.app, crate::mix_assistant::Hit::Close);
+                    }
+                    WindowEvent::MouseInput { button: MouseButton::Left, .. } => {
+                        self.app.mouse_down();
+                    }
+                    _ => {}
+                }
+            } else if crate::visualizer_video::owns_audio(&self.app)
+                && matches!(&event, WindowEvent::KeyboardInput { event, .. } if event.logical_key == Key::Named(NamedKey::Escape))
+            {
+                crate::visualizer_video::cancel(&mut self.app);
+            }
             return;
         }
         // Linux: a wheel turn over a docked plugin window is the plugin window's alone; nothing behind it scrolls
@@ -2053,9 +2113,10 @@ fn main() {
         layout::restore(&mut app.state);
         workspace_layout::restore_session(&mut app);
         let report = format!(
-            "user_dir={:?}\nstartup={}\ntemplate={:?}\ntitle={}\ntempo={}\nmixer_tracks={}\nmessage={:?}\n",
+            "user_dir={:?}\nstartup={}\ntemplate={:?}\ntitle={}\ntempo={}\nmixer_tracks={}\nmessage={:?}\nmix_reference_profiles={}\n",
             os_paths::user_dir(), prefs::choice(&prefs::STARTUP_PROJECT), templates::file(),
             app.title(), app.state.tempo, app.state.project.mixer.len(), app.state.message,
+            mix_assistant::startup_profile_count(),
         );
         std::fs::write(output, report).expect("write startup report");
         return;
@@ -2106,6 +2167,7 @@ fn main() {
     if start {
         splash::step(&splash, splash::PROJECT, "Opening project");
         app.startup_project();
+        visualizer_video::reclaim_on_startup();
         // Ask for data folder "On startup": the New project form over it (spec: ui/data-folder.md §7).
         app.startup_form();
     }

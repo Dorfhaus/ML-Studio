@@ -178,6 +178,7 @@ mod tests {
     #[test]
     fn file_menu_section() {
         use crate::app::Action;
+        crate::prefs::set_check(&crate::prefs::HOVER_MENUS, false);
         use crate::views::menus::{self, Kind, FILE_EXIT, FILE_EXPORT_MIDI, RECENT_MORE};
         let Ok(mut c) = os_ui::Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
@@ -198,7 +199,8 @@ mod tests {
         let exit = row(&app, Action::MenuItem(0, FILE_EXIT)).expect("Exit").0;
         assert!(midi.bottom() < rows[0].0.y && rows[9].0.bottom() <= more.y && more.bottom() < exit.y);
         let mt = os_ui::kit::menu::metrics(1.0);
-        assert_eq!(exit.y - exit_before.y, mt.head + 11.0 * mt.row, "the heading, ten rows and More");
+        assert!(((exit.y - exit_before.y) - (mt.head + 11.0 * mt.row)).abs() < 0.001,
+            "the heading, ten rows and More");
         // More ▸ opens beside its row, the dropdown staying open.
         app.mouse_move(more.cx(), more.cy());
         app.mouse_down();

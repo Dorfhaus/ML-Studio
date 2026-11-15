@@ -51,7 +51,7 @@ pub fn select(app:&mut App,path:&str) {
     });
     app.invalidate();
 }
-fn project(path:&str,duration:f64,at:f64,tempo:f64)->os_model::Project {
+pub(crate) fn project(path:&str,duration:f64,at:f64,tempo:f64)->os_model::Project {
     let mut p=crate::app::preview_project(path);
     p.tempo=Some(tempo);
     p.channels[0].kind=os_model::ChannelKind::AudioClip;
@@ -320,7 +320,12 @@ mod tests {
         app.state.playlist_bar_w=100000.;app.state.playlist_scroll.0=0.;
         app.paint(&mut canvas,None);
         let wave=app.state.playlist.wave(&pathstr).unwrap();
-        assert!(wave.fine.borrow().is_some(),"deep zoom must load individual samples");
+        let started = std::time::Instant::now();
+        while wave.fine.borrow().is_none() {
+            assert!(started.elapsed() < std::time::Duration::from_secs(3), "deep zoom must load individual samples");
+            app.state.playlist.poll_waves();
+            std::thread::yield_now();
+        }
         let _=std::fs::remove_file(path);
 
         app.state.playlist_bar_w=100000.;

@@ -235,6 +235,8 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) -> usize {
                     s.cables.borrow_mut().paint_cost(t.elapsed());
                 }
             }),
+            Win::Visualizer => ui.part(Seg::Win(win), a, |ui| crate::visual_scenes::paint(ui, s, r)),
+            Win::Score => ui.part(Seg::Win(win), a, |ui| crate::notation::paint(ui, s, r)),
             Win::PianoRoll => ui.part(Seg::Win(win), a, |ui| piano::paint(ui, s, r, f)),
             Win::ChannelRack => ui.part(Seg::Win(win), a, |ui| rack::paint(ui, s, f)),
             Win::Plugin => ui.part(Seg::Win(win), a, |ui| channel_win::paint(ui, s, f)),
@@ -255,9 +257,10 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) -> usize {
         let scale = ui.c.scale * band_k(s);
         ui.part(Seg::Toolbar, Rect::new(0.0, 0.0, w, band_h(s)), |ui| ui.scaled(scale, |ui, k| toolbar::paint(ui, s, f, w / k)));
     }
-    // The floating hint bar, over every window (spec: ui/toolbar-menu.md §4).
-    // Hints live only in the top toolbar; there is no floating duplicate.
     let overlays = ui.hit_count();
+    if let Some(rect) = toolbar::floating_hint_rect(s) {
+        ui.part(Seg::Hint, rect.outset(1.0), |ui| toolbar::paint_floating_hint(ui, s, f, rect));
+    }
     if s.native_view != s.native_input {return overlays;}
     if crate::plugin_picker::floating(s) { crate::plugin_picker::paint(ui, s); }
     crate::plugin_downloads::paint_tooltip(ui, s);

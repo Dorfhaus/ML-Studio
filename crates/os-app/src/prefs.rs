@@ -27,6 +27,9 @@
 //! Sliders ([`Slider`], listed in [`SLIDERS`]) are declared the same way and read with `prefs::slider`.
 // spec: ui/settings.md, ui/options-coverage.md
 
+/// General ▸ Channel Rack and Mixer: Assign new sample channels to Mixer inserts.
+pub const ROUTE_RACK_SAMPLES: Check = Check { key: "route_rack_samples", label: "Auto-route Channel Rack samples and instruments", default: true };
+
 use crate::settings_file::{read, write, Store}; // This code is a part of L e m o n S t u d i o.
 
 use crate::app::App;
@@ -175,15 +178,15 @@ pub const BACKUP_LOCATION: Combo = Combo {
 /// Studio's is 1 to 999. Spec: ui/settings-choices.md "Backup files".
 pub const BACKUP_MAXIMUM: Number = Number { key: "backup_maximum", label: "Maximum", min: 1, max: 999, default: 100 };
 
-/// General ▸ Miscellaneous: unsolo puts back the mute states from before the first solo (channel rack, playlist,
+/// General ▸ Channel Rack and Mixer: unsolo puts back the mute states from before the first solo (channel rack, playlist,
 /// mixer); off, unsolo turns everything on. Spec: ui/settings-choices.md "Miscellaneous: what four checks do".
 pub const RESTORE_AFTER_SOLO: Check = Check { key: "restore_after_solo", label: "Restore previous state after solo", default: false };
 
-/// General ▸ Miscellaneous: switching pattern selects the first channel with notes in it (`App::pattern_tick`).
+/// General ▸ Channel Rack and Mixer: switching pattern selects the first channel with notes in it (`App::pattern_tick`).
 pub const SELECT_FIRST_CHANNEL: Check =
     Check { key: "select_first_channel", label: "Select first channel with notes when the pattern changes", default: false };
 
-/// General ▸ Miscellaneous: opening the piano roll zooms on the pattern and the channel's notes (`crate::piano::auto_zoom`).
+/// General ▸ Editing and automation: opening the piano roll zooms on the pattern and the channel's notes (`crate::piano::auto_zoom`).
 pub const AUTO_ZOOM_PIANO: Check = Check { key: "auto_zoom_piano", label: "Auto zoom in piano roll", default: false };
 
 /// Theme option for clip display only; project and source colors remain untouched.
@@ -192,11 +195,11 @@ pub const BRIGHT_PLAYLIST_CLIPS: Check = Check { key: "bright_playlist_clips", l
 /// General: thin editor scroll bars without arrow buttons.
 pub const SMALL_SCROLLBARS: Check = Check { key: "small_scrollbars", label: "Small scrollbars in editors", default: false };
 
-/// General ▸ Miscellaneous: a pattern switch zips the channels with nothing in the new pattern (`App::pattern_tick`).
+/// General ▸ Channel Rack and Mixer: a pattern switch zips the channels with nothing in the new pattern (`App::pattern_tick`).
 /// Spec: ui/settings-choices.md "Miscellaneous: seven more checks, Default template and Startup project".
 pub const AUTO_ZIP_EMPTY: Check = Check { key: "auto_zip_empty_channels", label: "Auto zip empty channels", default: false };
 
-/// General ▸ Miscellaneous: a painted note deletes the notes of other keys under it (`crate::piano::paint_mono`).
+/// General ▸ Editing and automation: a painted note deletes the notes of other keys under it (`crate::piano::paint_mono`).
 /// Spec: ui/settings-choices.md "Miscellaneous: seven more checks, Default template and Startup project".
 pub const MONO_PAINTING: Check = Check { key: "monophonic_painting", label: "Monophonic painting in piano roll", default: false };
 
@@ -219,64 +222,65 @@ pub const PLAY_TRUNCATED_ON_TRANSPORT: Check =
 pub const RESET_PLUGINS_ON_TRANSPORT: Check =
     Check { key: "reset_plugins_on_transport", label: "Reset plugins on transport", default: false };
 
-/// General ▸ Miscellaneous: every meter that uses the mixer's level law, and the "C" scale with its hover read-out,
+/// General ▸ Channel Rack and Mixer: every meter that uses the mixer's level law, and the "C" scale with its hover read-out,
 /// go by a second dB scale with more room near 0 dB: marks 0 … 30, no +3 (`meters::alternate_db`). Spec:
 /// ui/settings-choices.md "Miscellaneous: seven more checks, Default template and Startup project".
 pub const ALTERNATE_METER_SCALE: Check = Check { key: "alternate_meter_scale", label: "Alternate meter scale", default: false };
 
-/// General ▸ Miscellaneous: without a time selection, "Create automation clip" starts the clip at the song position;
+/// General ▸ Editing and automation: without a time selection, "Create automation clip" starts the clip at the song position;
 /// off, at bar 1 (`playlist::automation_span`). Spec: ui/settings-choices.md "Miscellaneous: seven more checks,
 /// Default template and Startup project".
 pub const AUTOMATION_AT_PLAYBACK_POSITION: Check =
     Check { key: "automation_clips_at_playback_position", label: "Create automation clips at the playback position", default: true };
 
-/// General ▸ Miscellaneous: opening or focusing a plugin window selects its mixer track
+/// General ▸ Channel Rack and Mixer: opening or focusing a plugin window selects its mixer track
 /// (`App::select_window_track`). Spec: ui/settings-choices.md "Miscellaneous: seven more checks, Default template and
 /// Startup project".
-pub const ROUTE_EDGE_SCROLL:Check=Check{key:"route_edge_scroll",label:"Auto-scroll mixer while routing",default:true};
 pub const AUTO_SELECT_LINKED: Check = Check { key: "auto_select_linked_modules", label: "Auto select linked modules", default: true };
 
-/// General ▸ Miscellaneous: stored and shown only. FL showed no change on native plugin windows; it has no effect until
+/// General ▸ Channel Rack and Mixer: Scroll the Mixer while dragging a route near its edge.
+pub const ROUTE_EDGE_SCROLL:Check=Check{key:"route_edge_scroll",label:"Auto-scroll mixer while routing",default:true};
+
+/// General ▸ Plugin windows: stored and shown only. FL showed no change on native plugin windows; it has no effect until
 /// hosted plugin windows get a toolbar (spec: ui/settings-choices.md, as above).
 pub const HIDE_PLUGIN_TOOLBAR: Check =
     Check { key: "hide_plugin_window_toolbar", label: "Hide plugin window toolbar by default", default: true };
 
-/// General ▸ Miscellaneous: a sample or channel preset loaded into an existing channel renames the channel after the
+/// General ▸ Channel Rack and Mixer: a sample or channel preset loaded into an existing channel renames the channel after the
 /// file (`rack::auto_name`); off, the channel keeps its name. Spec: ui/settings-choices.md "Miscellaneous: naming,
 /// detached plugins and startup".
-pub const ROUTE_RACK_SAMPLES: Check = Check { key: "route_rack_samples", label: "Auto-route Channel Rack samples to mixer inserts", default: false };
 pub const AUTO_NAME_CHANNELS: Check = Check { key: "auto_name_channels", label: "Auto name channels", default: true };
 
-/// General ▸ Miscellaneous: a preset loaded into an effect renames its mixer slot after the preset
+/// General ▸ Channel Rack and Mixer: a preset loaded into an effect renames its mixer slot after the preset
 /// (`presets::auto_name`); off, the slot keeps its name. Spec: ui/settings-choices.md, as above.
 pub const AUTO_NAME_EFFECT_SLOTS: Check =
     Check { key: "auto_name_effect_slots", label: "Auto name effect slots", default: false };
 
-/// General ▸ Miscellaneous: a plugin added from now on (a new channel's, a new effect in a slot) opens its window
+/// General ▸ Plugin windows: a plugin added from now on (a new channel's, a new effect in a slot) opens its window
 /// detached (`Plugins::added`); plugins that exist keep their own mode. Spec: ui/settings-choices.md "Miscellaneous:
 /// naming, detached plugins and startup".
 pub const DETACH_NEW: Check = Check { key: "detach_new_plugins", label: "Detach all new plugins", default: false };
 
-/// General ▸ Miscellaneous: a detached window opening for the first time goes on the main window's monitor; off, on
+/// General ▸ Plugin windows: a detached window opening for the first time goes on the main window's monitor; off, on
 /// the primary monitor (`plugin_window::first_position`, Windows only). A reopened one goes where it was either way.
 /// Spec: as above.
 pub const DETACHED_WITH_MAIN: Check =
     Check { key: "detached_with_main_window", label: "Open detached plugins with the main window", default: false };
 
-/// General ▸ Miscellaneous: stored and shown only (native plugins have no typing keyboard option). Spec: as above.
+/// General ▸ Plugin windows: stored and shown only (native plugins have no typing keyboard option). Spec: as above.
 pub const TYPING_PRIORITY_OFF: Check =
     Check { key: "disable_typing_priority", label: "Disable typing keyboard priority by default", default: false };
 
-/// General ▸ Miscellaneous: at most `plugins::MAX_EDITORS` plugin editor windows open; opening another first closes the
+/// General ▸ Plugin windows: at most `plugins::MAX_EDITORS` plugin editor windows open; opening another first closes the
 /// one opened earliest (`Plugins::open_window`). Spec: as above.
 pub const LIMIT_EDITORS: Check = Check { key: "limit_plugin_editors", label: "Limit the number of open plugin editors", default: true };
 
-/// General ▸ Miscellaneous: at start, a borderless window centred on the primary monitor shows the logo mark until the
+/// General ▸ Startup and templates: at start, a borderless window centred on the primary monitor shows the logo mark until the
 /// main window shows (`crate::splash`). A program setting, read at start. Spec: ui/settings-choices.md "Miscellaneous:
 /// naming, detached plugins and startup".
 pub const SHOW_SPLASH: Check = Check { key: "show_startup_splash", label: "Show startup splash screen", default: true };
 
-/// General ▸ Miscellaneous: silence the original completion chime after the first loaded frame (Windows).
+/// General ▸ Startup and templates: silence the original completion chime after the first loaded frame (Windows).
 pub const SILENT_STARTUP: Check = Check { key: "silent_startup", label: "Silent startup", default: false };
 
 /// General ▸ Input: off, a left or a right click on a step of the step sequencer toggles it; on, the left button only
@@ -285,7 +289,7 @@ pub const SILENT_STARTUP: Check = Check { key: "silent_startup", label: "Silent 
 pub const BOTH_MOUSE_BUTTONS: Check =
     Check { key: "both_mouse_buttons_step_sequencer", label: "Use both mouse buttons in step sequencer", default: false };
 
-/// General ▸ Miscellaneous: the project Lemon Studio starts with when no project file is passed to it
+/// General ▸ Startup and templates: the project Lemon Studio starts with when no project file is passed to it
 /// (`App::startup_project`). Spec: ui/settings-choices.md, as above.
 pub const STARTUP_PROJECT: Combo =
     Combo { key: "startup_project", label: "Startup project", choices: &["Empty project", "Default template", "Last used project"], default: 1 };
@@ -321,12 +325,12 @@ pub const UNDO_HISTORY_IN_BROWSER: Check =
 /// Spec: as above.
 pub const RECENT_CHANGES_TOP: Check = Check { key: "undo_history_newest_first", label: "Show recent changes at the top", default: false };
 
-/// General ▸ Advanced: a WAV loaded into a sampler channel sets its root note to the file's `smpl` unity note, C5 (60)
+/// General ▸ Samples and bouncing: a WAV loaded into a sampler channel sets its root note to the file's `smpl` unity note, C5 (60)
 /// without one; off, the root note stays (`rack::read_tags`). Spec: ui/settings-choices.md "Advanced: Read sample root
 /// note and Read sample tempo information (2026-10-16)".
 pub const READ_ROOT_NOTE: Check = Check { key: "read_sample_root_note", label: "Read sample root note", default: true };
 
-/// General ▸ Advanced: a WAV with an `acid` beat count loaded into a sampler channel is fitted to those beats (stretch
+/// General ▸ Samples and bouncing: a WAV with an `acid` beat count loaded into a sampler channel is fitted to those beats (stretch
 /// method Auto, TIME the beat count); without one, or off, the time stretching stays (`rack::read_tags`). Spec: as
 /// above.
 pub const READ_TEMPO: Check = Check { key: "read_sample_tempo", label: "Read sample tempo information", default: true };
@@ -337,33 +341,33 @@ pub const READ_TEMPO: Check = Check { key: "read_sample_tempo", label: "Read sam
 pub const ANIMATION_REFRESH_RATE: Combo =
     Combo { key: "animation_refresh_rate", label: "Animation refresh rate", choices: &["Less smooth", "Smooth", "Ultrasmooth"], default: 2 };
 
-/// General ▸ Advanced: about detached plugin windows (top-level windows of their own). Off, one dragged by its title
+/// General ▸ Plugin windows: about detached plugin windows (top-level windows of their own). Off, one dragged by its title
 /// bar keeps the title bar on the screens; on, it goes anywhere (`win_clamp::bar_on_screens`, Windows only: on Linux
 /// and macOS detached windows are not limited either way yet). Windows inside the main window keep their part in the
 /// workspace whatever this says (`crate::win_clamp`). Spec: ui/settings-choices.md "Advanced: Don't limit windows to
 /// screen (2026-10-16)".
 pub const DONT_LIMIT_WINDOWS: Check = Check { key: "dont_limit_windows_to_screen", label: "Don't limit windows to screen", default: false };
 
-/// General ▸ Advanced: "Create automation clip" also puts the control in the project's initial values with its value at
+/// General ▸ Editing and automation: "Create automation clip" also puts the control in the project's initial values with its value at
 /// that moment, replacing an earlier one, in the same undo step (`playlist::create_automation`, `crate::init`). Spec:
 /// ui/settings-choices.md "Advanced: Initialize controls automatically (2026-10-16)".
 pub const INIT_CONTROLS: Check = Check { key: "init_controls_automatically", label: "Initialize controls automatically", default: true };
 
-/// General ▸ Advanced: stored and shown only. Lemon Studio's browser preview already starts as soon as the start of
+/// General ▸ Samples and bouncing: stored and shown only. Lemon Studio's browser preview already starts as soon as the start of
 /// the file is decoded (ui/browser.md §7), and FL showed no difference either. Spec: ui/settings-choices.md "Advanced:
 /// Fast sample preview, Auto keep long audio on disk, Threaded project sample loading (2026-10-16)".
 pub const FAST_SAMPLE_PREVIEW: Check = Check { key: "fast_sample_preview", label: "Fast sample preview", default: true };
 
-/// General ▸ Advanced: a file of 30 s or more loaded into a sampler channel turns its Keep on disk on; nothing turns it
+/// General ▸ Samples and bouncing: a file of 30 s or more loaded into a sampler channel turns its Keep on disk on; nothing turns it
 /// off (`crate::keep_on_disk`). Spec: as above.
 pub const AUTO_KEEP_ON_DISK: Check = Check { key: "auto_keep_long_audio_on_disk", label: "Auto keep long audio on disk", default: true };
 
-/// General ▸ Advanced: an opened project's samples are decoded on up to 4 worker threads; off, one file at a time on
+/// General ▸ Samples and bouncing: an opened project's samples are decoded on up to 4 worker threads; off, one file at a time on
 /// one (`loading::workers`, read when a project starts loading). Spec: as above.
 pub const THREADED_SAMPLE_LOADING: Check =
     Check { key: "threaded_project_sample_loading", label: "Threaded project sample loading", default: false };
 
-/// General ▸ Advanced: stored and shown only (the choices of Main GUI scaling). Lemon Studio draws no cursors of its
+/// General ▸ Display: stored and shown only (the choices of Main GUI scaling). Lemon Studio draws no cursors of its
 /// own yet: the system's follow the system's size. Spec: ui/settings-choices.md "Advanced: Cursors scaling and Legacy
 /// scaling (2026-10-16)".
 pub const CURSORS_SCALING: Combo = Combo {
@@ -373,7 +377,7 @@ pub const CURSORS_SCALING: Combo = Combo {
     default: 0,
 };
 
-/// General ▸ Advanced: stored and shown only; meant for hosted plugin windows that don't follow the display scale,
+/// General ▸ Display: stored and shown only; meant for hosted plugin windows that don't follow the display scale,
 /// which keep the size their plugin gives them until that is measured. Spec: as above.
 pub const LEGACY_SCALING: Combo =
     Combo { key: "legacy_scaling", label: "Legacy scaling", choices: &["Main", "100%", "200%", "300%", "400%"], default: 0 };
@@ -573,12 +577,19 @@ pub const MUTING_CHANNEL: Number = Number { key: "midi_muting_channel", label: "
 /// The declared checks.
 pub const DOUBLE_CLICK_RESET: Check = Check { key: "double_click_reset", label: "Double-click resets faders and knobs", default: false };
 pub const HOVER_MENUS: Check = Check { key: "hover_main_menus", label: "Open menus on hover", default: true };
-/// General > Input: bounces otherwise keep their original Mixer processing live.
+/// General > Samples and bouncing: bounces otherwise keep their original Mixer processing live.
 pub const BOUNCE_FREE: Check = Check { key: "bounce_to_free_mixer", label: "Bounce to next free Mixer insert", default: false };
-/// General > Input: apply source-tempo detection when importing Playlist audio.
+/// General > Samples and bouncing: apply source-tempo detection when importing Playlist audio.
 pub const FIT_DROPS: Check = Check { key: "playlist_fit_sample_drops", label: "Fit dropped Playlist samples to project tempo", default: false };
 
+/// General > Updates: check for new builds on startup and periodically.
+pub const AUTO_CHECK_UPDATES: Check = Check { key: "auto_check_updates", label: "Automatically check for updates", default: true };
+/// General > Updates: download a new build found by an automatic check.
+pub const AUTO_DOWNLOAD_UPDATES: Check = Check { key: "auto_download_updates", label: "Automatically download program updates", default: true };
+
 pub const CHECKS: &[&Check] = &[
+    &AUTO_CHECK_UPDATES,
+    &AUTO_DOWNLOAD_UPDATES,
     &DOUBLE_CLICK_RESET,
     &HOVER_MENUS,
     &BOUNCE_FREE,
@@ -710,17 +721,8 @@ fn slider_in(st: &Store, s: &Slider) -> u16 {
     st.get(s.key).and_then(|v| v.parse::<u16>().ok()).map_or(s.default, |v| v.min(s.max))
 }
 
-/// Tests only: a check that exercises the settings page. It stays greyed for real until Lemon Studio can update itself
-/// (ui/options-coverage.md §4).
-#[cfg(test)]
-pub const TEST_CHECK: Check = Check { key: "test_check", label: "Automatically check for updates", default: true };
-
 fn checks() -> impl Iterator<Item = &'static Check> {
-    #[cfg(test)]
-    let more: &[&Check] = &[&TEST_CHECK];
-    #[cfg(not(test))]
-    let more: &[&Check] = &[];
-    CHECKS.iter().chain(more).copied()
+    CHECKS.iter().copied()
 }
 
 /// The declared check its page labels `label`.
@@ -912,29 +914,29 @@ junk
 main_gui_scaling=150%
 ");
         assert_eq!(index_in(&s, &MAIN_GUI_SCALING), 3);
-        assert!(check_in(&s, &TEST_CHECK), "missing: the default");
-        assert!(!check_in(&Store::parse("test_check=0"), &TEST_CHECK));
-        let s = Store::parse("test_check=yes
+        assert!(check_in(&s, &AUTO_CHECK_UPDATES), "missing: the default");
+        assert!(!check_in(&Store::parse("auto_check_updates=0"), &AUTO_CHECK_UPDATES));
+        let s = Store::parse("auto_check_updates=yes
 main_gui_scaling=90%
 main_gui_scaling = 200% 
 ");
-        assert!(check_in(&s, &TEST_CHECK));
+        assert!(check_in(&s, &AUTO_CHECK_UPDATES));
         assert_eq!(index_in(&s, &MAIN_GUI_SCALING), 5, "the last line counts");
         assert_eq!(index_in(&Store::parse("main_gui_scaling=90%"), &MAIN_GUI_SCALING), 0);
     }
 
     #[test]
     fn reading_and_changing_settings() {
-        assert_eq!((check(&TEST_CHECK), choice(&MAIN_GUI_SCALING)), (true, "System"));
-        assert!(!toggle(&TEST_CHECK) && !check(&TEST_CHECK));
-        set_check(&TEST_CHECK, true);
-        assert!(check(&TEST_CHECK));
+        assert_eq!((check(&AUTO_CHECK_UPDATES), choice(&MAIN_GUI_SCALING)), (true, "System"));
+        assert!(!toggle(&AUTO_CHECK_UPDATES) && !check(&AUTO_CHECK_UPDATES));
+        set_check(&AUTO_CHECK_UPDATES, true);
+        assert!(check(&AUTO_CHECK_UPDATES));
         set_choice(&MAIN_GUI_SCALING, 2);
         assert_eq!((index(&MAIN_GUI_SCALING), choice(&MAIN_GUI_SCALING)), (2, "125%"));
         set_choice(&MAIN_GUI_SCALING, 99);
         assert_eq!(choice(&MAIN_GUI_SCALING), "125%");
         assert_eq!(find_combo("Main GUI scaling"), Some(&MAIN_GUI_SCALING));
-        assert_eq!(find_check("Automatically check for updates"), Some(&TEST_CHECK));
+        assert_eq!(find_check("Automatically check for updates"), Some(&AUTO_CHECK_UPDATES));
         assert_eq!((find_check("Main GUI scaling"), find_combo("Language"), find_check("")), (None, None, None));
     }
 
@@ -1001,7 +1003,7 @@ main_gui_scaling = 200%
         for (i, k) in keys.iter().enumerate() {
             assert!(!k.is_empty() && !k.contains('=') && k.trim() == *k, "key {k:?}");
             assert!(!keys[..i].contains(k), "key {k} declared twice");
-            assert!(!labels[..i].contains(&labels[i]), "label {} declared twice (TEST_CHECK may need another label)", labels[i]);
+            assert!(!labels[..i].contains(&labels[i]), "label {} declared twice", labels[i]);
         }
     }
 
@@ -1026,6 +1028,7 @@ main_gui_scaling = 200%
             }).expect("language selector is available in General")
         };
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Language");
         app.paint(&mut canvas, None);
         let target = selector(&app);
         click(&mut app, &mut canvas, target);
@@ -1068,6 +1071,12 @@ main_gui_scaling = 200%
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
         app.paint(&mut c, None);
+        assert!(!app.hits.iter().any(|h| matches!(h.action, Action::Settings(SAct::Combo("Main GUI scaling", ..)))));
+        let display = hit_rect(&app, &Action::Settings(SAct::Group("Display")));
+        click(&mut app, &mut c, display);
+        let language = hit_rect(&app, &Action::Settings(SAct::Group("Language")));
+        click(&mut app, &mut c, language);
+        app.paint(&mut c, None);
         // Main GUI scaling opens its list under its box, System marked; the interface language selector is live.
         let combo = |app: &App| {
             app.hits.iter().rev().find(|h| matches!(&h.action, Action::Settings(SAct::Combo(l, ..)) if *l == MAIN_GUI_SCALING.label)).map(|h| h.rect).expect("the combo works")
@@ -1091,23 +1100,25 @@ main_gui_scaling = 200%
         click(&mut app, &mut c, r);
         assert_eq!(app.state.playlist.popup.as_ref().unwrap().items[2].mark, crate::playlist::Mark::Radio(true));
         app.state.playlist.popup = None;
-        // The test check (Updates, further down the page: the groups above it folded) toggles.
-        app.state.settings.folded.extend(["Display", "Language", "Input", "Undo history"]);
+        // Both preferences start folded and can be changed independently.
+        app.state.settings.folded.clear();
+        app.invalidate();
         app.paint(&mut c, None);
-        let key = Action::Settings(SAct::Check(TEST_CHECK.label));
-        let r = hit_rect(&app, &key);
-        click(&mut app, &mut c, r);
-        assert!(!check(&TEST_CHECK));
-        assert_eq!(app.state.message.as_deref(), Some("Automatically check for updates: off"));
-        let r = hit_rect(&app, &key);
-        click(&mut app, &mut c, r);
-        assert!(check(&TEST_CHECK));
-        // Its neighbours are not declared: greyed out.
-        let download = "Automatically download program updates";
-        assert!(app.hits.iter().any(|h| h.action == Action::Placeholder(download)));
-        assert!(!app.hits.iter().any(|h| h.action == Action::Settings(SAct::Check(download))));
-        // Nothing about usage data.
-        assert!(!app.hits.iter().any(|h| matches!(h.action, Action::Placeholder(l) if l.contains("usage"))));
+        let updates = hit_rect(&app, &Action::Settings(SAct::Group("Updates")));
+        for pref in [&AUTO_CHECK_UPDATES, &AUTO_DOWNLOAD_UPDATES] {
+            assert!(!app.hits.iter().any(|h| h.action == Action::Settings(SAct::Check(pref.label))));
+        }
+        click(&mut app, &mut c, updates);
+        for pref in [&AUTO_CHECK_UPDATES, &AUTO_DOWNLOAD_UPDATES] {
+            let row = hit_rect(&app, &Action::Settings(SAct::Check(pref.label)));
+            click(&mut app, &mut c, row);
+            assert!(!check(pref));
+            assert_eq!(crate::settings_file::get(pref.key).as_deref(), Some("0"));
+            click(&mut app, &mut c, row);
+            assert!(check(pref));
+        }
+        click(&mut app, &mut c, updates);
+        assert!(!app.hits.iter().any(|h| h.action == Action::Settings(SAct::Check(AUTO_CHECK_UPDATES.label))));
     }
 
     /// Pop-ups scaling: menus and combo lists are painted at its scale, rows as ui-scaling.md §2 has them, from where they
@@ -1117,6 +1128,7 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         let combo = |app: &App| {
             app.hits.iter().rev().find(|h| matches!(&h.action, Action::Settings(SAct::Combo(l, ..)) if *l == POPUPS_SCALING.label)).map(|h| h.rect).expect("the combo works")
@@ -1195,6 +1207,7 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         let combo = |app: &App| {
             app.hits.iter().rev().find(|h| matches!(&h.action, Action::Settings(SAct::Combo(l, ..)) if *l == COLORFUL_WAVEFORMS.label)).map(|h| h.rect).expect("the combo works")
@@ -1314,11 +1327,11 @@ main_gui_scaling = 200%
 
     // spec: ui/settings-choices.md "Advanced: Fast sample preview, Auto keep long audio on disk, Threaded project
     // sample loading (2026-10-16)", "Advanced: Cursors scaling and Legacy scaling (2026-10-16)"
-    /// General ▸ Advanced: the sample checks and the two scaling lists have the defaults as found and are kept in the
+    /// Samples and bouncing checks and Display scaling choices are kept in the
     /// settings file; on the page each is live: a click toggles a check, a combo lists its choices (Cursors scaling
     /// those of Main GUI scaling) and keeps the one picked.
     #[test]
-    fn advanced_sample_and_scaling_settings() {
+    fn sample_and_display_scaling_settings() {
         let checks = |s: &Store| [&FAST_SAMPLE_PREVIEW, &AUTO_KEEP_ON_DISK, &THREADED_SAMPLE_LOADING].map(|c| check_in(s, c));
         let combos = |s: &Store| (index_in(s, &CURSORS_SCALING), index_in(s, &LEGACY_SCALING));
         let s = Store::parse("");
@@ -1333,7 +1346,7 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
-        app.state.settings.folded.extend(["Display", "Language", "Input", "Undo history", "Hints and warnings", "Miscellaneous"]);
+        app.state.settings.folded.insert("Samples and bouncing");
         app.paint(&mut c, None);
         for k in [&FAST_SAMPLE_PREVIEW, &AUTO_KEEP_ON_DISK, &THREADED_SAMPLE_LOADING] {
             let was = check(k);
@@ -1342,6 +1355,10 @@ main_gui_scaling = 200%
             assert_eq!(check(k), !was, "{} toggles", k.label);
             assert!(!app.hits.iter().any(|h| h.action == Action::Placeholder(k.label)), "{} is not greyed out", k.label);
         }
+        app.state.settings.folded.clear();
+        app.state.settings.folded.insert("Display");
+        app.invalidate();
+        app.paint(&mut c, None);
         for (k, pick) in [(&CURSORS_SCALING, 5), (&LEGACY_SCALING, 2)] {
             let combo = |app: &App| {
                 app.hits.iter().rev().find(|h| matches!(&h.action, Action::Settings(SAct::Combo(l, ..)) if *l == k.label)).map(|h| h.rect)
@@ -1379,12 +1396,15 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         let r = hit_rect(&app, &Action::Settings(SAct::Check(FORCE_REFRESHES.label)));
         assert!(!app.hits.iter().any(|h| h.action == Action::Placeholder(FORCE_REFRESHES.label)), "not greyed out");
         click(&mut app, &mut c, r);
         assert!(!check(&FORCE_REFRESHES));
         assert_eq!(app.state.message.as_deref(), Some("Force refreshes: off"));
+        let input = hit_rect(&app, &Action::Settings(SAct::Group("Input")));
+        click(&mut app, &mut c, input);
         let combo = |app: &App| {
             app.hits.iter().rev().find(|h| matches!(&h.action, Action::Settings(SAct::Combo(l, ..)) if *l == OPTIMIZE_FOR.label)).map(|h| h.rect).expect("the combo works")
         };
@@ -1416,6 +1436,7 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         assert!(!app.hits.iter().any(|h| h.action == Action::Placeholder(TRANSPARENT_MENUS.label)), "not greyed out");
         let r = hit_rect(&app, &Action::Settings(SAct::Check(TRANSPARENT_MENUS.label)));
@@ -1450,6 +1471,7 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Display");
         app.paint(&mut c, None);
         assert!(!app.hits.iter().any(|h| h.action == key), "greyed out at 100 %");
         let greyed = app.hits.iter().rev().find(|h| h.hint == "Thick lines: from 200 % scaling").map(|h| h.rect).expect("its hint");
@@ -1491,7 +1513,7 @@ main_gui_scaling = 200%
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
-        app.state.settings.folded.extend(["Display", "Language"]);
+        app.state.settings.folded.insert("Input");
         app.paint(&mut c, None);
         let track = |app: &App, s: &Slider| {
             app.hits
@@ -1660,7 +1682,7 @@ main_gui_scaling = 200%
         let key = Action::Settings(SAct::Check(INVERT_PENCIL_BUTTONS.label));
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
-        app.state.settings.folded.extend(["Display", "Language"]);
+        app.state.settings.folded.insert("Input");
         app.paint(&mut c, None);
         let r = hit_rect(&app, &key);
         click(&mut app, &mut c, r);
@@ -1669,7 +1691,7 @@ main_gui_scaling = 200%
         // Kept: a new start shows it ticked; a click unticks it.
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
-        app.state.settings.folded.extend(["Display", "Language"]);
+        app.state.settings.folded.insert("Input");
         app.paint(&mut c, None);
         assert!(check(&INVERT_PENCIL_BUTTONS));
         let r = hit_rect(&app, &key);

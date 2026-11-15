@@ -8,6 +8,7 @@ use crate::{app::{Action, App, State, Ui}, icons::{self, Icon}, views::browser::
 
 pub const TAB: usize = 5;
 pub const ROW_H: f32 = 46.;
+const DOWNLOAD_AGAIN: u8 = 11;
 #[derive(Clone, Debug, Deserialize)]
 pub struct Download {
     pub platform: String, pub url: String, pub filename: String, pub version: String,
@@ -21,6 +22,8 @@ pub struct Plugin {
     pub note: String,
     pub info: String,
     #[serde(default)] pub freeware: bool,
+    #[serde(default)] pub scan_vendor: Option<String>,
+    #[serde(default)] pub scan_aliases: Vec<String>,
 }
 pub fn catalog() -> &'static [Plugin] {
     static DATA: OnceLock<Vec<Plugin>> = OnceLock::new();
@@ -38,6 +41,31 @@ fn for_platform<'a>(p: &'a Plugin, platform: &str) -> Option<&'a Download> {
         .or_else(|| platform.starts_with("macos-").then(|| p.downloads.iter().find(|d|d.platform=="macos-universal")).flatten())
 }
 fn download(p: &Plugin) -> Option<&Download> { for_platform(p, platform()) }
+
+fn scan_name(name: &str) -> String {
+    name.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+pub(crate) fn installed_entries(cache: &crate::plugin_db::Cache) -> std::collections::HashSet<usize> {
+    use crate::plugin_db::Status;
+    let mut scanned = std::collections::HashMap::<_, Vec<_>>::new();
+    for file in cache.files.iter().filter(|file| file.status == Status::Ok) {
+        for plugin in file.plugins.iter().filter(|plugin| plugin.usable()) {
+            scanned.entry(scan_name(&plugin.name)).or_default().push(plugin.vendor.as_str());
+        }
+    }
+    catalog().iter().enumerate().filter_map(|(i, plugin)| {
+        let matches = std::iter::once(&plugin.name).chain(&plugin.scan_aliases).any(|name| {
+            scanned.get(&scan_name(name)).is_some_and(|vendors| {
+                plugin.scan_vendor.as_ref().is_none_or(|vendor| {
+                    vendors.iter().any(|actual| actual.eq_ignore_ascii_case(vendor))
+                })
+            })
+        });
+        (matches && plugin.category != "Plugin suites").then_some(i)
+    }).collect()
+}
+
 pub fn row_index(key: &str) -> Option<usize> { key.strip_prefix("5:plugin/")?.parse().ok().filter(|i:&usize|*i<catalog().len()) }
 pub const DISCOVERY_VISIBILITY: &str = "visible_download-discovery";
 const FILTERS: &[&str] = &["All plugins", "Favorites", "Native download", "Portable install", "Open source", "Freeware"];
@@ -175,11 +203,25 @@ pub fn paint(ui:&mut Ui,s:&State,r:Rect) {
             let p=&catalog()[i];thumbnail(ui,i,Rect::new(rr.x+3.,y+6.,48.,30.));
             let x=rr.x+57.;let w=(rr.w-if discovery(){108.}else{83.}).max(0.);
             ui.c.text_clip(Font::new(14),x,y+4.,w,ui.t.text,&p.name);
-            ui.c.text_clip(Font::new(11),x,y+24.,w,ui.t.text_dim,&format!("{} / {}",if download(p).is_some_and(|d|!d.install.is_empty()){"Portable"}else{"Installer / archive"},p.license));
-            if discovery(){let star=Rect::new(rr.right()-50.,y+10.,23.,25.);button(ui,star.intersect(&list),if favorite(p){"★"}else{"☆"},Action::PluginDownload(i,6),"Save or remove favorite",true);}
+            let installed=s.plugdb.installed_downloads.contains(&i);
+            let kind=if installed {"Installed"} else if download(p).is_some_and(|d|!d.install.is_empty()) {"Portable"} else {"Installer / archive"};
+            ui.c.text_clip(Font::new(11),x,y+24.,w,ui.t.text_dim,&format!("{kind} / {}",p.license));
+            if discovery() {
+                let star=Rect::new(rr.right()-50.,y+10.,23.,25.);
+                let saved=favorite(p);
+                let tip=if saved {"Remove from Favorites"} else {"Add to Favorites"};
+                let hot=ui.hit(star.intersect(&list),Action::PluginDownload(i,6),tip);
+                ui.c.fill_rrect(star,3.,if hot {ui.t.browser_row_hi} else {ui.t.sunken});
+                let color=if saved {ui.t.h(0xfdc13d)} else {ui.t.text_dim};
+                icons::draw(ui.c,Icon::Star,Rect::new(star.cx()-8.,star.cy()-8.,16.,16.),color);
+            }
             let dl=Rect::new(rr.right()-25.,y+10.,23.,25.);
-            ui.hit(dl.intersect(&list),Action::PluginDownload(i,0),format!("Get {}. {}",p.name,p.note));
-            icons::draw(ui.c,Icon::Download,dl,ui.t.browser_search);
+            if installed {
+                icons::draw(ui.c,Icon::Tick,dl,ui.t.browser_search);
+            } else {
+                ui.hit(dl.intersect(&list),Action::PluginDownload(i,0),format!("Get {}. {}",p.name,p.note));
+                icons::draw(ui.c,Icon::Download,dl,ui.t.browser_search);
+            }
         } else if row.key.starts_with("5:discover/") {
             let reset=28.;let sort=48.;let gap=4.;let fw=(rr.w-reset-sort-2.*gap).max(30.);
             button(ui,Rect::new(rr.x,y+9.,fw,27.).intersect(&list),FILTERS[filter()],Action::PluginDownload(0,8),"Choose which plugins to show",true);
@@ -208,8 +250,11 @@ pub fn paint(ui:&mut Ui,s:&State,r:Rect) {
         wrapped(ui,"Choose a category, then a plugin. Hover for information. Portable plugins install automatically. Other downloads open their installer or archive.",Rect::new(x,panel.y+29.,w,(dh-165.).max(0.)),ui.t.text_dim);
     }
     let tip=download(p).map_or("Choose a plugin to download for this platform.".to_string(),|d|format!("{} / {:.1} MB. {} {} Finish installation, then Scan Plugins.",d.version,d.size as f64/1048576.,d.note,p.note));
-    let label=if st.busy&&same {"Downloading..."}else if download(p).is_some_and(|d|!d.install.is_empty()) {"Download + Install"}else{"Download + Open"};
-    button(ui,Rect::new(x,bottom-130.,w,24.),label,Action::PluginDownload(i,0),&tip,selected(s).is_some()&&!st.busy);
+    let installed=selected(s).is_some() && s.plugdb.installed_downloads.contains(&i);
+    let label=if st.busy&&same {"Downloading..."}else if installed {"Download Again"}else if download(p).is_some_and(|d|!d.install.is_empty()) {"Download + Install"}else{"Download + Open"};
+    let action=Action::PluginDownload(i,if installed {DOWNLOAD_AGAIN} else {0});
+    let tip=if installed {format!("Installed. {tip}")} else {tip};
+    button(ui,Rect::new(x,bottom-130.,w,24.),label,action,&tip,selected(s).is_some()&&!st.busy);
     let half=(w-5.)/2.;
     button(ui,Rect::new(x,bottom-102.,half,21.),if p.freeware {"Website"} else {"Source"},Action::PluginDownload(i,1),&p.source,selected(s).is_some());
     button(ui,Rect::new(x+half+5.,bottom-102.,half,21.),"License",Action::PluginDownload(i,5),&p.license_url,selected(s).is_some());
@@ -263,7 +308,7 @@ fn response(url:&str)->Result<ureq::Response,String>{
         }else if r.status()==200{return Ok(r)}else{return Err(format!("Download server returned {}",r.status()))}
     }Err("Too many download redirects".into())
 }
-fn copy_verified(mut reader:impl Read,mut output:impl Write,d:&Download,mut progress:impl FnMut(u64)->Result<(),String>)->Result<(),String>{
+pub(crate) fn copy_verified(mut reader:impl Read,mut output:impl Write,d:&Download,mut progress:impl FnMut(u64)->Result<(),String>)->Result<(),String>{
     let mut hash=Sha256::new();let mut count=0;let mut buf=[0u8;65536];
     loop {progress(count)?;let n=reader.read(&mut buf).map_err(|e|e.to_string())?;if n==0{break}count+=n as u64;
         if count>d.size{return Err("Download size changed. Please update the catalog.".into())}
@@ -274,7 +319,9 @@ fn fetch(d:&Download,root:&Path)->Result<PathBuf,String>{
     validate(d)?;let dir=root.join(&d.sha256[..16]);fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
     let path=dir.join(&d.filename);if verified(&path,d){return Ok(path)}
     if path.exists(){return Err("An existing downloaded file failed verification. Remove it from Downloads and retry.".into())}
-    let part=dir.join(format!("{}-{}.part",d.filename,std::process::id()));
+    let staging = crate::job_scratch::create(&dir, "plugin-download", &[&d.filename])
+        .map_err(|e| e.to_string())?;
+    let part = staging.path().join(&d.filename);
     let run=||->Result<(),String>{
         let r=response(&d.url)?;
         if r.header("Content-Type").is_some_and(|t|t.contains("text/html")){return Err("Server returned a web page instead of an installer".into())}
@@ -358,8 +405,20 @@ fn start(i:usize){
     std::thread::spawn(move||{
         let result=cache().and_then(|root| {
             let path=fetch(&d,&root)?;
-            if !d.install.is_empty(){report("Installing portable plugin...".into());install_portable(&path,&d,&catalog()[i].id,&root).map(|p|(p,true))}
-            else {mark_download(&path,&d.url)?;Ok((path,false))}
+            if !d.install.is_empty() {
+                report("Installing portable plugin...".into());
+                let installed = install_portable(&path, &d, &catalog()[i].id, &root)?;
+                // The installed copy contains the files the host uses. The
+                // archive was only staging data for this portable install.
+                let _ = fs::remove_file(&path);
+                if let Some(parent) = path.parent() {
+                    let _ = fs::remove_dir(parent);
+                }
+                Ok((installed, true))
+            } else {
+                mark_download(&path, &d.url)?;
+                Ok((path, false))
+            }
         });let mut s=status().lock().unwrap();s.busy=false;s.changed=true;
         if s.cancel && !matches!(&result,Ok((_,true))) {s.message="Download cancelled. Nothing opened.".into();return}
         match result{Ok((path,true))=>{s.installed=Some(path);s.message="Portable plugin installed. Updating scan folders...".into()},Ok((path,false))=>{s.ready=Some(path);s.message="Download verified. Opening...".into()},Err(e)=>s.message=format!("{e} Click Download to retry.")}
@@ -367,13 +426,18 @@ fn start(i:usize){
 }
 pub fn act(app:&mut App,i:usize,cmd:u8){
     match cmd{
-        0=>{app.state.browser_sel=Some(format!("5:plugin/{i}"));if !cfg!(test){start(i)}},
+        0 | DOWNLOAD_AGAIN => {
+            app.state.browser_sel=Some(format!("5:plugin/{i}"));
+            if !cfg!(test) && (cmd==DOWNLOAD_AGAIN || !app.state.plugdb.installed_downloads.contains(&i)) {
+                start(i);
+            }
+        },
         1|5=>if let Some(p)=catalog().get(i){if let Err(e)=crate::donate::open_url(if cmd==1{&p.source}else{&p.license_url}){app.state.message=Some(e)}},
         2=>match cache().and_then(|p|crate::donate::open_url(&p.to_string_lossy())){Ok(())=>{},Err(e)=>app.state.message=Some(e)},
         3=>app.start_scan(crate::plugin_db::Mode::Changed),
         8..=10=>{discovery_row(app,match cmd {8=>"5:discover/filter",9=>"5:discover/sort",_=>"5:discover/reset"});},
         7=>{if i<FILTERS.len(){crate::prefs::set_text("catalog_filter",&i.to_string());app.state.browser_scroll=0.;app.state.catalog_tooltip=None;}},
-        6=>if let Some(p)=catalog().get(i){crate::prefs::set_text(&format!("catalog_favorite_{}",p.id),if favorite(p){"0"}else{"1"});app.state.browser_scroll=0.;},
+        6=>if let Some(p)=catalog().get(i){crate::prefs::set_text(&format!("catalog_favorite_{}",p.id),if favorite(p){"0"}else{"1"});},
         4=>{let mut s=status().lock().unwrap();s.cancel=true;s.ready=None;s.message="Cancelling download...".into();s.changed=true;},
         _=>{}
     }app.invalidate();
@@ -479,6 +543,77 @@ mod tests {
             app.state.browser_scroll=0.;
             if let Some(dir)=std::env::var_os("OS_SHOT_DIR"){c.pixmap.save_png(PathBuf::from(dir).join(format!("plugin-downloads-{height}.png"))).unwrap();}
         }
+    }
+    #[test]
+    fn catalog_recognizes_installed_plugins_and_keeps_favorites_clickable() {
+        use crate::plugin_db::{Cache, FileScan, Record, Status};
+        fn file(name: &str, vendor: &str, kind: &str, status: Status) -> FileScan {
+            FileScan {
+                path: format!("{}.vst3", scan_name(name)),
+                format: "vst3".into(), size: 1, modified: 0, status, error: String::new(),
+                plugins: vec![Record {
+                    id: scan_name(name), name: name.into(), vendor: vendor.into(),
+                    version: "1.0".into(), features: Vec::new(), kind: kind.into(),
+                }],
+            }
+        }
+        let index = |id| catalog().iter().position(|p| p.id == id).unwrap();
+        let surge = index("surge-xt");
+        let zl = index("zl-spectrum-equalizer");
+        let span = index("span");
+        let mut app = App::new(None);
+        app.apply_scan(Cache {
+            files: vec![
+                file("Surge XT", "Surge Synth Team", "instrument", Status::Ok),
+                file("ZL Spectrum Equalizer", "ZL", "effect", Status::Ok),
+                file("SPAN", "Voxengo", "effect", Status::Ok),
+                file("Spectrum", "Unrelated Vendor", "effect", Status::Ok),
+                file("Dexed", "Digital Suburban", "instrument", Status::Crashed),
+            ],
+            ..Cache::default()
+        });
+        // The manager disables disk I/O in unit tests. Move the serialized
+        // scan into a fresh app to exercise the same rebuild as startup.
+        let saved = serde_json::to_vec(&app.state.plugdb.cache).unwrap();
+        let mut app = App::new(None);
+        app.state.plugdb.cache = serde_json::from_slice(&saved).unwrap();
+        app.plugins.merge(&app.state.plugdb.cache);
+        app.state.plugdb.rebuild(&app.plugins);
+        assert_eq!(app.state.plugdb.installed_downloads, [surge, zl, span].into_iter().collect());
+        crate::prefs::set_text(DISCOVERY_VISIBILITY, "1");
+        crate::prefs::set_text("catalog_favorite_surge-xt", "0");
+        discovery_row(&mut app, "5:discover/reset");
+        app.state.show_browser = true;
+        app.browser_act(&Action::BrowserTab(TAB));
+        app.state.browser_search = "surge xt".into();
+        app.state.screen = (1000., 700.);
+        let mut canvas = os_ui::Canvas::new(1000, 700, 1.).unwrap();
+        app.paint(&mut canvas, None);
+        let star = Action::PluginDownload(surge, 6);
+        let hit = app.hits.iter().find(|h| h.action == star).unwrap();
+        let point = (hit.rect.cx(), hit.rect.cy());
+        assert_eq!(hit.hint, "Add to Favorites");
+        assert_eq!(app.top_hit(point.0, point.1).map(|h| &h.action), Some(&star));
+        app.mouse_move(point.0, point.1);
+        app.mouse_down();
+        app.mouse_up();
+        app.paint(&mut canvas, None);
+        assert!(favorite(&catalog()[surge]));
+        assert!(app.hits.iter().any(|h| h.action == star && h.hint == "Remove from Favorites"));
+
+        let zl_key = format!("5:plugin/{zl}");
+        app.state.browser_search = "zl spectrum equalizer".into();
+        let row = rows(&app.state).iter().position(|r| r.key == zl_key).unwrap();
+        app.browser_act(&Action::BrowserRow(row));
+        app.paint(&mut canvas, None);
+        assert_eq!(selected(&app.state), Some(zl));
+        assert!(!app.hits.iter().any(|h| h.action == Action::PluginDownload(zl, 0)));
+        assert!(app.hits.iter().any(|h| h.action == Action::PluginDownload(zl, DOWNLOAD_AGAIN)));
+
+        app.apply_scan(Cache::default());
+        app.paint(&mut canvas, None);
+        assert!(app.state.plugdb.installed_downloads.is_empty());
+        assert!(app.hits.iter().any(|h| h.action == Action::PluginDownload(zl, 0)));
     }
     #[test]
     fn hover_information_is_delayed_and_never_downloads(){

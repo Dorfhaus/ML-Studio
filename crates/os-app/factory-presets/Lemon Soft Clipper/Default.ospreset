@@ -3,3 +3,6 @@ plugin=Lemon Soft Clipper	id=clap:org.openstudio.lemon-soft-clipper	format=clap	
 # Values: OpenStudio-specs plugins/factory-presets.md.
 Threshold = 99
 Post gain = 128
+Oversampling = 0
+Smooth knee = 0
+Output ceiling = 0

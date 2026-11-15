@@ -1,12 +1,12 @@
 {
   "Synths": [
-    "Citrus",
-    "Lemon Trio",
-    "Lemon 3x Osc",
-    "Lemon Wave"
+    "ML Citrus",
+    "ML Trio",
+    "ML Wave",
+    "ML Plasma"
   ],
   "Sampling": [
-    "Lemon Sampler",
-    "Lemon Chop"
+    "ML Sampler",
+    "ML Chop"
   ]
 }

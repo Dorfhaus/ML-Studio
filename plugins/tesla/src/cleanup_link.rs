@@ -12,6 +12,7 @@ pub const FIELD: &str = "tesla_cleanup_return";
 #[derive(Default)]
 pub struct Session {
     pub active: AtomicBool,
+    pub deverb: AtomicBool,
     pub applied: AtomicBool,
     pub pending: AtomicBool,
     pub source: Mutex<Option<(Sample, String)>>,

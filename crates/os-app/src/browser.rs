@@ -465,6 +465,26 @@ impl App {
         self.damage_rect(view::ghost_rect(x, y));
     }
 
+    pub(crate) fn dragging_browser_samples(&self) -> bool {
+        matches!(self.drag, Some(Drag::Browser { item: Item::Sample(_) | Item::Samples(_), .. }))
+    }
+
+    /// Mouse capture can deliver a release to the detached Browser. The caller
+    /// restores the main view so the drop uses its current hit targets.
+    pub(crate) fn drop_browser_samples_on_main(&mut self, at: (f32, f32)) {
+        debug_assert!(self.state.native_view.is_none());
+        if self.dragging_browser_samples() {
+            if let Some(Drag::Browser { started, .. }) = &mut self.drag {
+                // Crossing into another window already constitutes a drag, even
+                // when a move event was coalesced before the release.
+                *started = true;
+            }
+            self.mouse = at;
+            self.state.native_input = None;
+            self.mouse_up();
+        }
+    }
+
     /// Release: drop the dragged item on whatever is under the mouse (spec §3).
     pub(crate) fn browser_drop(&mut self, item: Item, started: bool) {
         self.state.browser_drag = None;
@@ -1096,8 +1116,10 @@ pub fn row_menu(s: &crate::app::State, row: &view::Row) -> Vec<PItem> {
                 p("Delete", P::Delete),
                 PItem::sep(),
                 p("Select in playlist", P::SelectInPlaylist),
-                p("Split by channel", P::SplitByChannel),
             ]);
+            if crate::workspace_visibility::shown(crate::patterns::SPLIT_VISIBILITY) {
+                items.push(p("Split by channel", P::SplitByChannel));
+            }
         }
         Item::Channel(c) => {
             let k = |label: &'static str, rc: RCmd| PItem::new(label, Cmd::Rack(rc));
@@ -1443,10 +1465,13 @@ mod favorite_tests {
             let start=std::time::Instant::now();
             loop {let rows=view::rows(s);view::search_changed(s);if !view::search_busy(s) {return rows;}assert!(start.elapsed().as_secs()<10);std::thread::sleep(std::time::Duration::from_millis(10));}
         }
-        let rows=wait(&app.state);assert_eq!(rows.len(),1);assert_eq!(rows[0].label,"Warm Kick");
+        let audio = |s: &crate::app::State| wait(s).into_iter().filter(|r| matches!(r.item, Item::Sample(_))).collect::<Vec<_>>();
+        let rows = audio(&app.state);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].label, "Warm Kick");
         assert!(matches!(rows[0].item,Item::Sample(_)));assert!(app.state.browser_open.is_empty() || !app.state.browser_open.contains(&view::disk_key(&dir)));
         crate::prefs::set_text("browser_favorites",&serde_json::to_string(&vec![dir.join("closed")]).unwrap());
-        app.state.browser_tab=3;assert_eq!(wait(&app.state).len(),1);
+        app.state.browser_tab=3;assert_eq!(audio(&app.state).len(),1);
         app.state.browser_opts.insert(view::OPT_TOP.into());
         app.state.show_browser=true;
         let mut c=os_ui::Canvas::new(1280,900,1.25).unwrap();app.paint(&mut c,None);
@@ -1513,11 +1538,19 @@ mod favorite_tests {
     #[test]
     fn samples_browser_has_only_library_and_favorites_tabs() {
         let mut app=App::new(None);
-        assert_eq!(view::samples_root(),std::path::PathBuf::from(r"E:\Pro Samples"));
+        let fixture = tempfile::tempdir().unwrap();
+        for name in ["FX", "GO TO KIT", "FILLZ"] {
+            std::fs::create_dir(fixture.path().join(name)).unwrap();
+        }
+        crate::prefs::set_text("browser_samples_root", &fixture.path().to_string_lossy());
+        assert_eq!(view::samples_root(), fixture.path());
         let rows=view::rows(&app.state);
         for label in ["FX","GO TO KIT","FILLZ"] {assert!(rows.iter().any(|r|r.label==label),"{label}");}
         assert!(rows.iter().all(|r|r.path.as_ref().is_some_and(|p|p.starts_with(view::samples_root()))));
         let mut c=os_ui::Canvas::new(1280,900,1.25).unwrap();
+        if view::opt(&app.state, view::OPT_PRESETS) {
+            app.browser_cmd(BCmd::Toggle(view::OPT_PRESETS));
+        }
         app.state.show_browser=true;app.paint(&mut c,None);
         let tabs:Vec<_>=app.hits.iter().filter_map(|h|if let Action::BrowserTab(i)=h.action {Some(i)}else{None}).collect();
         assert_eq!(tabs,vec![0,3,5]);

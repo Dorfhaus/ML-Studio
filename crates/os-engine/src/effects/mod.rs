@@ -8,6 +8,9 @@
 pub mod balance;
 pub mod chorus;
 pub mod delay;
+mod delay_line;
+mod interpolation;
+mod peak_guard;
 pub mod dynamics;
 pub mod eq;
 pub mod fast_dist;

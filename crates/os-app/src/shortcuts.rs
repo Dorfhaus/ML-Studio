@@ -403,6 +403,7 @@ mod tests {
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
         app.open_settings(settings::GENERAL);
+        app.state.settings.folded.insert("Input");
         app.paint(&mut c, None);
         let button = hit_rect(&app, &Action::Settings(SAct::Button(settings::MANAGE_SHORTCUTS)));
         click(&mut app, &mut c, button);

@@ -54,13 +54,23 @@ fn accel(label: &str) -> char {
 /// The work that waits for a dialog's answer (`App::dialog_done`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Then {
+    RecoverProject(PathBuf, String),
     InputBindings(bool),
+    SplitPattern(u16),
     MidiControllerPreset(String, bool),
     VocalDownload(u16),
+    VisualizerInstall(crate::visualizer::Target),
+    VisualizerProgress,
+    VisualizerVideoFile(crate::visualizer_video::Request),
+    VisualizerVideoInstall(crate::visualizer_video::Request, PathBuf),
+    VisualizerVideoProgress,
+    VisualCover(crate::visual_scenes::Key),
     MelliInstall,
     MelliProgress,
     MelliRemove,
     WarpApply,
+    ReferenceVideo(f64),
+    RelinkVideo(os_model::timeline::Video),
     SetDetectedProjectTempo(f64),
     ResetMixerTracks(Vec<u16>),
     VocalReanalyse(u16),
@@ -140,6 +150,9 @@ pub enum Then {
     MidiImport(bool),
     /// Where to export a MIDI file; true: the piano roll's channel.
     MidiExport(bool),
+    ScoreEdit,
+    ScoreExport(bool),
+    ScoreImport,
     /// File ▸ FL Studio factory content folder: the folder picked (`App::set_factory_folder`).
     FactoryFolder,
     /// FILE ▸ Save as template...: the template's name, from the save dialog (`crate::project_files`).
@@ -245,6 +258,7 @@ pub enum Body {
     VoiceAssistant,
     Headphones(crate::headphones::Form),
     RoutePicker(crate::route_picker::Form),
+    MixAssistant(Box<crate::mix_assistant::Form>),
     MixerInsert(crate::mixer::InsertTracks),
     Msg(Msg),
     File(Box<FileDlg>),
@@ -310,6 +324,7 @@ pub enum DHit {
     HeadphoneSearch,
     HeadphoneCredits,
     RoutePick(u16),
+    MixAssistant(crate::mix_assistant::Hit),
     RouteSearch,
     MixerCount,
     RoutePage(bool),
@@ -484,7 +499,7 @@ impl App {
     }
 
     /// Closes the top dialog with `reply` and carries out what waited for it.
-    fn answer(&mut self, reply: Reply) {
+    pub(crate) fn answer(&mut self, reply: Reply) {
         let Some(m) = self.state.dialogs.pop() else { return };
         if matches!(self.drag, Some(Drag::Dialog { .. } | Drag::DialogBar { .. } | Drag::DialogText(_))) {
             self.drag = None;
@@ -492,6 +507,7 @@ impl App {
         self.modal_changed();
         let then = match m.body {
             Body::VoiceAssistant => { crate::voice_assistant::close(self); return; }
+            Body::MixAssistant(_) => { crate::mix_assistant::closed(self); return; }
             Body::VocalAlign(_) => { crate::vocal_align::closed(self); return; }
             Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..)=>{self.drag=None;return;},
             Body::Msg(m) => {
@@ -545,14 +561,14 @@ impl App {
             Body::File(_) => Reply::File(None),
             Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Shortcuts(_) => Reply::Button(Answer::Cancel),
             Body::TimeSig(_) => Reply::Button(Answer::Cancel),
-            Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => Reply::Button(Answer::Cancel),
+            Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => Reply::Button(Answer::Cancel),
         })
     }
 
     fn top_file(&mut self) -> Option<&mut FileDlg> {
         match &mut self.state.dialogs.last_mut()?.body {
             Body::File(f) => Some(f),
-            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Msg(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
+            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Msg(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
         }
     }
 
@@ -610,6 +626,7 @@ impl App {
             DHit::AiForget=>crate::ai_control::forget(self),
             DHit::AiSetup=>crate::ai_control::setup(self),
             DHit::Voice(button) => crate::voice_assistant::button(self, button),
+            DHit::MixAssistant(hit) => crate::mix_assistant::command(self, hit),
             DHit::RoutePick(t)=>{
                 let target=if let Body::RoutePicker(f)=&m.body {Some((f.row, f.rack.clone()))} else {None};
                 if let Some((row, rack))=target {
@@ -635,6 +652,9 @@ impl App {
             DHit::Body | DHit::List if !matches!(m.body, Body::File(_)) => {}
             DHit::Caption => self.drag = Some(Drag::Dialog { dx: x - r.x, dy: y - r.y }),
             DHit::Close | DHit::Cancel => {
+                if crate::mix_assistant::is_open(self) {
+                    return crate::mix_assistant::command(self, crate::mix_assistant::Hit::Close);
+                }
                 if let Some(reply) = self.escape_reply() {
                     self.answer(reply);
                 }
@@ -650,7 +670,7 @@ impl App {
             DHit::Button(i) => {
                 let a = match &m.body {
                     Body::Msg(msg) => msg.buttons.get(i).copied().filter(|a| !(*a==Answer::Ok && matches!(msg.then,Then::StemChoose(_,0)))),
-                    Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
+                    Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
                 };
                 if let Some(a) = a {
                     self.answer(Reply::Button(a));
@@ -784,6 +804,16 @@ impl App {
                 Key::Named(NamedKey::Space) => {}
                 _ => { form.field.key(key, ctrl, alt); }
             },
+            Body::MixAssistant(_) => {
+                use crate::mix_assistant::Hit;
+                match key {
+                    Key::Named(NamedKey::Escape) => crate::mix_assistant::command(self, Hit::Close),
+                    Key::Named(NamedKey::Enter) => crate::mix_assistant::primary(self),
+                    Key::Named(NamedKey::PageDown) => crate::mix_assistant::command(self, Hit::Page(true)),
+                    Key::Named(NamedKey::PageUp) => crate::mix_assistant::command(self, Hit::Page(false)),
+                    _ => {}
+                }
+            }
             Body::RoutePicker(f)=>{
                 if matches!(key,Key::Named(NamedKey::Escape)){self.answer(Reply::Button(Answer::Cancel));}
                 else if f.search.key(key,ctrl,alt){f.filter();}
@@ -876,6 +906,11 @@ impl App {
 
     /// The wheel over a dialog: scrolls the file list.
     pub(crate) fn dialog_wheel(&mut self, dy: f32) {
+        if let Some(Modal { body: Body::MixAssistant(form), .. }) = self.state.dialogs.last_mut() {
+            form.scroll((-dy * 3.0).round() as isize);
+            self.invalidate();
+            return;
+        }
         if let Some(Modal{body:Body::RoutePicker(f),..})=self.state.dialogs.last_mut(){f.scroll((-dy).round() as isize);self.invalidate();return;}
 
         if let Some(Modal{body:Body::Headphones(f),..})=self.state.dialogs.last_mut(){f.scroll((-dy*3.).round() as isize);self.invalidate();return;}
@@ -919,7 +954,7 @@ impl App {
     pub fn top_message(&self) -> Option<(String, String)> {
         match &self.state.dialogs.last()?.body {
             Body::Msg(m) => Some((m.title.clone(), m.plain())),
-            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
+            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
         }
     }
 }

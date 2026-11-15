@@ -569,7 +569,7 @@ pub fn add_instrument_at(app:&mut App,index:usize,row:u16)->Option<String>{
     let snapshot=pl::capture(&app.state);let selected=app.state.selected_mixer;
     let count=app.state.project.channels.len();
     let previous=app.state.history.begin_sequence();
-    let result=crate::plugin_menu::add_generator(app,index,None);
+    let result=crate::plugin_menu::add_generator_for_playlist(app,index);
     if app.state.project.channels.len()==count{app.state.history.end_sequence_named(previous,"Insert instrument track");return result;}
     let s=&mut app.state;let ch=s.selected_channel;
     let n=mixer::add_track(s,None);
@@ -590,7 +590,7 @@ pub fn insert_on_lane(app:&mut App,index:usize,n:u16,row:u16)->Option<String>{
     if mixer::locked(&app.state,n)||pl::track_info(&app.state,row).is_some_and(|t|t.locked||t.frozen.is_some()){return Some("Unlock or unfreeze this lane before inserting an instrument".into());}
     if app.state.rec.recording()||app.audio_rec.is_some(){return Some("Finish recording before inserting an instrument".into());}
     let previous=app.state.history.begin_sequence();pl::snapshot(&mut app.state);
-    let result=crate::plugin_menu::add_generator(app,index,None);
+    let result=crate::plugin_menu::add_generator_for_playlist(app,index);
     let s=&mut app.state;let ch=s.selected_channel;s.project.channels[ch].mixer_track=n;
     bind(s,row,n);let arr=pl::arr_mut(s).number;
     s.project.instrument_lanes.push((s.project.channels[ch].index,arr,row,s.pattern.max(1)));
@@ -734,8 +734,11 @@ mod tests {
             a.paint(&mut c, None);
             let button = a.hits.iter().find(|h| h.action == Action::Mix(mixer::MHit::AttachPlaylist)).unwrap().rect;
             let panel = a.live_rect(crate::app::Live::AttachedInspector).unwrap();
-            assert!(button.w + 24.0 < panel.w);
-            assert!((button.cx() - panel.cx()).abs() <= 1.0 / scale);
+            let controls = a.hits.iter()
+                .find(|h| h.action == Action::Mix(mixer::MHit::MixAssistant))
+                .map_or(button, |h| button.union(&h.rect));
+            assert!(controls.w <= panel.w - 12.0 + 1.0 / scale);
+            assert!((controls.cx() - panel.cx()).abs() <= 1.0 / scale);
             let left = (button.x * scale).round() as u32;
             let right = (button.right() * scale).round() as u32 - 1;
             for y in ((button.y + 3.0) * scale).ceil() as u32..((button.bottom() - 3.0) * scale).floor() as u32 {

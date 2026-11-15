@@ -1,6 +1,6 @@
 import io, tempfile, unittest, zipfile
 from pathlib import Path
-from private_build import MARKER, require_public_binary, require_public_artifact, private_source
+from private_build import MARKER, MIX_REFERENCE_HEADER, require_public_binary, require_public_artifact, private_source, public_source_bytes
 class PublicationBoundary(unittest.TestCase):
     def test_private_and_public_binary(self):
         with tempfile.TemporaryDirectory() as d:
@@ -18,6 +18,23 @@ class PublicationBoundary(unittest.TestCase):
         self.assertFalse(private_source('plugins/lemon-master-assistant/Source/PluginProcessor.cpp'))
         self.assertFalse(private_source('crates/os-app/src/master_assistant.rs'))
         self.assertFalse(private_source('crates/os-app/src/master_assistant_disabled.rs'))
+    def test_reference_pack_excluded_by_extension_or_payload(self):
+        pack = MIX_REFERENCE_HEADER + b'{"profiles":{}}'
+        self.assertTrue(private_source('data/Mix References.MLMIXREF'))
+        with self.assertRaises(ValueError):
+            public_source_bytes('data/renamed.json', pack)
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'lemonstudio.exe'
+            binary.write_bytes(b'MZ' + MIX_REFERENCE_HEADER)
+            require_public_binary(binary)
+            binary.write_bytes(b'MZ' + pack)
+            with self.assertRaises(SystemExit):
+                require_public_binary(binary)
+            archive = Path(directory) / 'release.zip'
+            with zipfile.ZipFile(archive, 'w') as output:
+                output.writestr('release/data.bin', pack)
+            with self.assertRaises(SystemExit):
+                require_public_artifact(archive)
     def test_publish_guard_runs_before_credentials_or_network(self):
         import importlib.util,json
         from unittest.mock import patch

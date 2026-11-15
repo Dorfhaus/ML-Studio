@@ -1515,7 +1515,7 @@ Voxengo also publishes per-product download totals on its own pages:
 https://www.voxengo.com/downloads/
 
 Candidates excluded for account/manager flows or lack of a verified direct
-package: Baby Audio freebies, Softube Saturation Knob, iZotope Vinyl, Melda
+package: Baby Audio freebies, Softube Saturation Knob, Melda
 MFreeFXBundle, Kilohearts Essentials and Decent Sampler.
 Valhalla candidates were omitted because an official direct Windows package could
 not be verified through the download workflow in this session. No third-party

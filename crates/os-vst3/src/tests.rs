@@ -513,7 +513,7 @@ mod separate {
     use super::*;
     use crate::mock::{self, Probe, EXTRA, GAIN, MODE, PEAK};
     use os_engine::{HostedEffect, Instrument};
-    use os_host::ParamEvent::{Begin, End, Value};
+    use os_host::ParamEvent::{Begin, End, Sync, Value};
     use os_host::Plugin as _;
 
     fn test_module(probe: &Arc<Probe>) -> Arc<Module> {
@@ -676,6 +676,7 @@ mod separate {
         // The processor's output parameter reaches the controller on idle.
         p.idle();
         assert_eq!(probe.controller().value(PEAK), 1.0);
+        assert_eq!(p.take_param_events(), [Sync(PEAK, 1.0)]);
         // An edit in the plug-in's editor: the gesture for the app, the value for the processor.
         probe.controller().user_edit(GAIN, 0.25);
         assert_eq!(p.take_param_events(), [Begin(GAIN), Value(GAIN, 0.25), End(GAIN)]);

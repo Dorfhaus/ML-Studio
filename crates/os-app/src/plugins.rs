@@ -200,6 +200,7 @@ pub enum Request {
     Detach(usize, bool),
     /// The menu arrow was clicked: open the window menu at this screen point.
     Menu(usize, i32, i32),
+    ExportMp4(usize, i32, i32),
     SidechainMenu(usize,i32,i32),
     /// The title-bar Presets box was clicked: open the preset list at this screen point (spec: plugins/presets.md).
     Presets(usize, i32, i32),
@@ -407,6 +408,9 @@ impl Library for LazyLibrary {
     }
 
     fn create(self: Arc<Self>, id: &str) -> Result<SharedPlugin, String> {
+        if crate::settings_file::flag("external_plugins_disabled", false) {
+            return Err("External plug-ins are disabled for recovery. Enable them in Settings > Plugins and reopen the project to restore them.".into());
+        }
         // A missing dependency can become available after a rescan. Cache successful loads only.
         let real = match self.real.get() {
             Some(lib) => lib.clone(),
@@ -438,6 +442,7 @@ impl Plugins {
         let native_checks = (!cfg!(test)).then(|| os_native::check::Checks::load(os_paths::user_file(NATIVE_CHECKS)));
         let mut effects = builtin_effects();
         effects.extend(crate::master_assistant::available());
+        effects.extend(crate::visualizer::available());
         Plugins { available: builtin(), effects, scale: 1.0, native_checks, ..Plugins::default() }
     }
 
@@ -446,7 +451,7 @@ impl Plugins {
     /// lazily loaded library; plugins no longer found are marked missing (not listed). The first file wins for a
     /// plugin id. Built-in plugins are never replaced.
     pub fn merge(&mut self, cache: &crate::plugin_db::Cache) {
-        let builtin: HashSet<String> = self.available.iter().chain(&self.effects).filter(|a| crate::project_plugins::is_builtin(&a.desc) || crate::master_assistant::is_bundled(&a.desc)).map(|a| a.desc.uid()).collect();
+        let builtin: HashSet<String> = self.available.iter().chain(&self.effects).filter(|a| crate::project_plugins::is_builtin(&a.desc) || crate::master_assistant::is_bundled(&a.desc) || crate::visualizer::is_managed(&a.desc)).map(|a| a.desc.uid()).collect();
         let mut seen: HashSet<String> = builtin.clone();
         for f in cache.files.iter().filter(|f| f.status == crate::plugin_db::Status::Ok) {
             let Some(format) = os_host::Format::parse(&f.format) else { continue };
@@ -531,7 +536,7 @@ impl Plugins {
     pub fn create_with(&mut self, row: usize, index: usize, state: Option<&[u8]>) -> Result<String, String> {
         if let Some(st)=state.filter(|st|os_vst3::ara::State::is(st)) {
             let saved=os_vst3::ara::State::decode(st)?;
-            return self.create_ara(row,&saved.plugin_path,&saved.class_id,&saved.source_path,Some(st));
+            return self.create_ara(row,&saved.plugin_path,&saved.class_id,&saved.source_path,Some(st),None);
         }
         let a = self.available.get(index).ok_or("no such plugin")?.clone();
         self.native_check(&a.desc)?;
@@ -567,10 +572,11 @@ impl Plugins {
         Ok(a.desc.name)
     }
 
-    pub fn create_ara(&mut self,row:usize,path:&Path,id:&str,source:&str,state:Option<&[u8]>)->Result<String,String> {
+    pub fn create_ara(&mut self,row:usize,path:&Path,id:&str,source:&str,state:Option<&[u8]>,owner:Option<(u16,u32)>)->Result<String,String> {
+        if crate::settings_file::flag("external_plugins_disabled", false) { return Err("External ARA plug-ins are disabled for recovery. Enable them in Settings > Plugins and reopen the project.".into()); }
         let saved=state.map(os_vst3::ara::State::decode).transpose()?;
         let module=os_host::guard::catch(||os_vst3::Module::load(path)).map_err(|c|format!("ARA plugin crashed while loading: {}",os_host::guard::describe(c)))??;
-        let plugin=module.create_ara(id,Path::new(&resolve_sample(source)),saved.as_ref())?;
+        let plugin=module.create_ara(id,Path::new(&resolve_sample(source)),saved.as_ref(),owner)?;
         let mut p=plugin.lock().map_err(|_|"ARA editor busy")?;
         if self.rate==0 {self.rate=crate::transport::Transport::device_rate().unwrap_or(48000);}
         if !p.activate(self.rate){return Err("ARA audio renderer could not start".into());}
@@ -1126,6 +1132,12 @@ impl Plugins {
             let _ = std::fs::write(path, format!("plugin={}\nformat={:?}\nfile={}\nscale={k}\ndetached={}\neditor_result={result:?}\n", descriptor.name, descriptor.format, descriptor.path.display(), h.detached));
         }
         let size = result?;
+        #[cfg(windows)]
+        if fx_of(row).is_some() && crate::visualizer::is_managed(&descriptor)
+            && crate::visualizer_video::supported()
+        {
+            w.enable_visual_export();
+        }
         crate::rack_mixer::observe_editor(&descriptor, size, k);
         h.link = fit_editor(&w, size, k);
         if h.name=="ML Wave" {w.enable_wave_zoom();}
@@ -1374,7 +1386,11 @@ impl Plugins {
                     }
                 }
                 #[cfg(plugin_windows)]
-                if let (Some(w), false, Some((ew, eh))) = (&h.window, h.linked(), p.editor_size()) {
+                if let (Some(w), true, Some((ew, eh))) = (
+                    &h.window,
+                    h.link.as_ref().is_none_or(|link| link.resizable().is_none()),
+                    p.editor_size(),
+                ) {
                     let k = w.scale();
                     crate::rack_mixer::observe_editor(p.desc(),(ew,eh),k);
                     let resizable=p.editor_resizable().then_some((1.0, 1.0));
@@ -1399,11 +1415,12 @@ impl Plugins {
                 if let Some(l) = &mut h.link {
                     w.set_page(l.page());
                     w.set_hint(l.hint());
-                    if let Some((lw, lh)) = l.size() {
-                        w.set_editor_size((lw as f32, lh as f32));
+                    if let Some((mw, mh)) = l.resizable() {
+                        if let Some((lw, lh)) = l.size() {
+                            w.set_editor_size((lw as f32, lh as f32));
+                        }
+                        w.set_resizable(Some((mw as f32, mh as f32)));
                     }
-                    // A resizable Lemon plugin (Tesla): the frame's edges resize it.
-                    w.set_resizable(l.resizable().map(|(mw, mh)| (mw as f32, mh as f32)));
                 }
                 let wave=h.name=="ML Wave";
                 for e in w.take_events() {
@@ -1417,11 +1434,11 @@ impl Plugins {
                             l.set_page(*n);
                             continue;
                         }
-                        (FrameEvent::Resize(ew, eh), Some(l)) => {
+                        (FrameEvent::Resize(ew, eh), Some(l)) if l.resizable().is_some() => {
                             l.set_size(*ew, *eh);
                             continue;
                         }
-                        (FrameEvent::Resize(ew, eh), None) => {
+                        (FrameEvent::Resize(ew, eh), _) => {
                             h.pending_editor_resize = Some((*ew, *eh));
                             os_host::wake();
                             continue;
@@ -1452,6 +1469,7 @@ impl Plugins {
                         FrameEvent::Detach(on) => Request::Detach(row, on),
                         FrameEvent::SidechainMenu(x,y)=>Request::SidechainMenu(row,x,y),
                         FrameEvent::Menu(x, y) => Request::Menu(row, x, y),
+                        FrameEvent::ExportMp4(x, y) => Request::ExportMp4(row, x, y),
                         FrameEvent::Presets(x, y) => Request::Presets(row, x, y),
                         FrameEvent::PresetStep(d) => Request::PresetStep(row, d),
                         FrameEvent::DropFile(p) => Request::DropFile(row, p),
@@ -2295,6 +2313,23 @@ pub type ChannelInfoT = ();
 /// (`OS_SHOT_DIR=<dir> OS_CLAP=<Lemon Sampler.clap> cargo test -p os-app plugin_window_shots -- --ignored`).
 #[cfg(all(test, windows))]
 mod tests {
+    #[test]
+    fn recovery_mode_blocks_external_library_before_loading() {
+        let mut app = crate::app::App::new(None);
+        assert!(crate::views::settings::plugin_check(crate::views::settings::SAFE_PLUGIN_CHECK));
+        assert!(crate::views::settings::LIVE.contains(&crate::views::settings::SAFE_PLUGIN_CHECK));
+        app.plugin_check(crate::views::settings::SAFE_PLUGIN_CHECK);
+        let library = std::sync::Arc::new(super::LazyLibrary {
+            path: std::path::PathBuf::from("missing-recovery-fixture.vst3"),
+            format: os_host::Format::Vst3,
+            plugins: Vec::new(), real: Default::default(),
+        });
+        let Err(message) = os_host::Library::create(library, "fixture") else { panic!("external library loaded"); };
+        assert!(message.contains("disabled for recovery"));
+        app.plugin_check(crate::views::settings::SAFE_PLUGIN_CHECK);
+        assert!(!crate::settings_file::flag("external_plugins_disabled", false));
+    }
+
     use super::*;
     use std::ffi::c_void;
     use std::sync::Mutex;

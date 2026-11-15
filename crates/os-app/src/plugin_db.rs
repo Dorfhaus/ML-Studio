@@ -964,6 +964,8 @@ pub struct Progress {
 pub struct Db {
     pub prefs: Prefs,
     pub cache: Cache,
+    /// Catalog rows matched to usable plug-ins by the last scan.
+    pub installed_downloads: HashSet<usize>,
     pub lists: Lists,
     pub blacklisted:Lists,
     /// Every table row (`table`); `rows` = these sorted and filtered.
@@ -984,6 +986,7 @@ impl Default for Db {
         Db {
             prefs: Prefs::default(),
             cache: Cache::default(),
+            installed_downloads: HashSet::new(),
             lists: Lists::default(),
             blacklisted:Lists::default(),
             all_rows: Vec::new(),
@@ -1000,6 +1003,7 @@ impl Default for Db {
 impl Db {
     /// Rebuilds the lists and the table from the plugins the host knows.
     pub fn rebuild(&mut self, plugins: &crate::plugins::Plugins) {
+        self.installed_downloads = crate::plugin_downloads::installed_entries(&self.cache);
         self.lists = lists(&plugins.available, &plugins.effects, &self.prefs, &plugins.missing);
         let mut visible=self.prefs.clone();visible.hidden.clear();visible.combine=false;
         self.blacklisted=lists(&plugins.available,&plugins.effects,&visible,&plugins.missing);

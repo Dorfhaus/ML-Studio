@@ -14,7 +14,7 @@
 use os_dsp::glide::{plugin_limit, Glide};
 
 use super::stereo_enhancer::rate_factor;
-use super::Effect;
+use super::{delay_line::DelayLine, Effect};
 
 /// The settings, in the saved state's order (after the version field).
 pub const PARAMS: usize = 8;
@@ -137,32 +137,6 @@ impl AllPass {
     }
 }
 
-/// A delay line of exactly `d` samples (empty: zeros).
-#[derive(Clone, Debug, Default)]
-struct Line {
-    buf: Vec<f32>,
-    pos: usize,
-}
-
-impl Line {
-    fn new(d: usize) -> Line {
-        Line { buf: vec![0.0; d], pos: 0 }
-    }
-
-    #[inline]
-    fn run(&mut self, x: f32) -> f32 {
-        if self.buf.is_empty() {
-            return x;
-        }
-        let y = std::mem::replace(&mut self.buf[self.pos], x);
-        self.pos += 1;
-        if self.pos == self.buf.len() {
-            self.pos = 0;
-        }
-        y
-    }
-}
-
 pub struct StereoShaper {
     applied: [i32; PARAMS],
     target: [f32; 4],
@@ -171,7 +145,7 @@ pub struct StereoShaper {
     rate: u32,
     /// The rate factor in force when the delay is set.
     c: f32,
-    line: Line,
+    line: DelayLine<f32>,
     /// The delayed channel, and the channel the all-pass acts on: 0 left, 1 right.
     delayed: usize,
     phased: usize,
@@ -194,7 +168,7 @@ impl StereoShaper {
             limit: plugin_limit(rate),
             rate,
             c: rate_factor(rate),
-            line: Line::default(),
+            line: DelayLine::new(rate as usize / 2 + 1),
             delayed: 1,
             phased: 1,
             allpass: None,
@@ -237,7 +211,7 @@ impl StereoShaper {
         self.applied[k] = v;
         match k {
             DELAY => {
-                self.line = Line::new(delay_samples(v, self.c));
+                self.line.set_length(delay_samples(v, self.c));
                 self.delayed = side(v);
             }
             PHASE => {
@@ -256,6 +230,7 @@ impl StereoShaper {
         self.rate = rate;
         self.limit = plugin_limit(rate);
         self.c = rate_factor(rate);
+        self.line.prepare(rate as usize / 2 + 1);
         self.apply(DELAY, self.applied[DELAY]);
         self.allpass = AllPass::new(self.applied[PHASE], rate);
     }
@@ -267,13 +242,13 @@ impl StereoShaper {
 
     /// The delay line and the all-pass memory emptied.
     pub fn clear(&mut self) {
-        self.line = Line::new(self.line.buf.len());
+        self.line.clear();
         self.mem = [0.0; 4];
     }
 
     /// The delay in samples (tests and the editor).
     pub fn delay(&self) -> usize {
-        self.line.buf.len()
+        self.line.len()
     }
 
     /// The all-pass in force (tests and the editor).
@@ -299,7 +274,7 @@ impl StereoShaper {
     #[inline]
     fn effects(&mut self, x: &mut [f32; 2]) {
         let d = self.delayed;
-        x[d] = self.line.run(x[d]);
+        x[d] = self.line.push(x[d]);
         if let Some(ap) = self.allpass {
             let [x1, x2, y1, y2] = self.mem;
             let s = f64::from(x[self.phased]);

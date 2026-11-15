@@ -71,6 +71,7 @@ pub struct LemonLimiter {
     dsp: Dynamics,
     raw_seen: u64,
     flags: u8,
+    peak_guard: bool,
     sidechain: u8,
     /// The look-ahead value in use while the editor holds the attack knob.
     attack: i32,
@@ -85,6 +86,7 @@ impl Default for LemonLimiter {
             dsp: Dynamics::new(44100.0, DEFAULTS, 0),
             raw_seen: u64::MAX,
             flags: 0,
+            peak_guard: false,
             sidechain: 0,
             attack: DEFAULTS[LIM_ATT],
             latency: 0,
@@ -101,6 +103,7 @@ impl LemonLimiter {
         }
         if let Ok(b) = self.params.raw.try_read() {
             self.flags = params::byte(&b, params::FLAGS_BYTE);
+            self.peak_guard = b.ends_with(os_engine::effects::dynamics::PEAK_GUARD_TAG);
             self.sidechain = params::byte(&b, params::SIDECHAIN_BYTE);
             self.raw_seen = v;
         }
@@ -171,6 +174,7 @@ impl Plugin for LemonLimiter {
         self.read_raw();
         let p = self.values();
         self.dsp = Dynamics::new(f64::from(config.sample_rate), p, self.flags);
+        self.dsp.set_peak_guard(self.peak_guard);
         self.latency = self.dsp.latency() as u32;
         ctx.set_latency_samples(self.latency);
         true
@@ -185,6 +189,7 @@ impl Plugin for LemonLimiter {
         let p = self.values();
         self.dsp.set_params(&p);
         self.dsp.set_flags(self.flags);
+        self.dsp.set_peak_guard(self.peak_guard);
         let lat = self.dsp.latency() as u32;
         if lat != self.latency {
             self.latency = lat;

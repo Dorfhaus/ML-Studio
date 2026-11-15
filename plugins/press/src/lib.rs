@@ -203,6 +203,7 @@ impl Plugin for Press {
         self.params.state_version.fetch_add(1, Ordering::AcqRel);
         self.seen = 0;
         self.pick_up_state();
+        self.dsp.prepare_buffer(config.max_buffer_size as usize);
         self.latency = None;
         self.report_latency(|d| ctx.set_latency_samples(d));
         true

@@ -1192,6 +1192,7 @@ pub struct Engine {
     /// from where it starts).
     spans: Vec<(u64, u64)>,
     tempo: f64,
+    tempo_map: Option<os_model::timeline::TempoMap>,
     ppq: u16,
     /// Steps per beat (event 18): the tempo counts beats of this many sixteenths, so the ticks run at `tempo × steps /
     /// 4` quarter notes a minute (`tick_tempo`; spec: audio/timing.md "The tempo counts the bar's beats").
@@ -1303,6 +1304,7 @@ pub struct Engine {
     capture: Option<Vec<Vec<f32>>>,
     capture_speed: Vec<crate::varispeed::Varispeed>,
     capture_tracks: Option<Vec<usize>>,
+    capture_master_input: bool,
     /// Plugin delay compensation: the pads not kept with the tracks, the head of the stream skipped, the values
     /// waiting for late audio (spec: audio/delay-compensation.md).
     pdc: pdc::Pdc,
@@ -1357,6 +1359,9 @@ impl Engine {
         let ppq = project.ppq.max(1);
         // The tempo the ticks run at (spec: audio/timing.md "The tempo counts the bar's beats").
         let tick_tempo = project.tick_tempo(tempo);
+        let tempo_map = (mode == PlayMode::Song
+            && project.arrangement().is_some_and(|a| !a.timeline.tempo.is_empty()))
+            .then(|| project.tempo_map(tempo));
         let n_tracks = project.mixer.len().max(1);
         // The panning law of the channel and mixer track pans (event 23; spec: audio/gain-laws.md "Panning law:
         // Triangular"). Not of other pans: whether it moves them was not measured. An edit is heard from the next tick,
@@ -1585,7 +1590,12 @@ impl Engine {
             .map(|(tick, channel, param, value)| CtlEvent { tick, channel, param, value })
             .collect();
         controls.sort_by_key(|c| c.tick); // stable: equal ticks keep their order
-        let (mut sched, end_tick) = schedule(project, mode, &mut report);
+        let (mut sched, mut end_tick) = schedule(project, mode, &mut report);
+        if mode == PlayMode::Song && let Some(arrangement) = project.arrangement() {
+            let end = arrangement.timeline.videos.iter().map(|video| video.end()).fold(0.0, f64::max);
+            let map = project.tempo_map(tempo);
+            end_tick = end_tick.max(map.tick(end).ceil() as u64);
+        }
         sched.sort_by_key(|s| s.tick);
         let mut mpe=vec![];
         for (row,ch) in project.channels.iter().enumerate(){let config=project.mpe.config(ch.index);if !config.enabled{continue;}let notes=sched.iter().filter(|n|n.channel==row&&n.cut.is_none()&&!n.slide).map(|n|crate::mpe::Scheduled{start:n.tick,end:if n.len>0{n.tick+n.len}else{end_tick.max(n.tick+1)},key:n.key.min(127)as u8,velocity:n.velocity,release:n.release,expression:project.mpe.get(n.expression).map(|e|e.window(0.,if n.expression_len>0{n.len as f32/n.expression_len as f32}else{1.})).unwrap_or_default(),fine:laws::fine_pitch_cents(n.fine)as f32/100.}).collect();mpe.push((row,crate::mpe::Playback::new(config,notes).with_chase(false)));}
@@ -1629,7 +1639,9 @@ impl Engine {
                     buf: 0,
                     shape: n.clip.or_else(|| n.cut.map(|_| ClipFx { fade_in: (0.0,0.0), fade_out: (0.0,0.0), gain: 1.0 })).map(|fx| {
                         let ms = |v: f32| (f64::from(v.max(0.0)) * f64::from(rate) / 1000.0).round() as u64;
-                        let total = Clock::frame_of_tick(rate, ppq, tick_tempo, n.tick + n.len) - Clock::frame_of_tick(rate, ppq, tick_tempo, n.tick);
+                        let frame = |tick| tempo_map.as_ref().map_or_else(
+                            || Clock::frame_of_tick(rate, ppq, tick_tempo, tick), |map| map.frame(tick, rate));
+                        let total = frame(n.tick + n.len) - frame(n.tick);
                         ClipShape {
                             since: 0,
                             age_origin: 0,
@@ -1798,6 +1810,7 @@ impl Engine {
             fade_in: 0,
             fade_len: 0,
             tempo,
+            tempo_map,
             ppq,
             steps: project.bar().1,
             signature: project.signature().unwrap_or_else(|| {
@@ -1856,6 +1869,7 @@ impl Engine {
             capture: None,
             capture_speed: Vec::new(),
             capture_tracks: None,
+            capture_master_input: false,
             pdc,
             pad_buf: Vec::new(),
             main_unity: main_volume == os_model::Project::MAIN_VOLUME_DEFAULT,
@@ -2091,6 +2105,12 @@ impl Engine {
 
     /// Keeps every mixer track's post-fader output (before its sends) from now on: `take_track_audio` hands it over.
     pub fn set_capture_tracks(&mut self, tracks: Option<Vec<usize>>) { self.capture_tracks = tracks; }
+
+    /// During offline analysis, capture the signal entering the Master in track 0.
+    /// The regular render still emits the processed Master output.
+    pub fn capture_master_input(&mut self) {
+        self.capture_master_input = true;
+    }
 
     pub fn set_track_capture(&mut self, on: bool) {
         self.capture = on.then(|| vec![Vec::new(); self.tracks.len()]);
@@ -2375,7 +2395,7 @@ impl Engine {
 
     /// The song's end in frames at the project tempo (voices may ring past it).
     pub fn length(&self) -> u64 {
-        Clock::frame_of_tick(self.rate, self.ppq, self.tick_tempo(), self.end_tick)
+        self.frame_at_tick(self.end_tick)
     }
 
     /// Frames from where playback starts (`seek_tick`, `set_span`, `follow_markers`) to the song's end (voices may ring
@@ -2391,6 +2411,22 @@ impl Engine {
             c.advance();
         }
         c.next_start() - from
+    }
+
+    fn frame_at_tick(&self, tick: u64) -> u64 {
+        self.tempo_map.as_ref().map_or_else(
+            || Clock::frame_of_tick(self.rate, self.ppq, self.tick_tempo(), tick),
+            |map| map.frame(tick, self.rate),
+        )
+    }
+
+    fn clock_at_tick(&self, tick: u64) -> Clock {
+        let Some(map) = &self.tempo_map else {
+            return Clock::at_tick(self.rate, self.ppq, self.tick_tempo(), tick);
+        };
+        let seconds = map.seconds(tick as f64);
+        let length = map.seconds((tick + 1) as f64) - seconds;
+        Clock::at_position(tick, seconds * f64::from(self.rate), length * f64::from(self.rate))
     }
 
     /// The tempo the ticks run at, in quarter notes a minute (`Project::tick_tempo`).
@@ -2443,7 +2479,14 @@ impl Engine {
     /// Start playback in the tick that contains `frame` (at the project tempo; notes before that tick as `seek_tick`
     /// has them).
     pub fn seek(&mut self, frame: u64) {
-        let (tick, _) = Clock::tick_of_frame(self.rate, self.ppq, self.tick_tempo(), frame);
+        let tick = if let Some(map) = &self.tempo_map {
+            let guess = map.tick(frame as f64 / f64::from(self.rate)).floor() as u64;
+            if map.frame(guess + 1, self.rate) <= frame { guess + 1 }
+            else if map.frame(guess, self.rate) > frame { guess.saturating_sub(1) }
+            else { guess }
+        } else {
+            Clock::tick_of_frame(self.rate, self.ppq, self.tick_tempo(), frame).0
+        };
         self.seek_tick(tick);
     }
 
@@ -2457,7 +2500,7 @@ impl Engine {
         }
         self.sampler_echoes.clear();
         self.sampler_echo_count = 0;
-        self.clock = Clock::at_tick(self.rate, self.ppq, self.tick_tempo(), tick);
+        self.clock = self.clock_at_tick(tick);
         self.tick = tick;
         self.landed = true;
         self.pause_at = None;
@@ -2500,7 +2543,7 @@ impl Engine {
     /// advanced by the time since their start; a clip whose sample has run out by then stays silent (spec:
     /// audio/audio-clips.md, "Starting inside a clip"). Notes of pattern clips are not started late.
     fn clips_under_way(&self, tick: u64) -> Vec<Trigger> {
-        let frame = |t: u64| Clock::frame_of_tick(self.rate, self.ppq, self.tick_tempo(), t);
+        let frame = |t: u64| self.frame_at_tick(t);
         let at = frame(tick);
         self.triggers[..self.next_trigger]
             .iter()
@@ -2614,12 +2657,14 @@ impl Engine {
             std::mem::swap(&mut self.tap_clicks, &mut old.tap_clicks);
         }
         let tick = old.tick;
-        self.clock = if self.rate == old.rate && self.ppq == old.ppq {
+        self.clock = if self.tempo_map != old.tempo_map && (self.tempo_map.is_some() || old.tempo_map.is_some()) {
+            self.clock_at_tick(tick)
+        } else if self.rate == old.rate && self.ppq == old.ppq {
             let mut c = old.clock;
             c.set_tempo(self.rate, self.ppq, self.tick_tempo());
             c
         } else {
-            Clock::at_tick(self.rate, self.ppq, self.tick_tempo(), tick)
+            self.clock_at_tick(tick)
         };
         self.tick = tick;
         self.frame = self.clock.next_start();
@@ -3061,8 +3106,8 @@ impl Engine {
                     }
                 }
             }
-            // A slot's switch: on when Round(v) = 1 (half to even). An insert whose slots all go off, or one comes on
-            // again, has its delay compensation worked out again with the next tick.
+            // A slot's switch: on when Round(v) = 1 (half to even). Replan compensation before
+            // processing the changed chain, even when its other slots remain enabled.
             Target::SlotOn(t, s) => {
                 if let Some(m) = self.tracks.get_mut(usize::from(t)) {
                     m.set_slot_on(usize::from(s), v.round_ties_even() == 1.0);
@@ -3084,6 +3129,8 @@ impl Engine {
             // The tempo for the ticks after this one: BPM = (10000 + Round(single(v) * 512000)) / 1000 (spec:
             // audio/timing.md "Tempo that changes"; this tick's length was settled before).
             Target::Tempo => {
+                // The dedicated song tempo track is authoritative when populated.
+                if self.tempo_map.is_some() { return; }
                 let bpm = (10000.0 + (f64::from(v as f32) * 512000.0).round_ties_even()) / 1000.0;
                 if bpm != self.tempo {
                     self.tempo = bpm;
@@ -3207,10 +3254,15 @@ impl Engine {
         let tick = self.tick;
         // The song already ended by the tail rule: only what delay compensation skipped at the head still follows.
         let was_done = self.tail_done;
+        if let Some(map) = &self.tempo_map {
+            self.tempo = map.bpm(tick as f64);
+            let seconds = map.seconds((tick + 1) as f64) - map.seconds(tick as f64);
+            self.clock.set_samples_per_tick(seconds * f64::from(self.rate) / (1.0 + NUDGE * f64::from(self.nudged)));
+        }
         let (start, len) = self.clock.advance();
         let song = self.transport_at(start);
-        // A delay that changed, or an insert whose slots all went off, works the pads out again before this tick's
-        // values arrive; on the first tick they are worked out after its slot values.
+        // Apply reported latency changes before scheduling automation against the new delays.
+        // Then also account for bypass changes made by this tick's automation before rendering.
         self.check_delays();
         self.run_controls();
         self.run_automation(len);
@@ -3222,6 +3274,8 @@ impl Engine {
         }
         if self.pdc.first {
             self.first_plan();
+        } else {
+            self.check_delays();
         }
         // One tick before the song's end every note still sounding is released (spec: audio/timing.md).
         let song_end = !self.looping && !self.live_only && self.end_tick > 0 && tick + 1 == self.end_tick;
@@ -4125,7 +4179,17 @@ impl Engine {
         m.polarity = settings.polarity;
         m.swap = settings.swap;
         m.matrix = m.compute_matrix();
-        if m.slots_enabled != settings.slots_enabled { m.slots_enabled = settings.slots_enabled; self.pdc.switched = true; }
+        if m.slots_enabled != settings.slots_enabled {
+            m.slots_enabled = settings.slots_enabled;
+            // Re-enabled effects must not replay audio buffered before the chain was bypassed.
+            // The separate EQ and strip kept running, so preserve their state.
+            if m.slots_enabled {
+                for fx in m.effects.iter_mut().filter(|f| f.slot != 10 && Some(f.slot) != m.strip_slot) {
+                    fx.fresh = true;
+                }
+            }
+            self.pdc.switched = true;
+        }
         if m.strip_bypassed != settings.strip_bypassed { m.strip_bypassed = settings.strip_bypassed; self.pdc.due = true; }
         let latency = (settings.latency_out, settings.latency_in);
         if m.latency != latency { m.latency = latency; self.pdc.due = true; }
@@ -4299,6 +4363,9 @@ impl Engine {
                 self.params.deliver_slots(t, &self.tracks[t].effects);
             }
             let mut buf = std::mem::take(&mut self.bus[t]);
+            if self.capture_master_input && t == 0 {
+                self.capture_mix_track(t, frames, &buf);
+            }
             let rate = self.rate;
             let (dry, l, r) = (&mut self.fx_dry, &mut self.scratch.0, &mut self.scratch.1);
             let busy = (&mut self.busy_until, self.busy_wait, self.exporting, &mut self.missed);
@@ -4340,7 +4407,9 @@ impl Engine {
                 k.clear();
                 k.extend_from_slice(&buf);
             }
-            self.capture_mix_track(t, frames, &buf);
+            if !self.capture_master_input || t != 0 {
+                self.capture_mix_track(t, frames, &buf);
+            }
             let mut add = |dest: usize, signal: &[f32]| {
                 for (d, s) in self.bus[dest].iter_mut().zip(signal) { *d += *s; }
             };
@@ -4409,7 +4478,7 @@ impl Engine {
             if to == 0 {
                 self.clock.restart();
             } else {
-                self.clock = Clock::at_tick(self.rate, self.ppq, self.tick_tempo(), to);
+                self.clock = self.clock_at_tick(to);
             }
         }
         self.tick = to;
@@ -5024,17 +5093,23 @@ fn push_note(out: &mut Vec<Sched>, start: i64, n: &os_model::Note, project: &Pro
 /// tick its pattern time starts at, its own end on the song, and the tick from which it starts no more notes (the
 /// next clip of the same pattern taking the pattern over, or its end).
 #[derive(Debug, Clone, Copy)]
-struct PatternPlay {
-    rate:f64,
-    pattern: u16,
-    from: u64,
-    len: u64,
+pub struct PatternPlay {
+    pub clip: usize,
+    pub rate:f64,
+    pub pattern: u16,
+    pub from: u64,
+    pub len: u64,
     origin: i64,
-    end: u64,
-    starts_until: u64,
+    pub end: u64,
+    pub starts_until: u64,
 }
 
 impl PatternPlay {
+    /// Convert unswung pattern time to Playlist time. Score notation keeps performance timing separate.
+    pub fn song_tick(self, tick: u64) -> u64 {
+        self.scaled_tick(self.origin + tick as i64).max(0) as u64
+    }
+
     fn scaled_tick(self,tick:i64)->i64 {
         let start=self.origin+self.from as i64;
         start+((tick-start) as f64/self.rate).round() as i64
@@ -5073,7 +5148,7 @@ fn pattern_plays(project: &Project, clips: &[os_model::Clip]) -> Vec<PatternPlay
         .collect();
     list.sort_by_key(|&(i, c, n)| (n, c.position, i));
     let mut out = Vec::new();
-    for (k, &(_, c, n)) in list.iter().enumerate() {
+    for (k, &(clip, c, n)) in list.iter().enumerate() {
         let later = &list[k + 1..];
         if later.first().is_some_and(|&(_, d, m)| m == n && d.position == c.position) {
             continue;
@@ -5085,9 +5160,14 @@ fn pattern_plays(project: &Project, clips: &[os_model::Clip]) -> Vec<PatternPlay
         let start = u64::from(c.position);
         let end = start + (len as f64/c.pattern_rate()).round() as u64;
         let takeover = later.iter().take_while(|&&(_, _, m)| m == n).map(|&(_, d, _)| u64::from(d.position)).find(|&p| p > start);
-        out.push(PatternPlay { rate:c.pattern_rate(), pattern: n, from, len, origin: i64::from(c.position) - from as i64, end, starts_until: end.min(takeover.unwrap_or(u64::MAX)) });
+        out.push(PatternPlay { clip, rate:c.pattern_rate(), pattern: n, from, len, origin: i64::from(c.position) - from as i64, end, starts_until: end.min(takeover.unwrap_or(u64::MAX)) });
     }
     out
+}
+
+/// The same audible pattern placements used for song playback, indexed into the active arrangement.
+pub fn arrangement_pattern_plays(project: &Project) -> Vec<PatternPlay> {
+    project.arrangement().map_or_else(Vec::new, |arr| pattern_plays(project, &arr.clips))
 }
 
 /// Channel control points as (tick, channel, parameter, value): a pattern's own, or those of every
@@ -5240,6 +5320,38 @@ fn schedule(project: &Project, mode: PlayMode, report: &mut EngineReport) -> (Ve
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scoring_tempo_map_drives_engine_clock_and_seek() {
+        use os_model::{Clip, ClipSource, timeline::TempoPoint};
+        let mut project = os_model::Project { ppq: 96, tempo: Some(120.0), ..Default::default() };
+        let mut arrangement = os_model::Arrangement::default();
+        arrangement.clips.push(Clip::new(0, 384, 0, ClipSource::Pattern(1)));
+        arrangement.timeline.tempo = vec![
+            TempoPoint { tick: 0, bpm: 120.0, ramp: true, ramp_end: None },
+            TempoPoint { tick: 192, bpm: 60.0, ramp: false, ramp_end: None },
+        ];
+        project.arrangements.push(arrangement);
+        let seconds_at_192 = 2.0 * 2.0_f64.ln();
+        let at_192 = (seconds_at_192 * 48_000.0).round_ties_even() as u64;
+        let mut library = crate::sample::SampleLibrary::new(None);
+        let mut engine = Engine::new(&project, &mut library, 48000, PlayMode::Song);
+        assert_eq!(engine.frame_at_tick(192), at_192);
+        assert_eq!(engine.frame_at_tick(384), at_192 + 96_000);
+        for _ in 0..192 { engine.render_tick(); }
+        assert_eq!(engine.clock.next_start(), at_192);
+        engine.seek(at_192);
+        assert_eq!(engine.tick, 192);
+        engine.render_tick();
+        assert_eq!(engine.tempo(), 60.0);
+        assert_eq!(engine.clock.next_start(), at_192 + 500);
+        let map = project.tempo_map(120.0);
+        let points = map.warp(&project.arrangements[0].timeline.tempo, 384, 3.8).unwrap();
+        let warped = os_model::timeline::TempoMap::new(96, 4, 120.0, &points);
+        assert!((warped.seconds(192.0) - seconds_at_192).abs() < 1e-10);
+        assert!((warped.seconds(384.0) - 3.8).abs() < 1e-10);
+    }
+
+
     // spec: audio/pattern-controls.md (note repeat and channel control points, measured in FL)
     use super::*;
     use os_model::{Channel, Note, Pattern};

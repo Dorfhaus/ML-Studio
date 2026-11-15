@@ -781,6 +781,9 @@ pub struct State {
     pub frames: usize,
     pub rate: u32,
     pub fingerprint: u64,
+    /// Playlist arrangement and occurrence ID for clip-local editing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<(u16, u32)>,
     #[serde(skip)]
     pub archive: Vec<u8>,
 }
@@ -788,6 +791,13 @@ impl State {
     const MAGIC: &'static [u8] = b"LEMONARA1\n";
     pub fn is(bytes: &[u8]) -> bool {
         bytes.starts_with(Self::MAGIC)
+    }
+    pub fn owner(bytes: &[u8]) -> Option<(u16, u32)> {
+        let header = bytes.strip_prefix(Self::MAGIC)?;
+        let size = u32::from_le_bytes(header.get(..4)?.try_into().ok()?) as usize;
+        let end = 4 + size.min(65_536);
+        let value: serde_json::Value = serde_json::from_slice(header.get(4..end)?).ok()?;
+        serde_json::from_value(value.get("owner")?.clone()).ok()
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
         let bytes = bytes
@@ -845,6 +855,7 @@ impl Module {
         id: &str,
         source: &std::path::Path,
         saved: Option<&State>,
+        owner: Option<(u16, u32)>,
     ) -> Result<os_host::SharedPlugin, String> {
         let sample = os_engine::sample::load_shared(source).map_err(|e| e.to_string())?;
         let guard = os_host::guard::module_of(self.code as *const c_void);
@@ -862,7 +873,9 @@ impl Module {
    }
    let doc=Document::with_archive(self,id,sample,saved.map(|s|s.archive.as_slice()),saved.map(|s|s.archive_id.as_str()))?;
    let mut p=crate::Plugin::construct(self,id,Some(doc))?;
-   p.ara_source=Some(source.to_string_lossy().into_owned());Ok(p)
+   p.ara_source=Some(source.to_string_lossy().into_owned());
+   p.ara_owner=owner.or_else(||saved.and_then(|s|s.owner));
+   Ok(p)
   }).map_err(|c|os_host::guard::stopped_text("ARA editor",c))??;
         Ok(os_host::share(plugin, guard))
     }
@@ -976,6 +989,7 @@ mod tests {
             frames: 2,
             rate: 48000,
             fingerprint: 55,
+            owner: Some((1, 9)),
             archive: vec![0, 255, 1, 42],
         };
         let bytes = s.encode().unwrap();

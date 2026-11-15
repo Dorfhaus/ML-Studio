@@ -50,8 +50,13 @@ impl Drop for Session {
     }
 }
 pub fn request(app: &mut App, index: usize) {
+    request_mode(app, index, false);
+}
+
+pub fn request_mode(app: &mut App, index: usize, deverb: bool) {
     let result = (|| -> Result<Session, String> {
-        if !crate::workspace_visibility::shown(tesla::cleanup::VISIBILITY) {
+        let visibility = if deverb { tesla::cleanup::DEVERB_VISIBILITY } else { tesla::cleanup::VISIBILITY };
+        if !crate::workspace_visibility::shown(visibility) {
             return Err("Enable Tesla audio cleanup in Workspace Visibility.".into());
         }
         let clip = pl::clips(&app.state)
@@ -98,6 +103,7 @@ pub fn request(app: &mut App, index: usize) {
             stamp: (metadata.len(), metadata.modified().ok()),
         };
         let (id, link) = tesla::cleanup_link::create();
+        link.deverb.store(deverb, Ordering::Release);
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = std::panic::catch_unwind(|| tesla::editor::load_file(&path))
@@ -116,7 +122,7 @@ pub fn request(app: &mut App, index: usize) {
     match result {
         Ok(session) => {
             app.clip_cleanups.push(session);
-            app.state.message = Some("Opening clip in Tesla Cleanup…".into());
+            app.state.message = Some(if deverb { "Opening clip in Tesla Deverb…" } else { "Opening clip in Tesla Cleanup…" }.into());
         }
         Err(e) => app.state.message = Some(e),
     }

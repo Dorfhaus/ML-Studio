@@ -17,8 +17,11 @@ pub(super) fn paint(ui:&mut Ui,s:&State,outer:Rect) {
     let r=super::super::float_frame(ui,s,Win::Mixer,outer).unwrap_or(outer);
     let title=format!("{} - {}", crate::prefs::language::Language::current().text("Mixer"), mx::name(s, s.selected_mixer));
     super::super::window_frame_ex(ui,Win::Mixer,r,"",0.,false,true);
-    title_tools(ui,s,r);
-    ui.c.text_clip(Font::vintage(12),r.x+108.,r.y+4.,(r.w-178.).max(0.),ui.t.text,&title);
+    let after_tools = title_tools(ui, s, r, r.right() - 72.0);
+    if mx::selected(s).len() == 1 {
+        ui.c.text_clip(Font::vintage(12), after_tools, r.y + 4.0,
+            (r.right() - 72.0 - after_tools).max(0.0), ui.t.text, &title);
+    }
     window_buttons(ui,Win::Mixer,r.right()-64.,r.y,ui.t.text_dim,ui.t.glyph);
     let panel = Rect::new(r.x, r.y, 221.0, r.h);
     ui.part(crate::app::Seg::MixerInspector, panel, |ui| inspector(ui, s, panel));
@@ -78,9 +81,7 @@ fn strip(ui:&mut Ui,s:&State,n:u16,r:Rect,window:Rect) {
     let header = Rect::new(r.x + 2.0, r.y + 2.0, r.w - 4.0, 54.0);
     let shade = Color::rgb(0x222c32);
     ui.c.fill_rect_gradient(header, shade.with_alpha(164), shade.with_alpha(0), 0.0);
-    if n != 0 && crate::workspace_visibility::shown("visible_mixer-drag-handles") {
-        super::drag_handle(ui,n,Rect::new(r.x+2.,r.y+1.,r.w-4.,10.));
-    } else if n != 0 {
+    if n != 0 {
         ui.c.text_center(Font::vintage(8).bold(), Rect::new(r.x, r.y + 1.0, r.w, 10.0),
             Color::rgb(0xb5c2c4), "FX");
     }

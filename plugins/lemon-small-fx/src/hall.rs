@@ -338,6 +338,7 @@ pub const SPEC: &Spec = &Spec {
     word: "HALL",
     about: "Hall reverb powered by Dragonfly / Freeverb3 — GPL-3.0-or-later",
     settings: &SETTINGS,
+    studio_settings: 0,
     version: Some(1),
     any_version: false,
     fields: &[],

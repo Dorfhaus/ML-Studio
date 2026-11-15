@@ -215,6 +215,7 @@ impl App {
     /// the built-in project `App::new` made; Last used project opens the project file last opened or saved, else (and
     /// for Default template) FILE ▸ New's project.
     pub fn startup_project(&mut self) {
+        if self.offer_recovery() { return; }
         let choice = prefs::index(&prefs::STARTUP_PROJECT);
         if choice == 0 {
             return;
@@ -373,7 +374,7 @@ mod tests {
         // The settings page's combo shows the pick and opens the tree.
         if let Ok(mut c) = os_ui::Canvas::new(1920, 1080, 1.0) {
             app.state.playlist.popup = None;
-            app.state.settings.folded.extend(["Display", "Language", "Input", "Undo history", "Hints and warnings"]);
+            app.state.settings.folded.insert("Startup and templates");
             app.paint(&mut c, None);
             let h = app.hits.iter().rev().find(|h| matches!(&h.action, Action::Settings(SAct::Combo(l, ..)) if *l == settings::DEFAULT_TEMPLATE));
             assert!(h.is_some(), "the combo works");
@@ -684,18 +685,19 @@ mod public_tests {
         let mut plugins=crate::plugins::Plugins::builtins();let mut count=0;
         for m in &p.mixer {for (k,fx) in m.slots.iter().enumerate().filter_map(|(k,s)|s.as_ref().map(|s|(k,s))) {
             let reference=os_flp::wrapper::decode(&fx.state).unwrap();assert!(!reference.path.contains(':'));
-            assert!(["ML Reverb","ML Delay","ML Limiter"].contains(&reference.name.as_str()));
-            let index=plugins.effects.iter().position(|a|a.desc.name==reference.name).unwrap();
+            let name = crate::plugins::canonical_name(&reference.name);
+            assert!(["ML Reverb","ML Delay","ML Limiter"].contains(&name));
+            let index=plugins.effects.iter().position(|a|a.desc.name==name).unwrap();
             plugins.create_effect(m.index,k as u8,index,Some(&reference.state)).unwrap();
             let label=m.name.as_deref().unwrap();
-            if reference.name=="ML Delay" {
+            if name=="ML Delay" {
                 let raw=lemon_delay::params::fl_from_plugin_state(&reference.state).unwrap();let settings=d::Settings::from_state(&raw).unwrap();
                 if label!="SLAP" {assert_eq!(settings.v[d::TYPE],d::PING_PONG);assert_eq!(settings.v[d::SYNC],1);
                     let beats=match label {"1/8"=>0.5,"1/4"=>1.0,"1/2"=>2.0,_=>panic!()};
                     for bpm in [90.0,120.0,150.0] {assert!((d::delay_seconds(d::norm(d::TIME,settings.v[d::TIME]),true,bpm)-beats*60.0/bpm).abs()<1e-7);}
                 }
             }
-            if reference.name=="ML Limiter" {
+            if name=="ML Limiter" {
                 let ports=os_flp::wrapper::input_ports(&fx.state);assert!(ports[1]>0);
                 let incoming:Vec<_>=p.mixer.iter().filter(|t|t.index!=m.index&&t.routes.contains(&m.index)).collect();
                 assert_eq!(incoming[ports[1] as usize-1].name.as_deref(),Some("Vocal Mix"));

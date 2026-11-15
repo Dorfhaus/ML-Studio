@@ -83,6 +83,7 @@ pub const SPEC: &Spec = &Spec {
     word: "STEREO SHAPER",
     about: "ML Studio's stereo shaper",
     settings: &SETTINGS,
+    studio_settings: 0,
     version: Some(dsp::VERSION),
     any_version: true,
     fields: &FIELDS,

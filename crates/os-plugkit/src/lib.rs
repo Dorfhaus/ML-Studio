@@ -169,3 +169,5 @@ mod tests {
         assert_eq!(o.row, [10, 20 + 60, 310, 20 + 92]);
     }
 }
+
+pub mod visibility;

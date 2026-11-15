@@ -62,7 +62,7 @@ impl Drop for Job {
 }
 enum Event {
     Phase(String),
-    Done(Result<PathBuf>),
+    Done(Result<tempfile::TempDir>),
 }
 fn root() -> Result<PathBuf> {
     Ok(os_paths::user_dir()
@@ -276,7 +276,12 @@ pub fn tick(app: &mut App) {
             app.state.message =
                 Some("Stem separation cancelled; the original sample is unchanged".into());
         } else {
-            match result.and_then(|out| import(&mut app.state,job.clip,job.original.clone(),&job.channel,&out,job.selected)) {
+            match result.and_then(|out| {
+                io(crate::job_scratch::unmark(&out))?;
+                import(&mut app.state, job.clip, job.original.clone(), &job.channel, out.path(), job.selected)?;
+                let _ = out.keep();
+                Ok(())
+            }) {
             Ok(())=>app.state.message=Some(format!("Stems ready: {}. Original clip muted; Undo restores it.", names(job.selected))),
             Err(e)=>error(app,&format!("{e}\n\nYour original sample is unchanged. Choose Stem separation again to retry. Details are in the Stem separation folder's setup.log.")),
         }
@@ -315,7 +320,7 @@ fn import(
     if pl::clips(s).get(i) != Some(&original)
         || s.project.channels.iter().find(|c| c.index == channel.index) != Some(channel)
     {
-        return Err("The source clip changed during separation. The completed WAV files are saved in the Stem separation folder.".into());
+        return Err("The source clip changed during separation. Start the separation again from the updated clip.".into());
     }
     if selected == 0 || selected & !15 != 0 {
         return Err("Choose at least one stem".into());
@@ -398,7 +403,7 @@ fn command(exe: &Path, root: &Path) -> Command {
     let mut c = Command::new(exe);
     c.current_dir(root)
         .env("UV_PYTHON_INSTALL_DIR", root.join("python"))
-        .env("UV_CACHE_DIR", root.join("cache"))
+        .env("UV_NO_CACHE", "1")
         .env("UV_PYTHON_PREFERENCE", "only-managed")
         .env("UV_NO_CONFIG", "1")
         .env("PYTHONNOUSERSITE", "1")
@@ -420,14 +425,34 @@ fn command(exe: &Path, root: &Path) -> Command {
 }
 fn run(mut c: Command, root: &Path, stop: &AtomicBool) -> Result<()> {
     check(stop)?;
-    let log = io(fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(root.join("setup.log")))?;
-    c.stdout(Stdio::from(io(log.try_clone())?))
-        .stderr(Stdio::from(log))
+    use std::io::{Read, Write};
+    const LOG_LIMIT: u64 = 2 * 1024 * 1024;
+    let path = root.join("setup.log");
+    if fs::metadata(&path).is_ok_and(|m| m.len() >= LOG_LIMIT / 2) {
+        // Keep one bounded previous log. Discard an oversized log from an older build.
+        let old = root.join("setup.previous.log");
+        let _ = fs::remove_file(&old);
+        if fs::metadata(&path).is_ok_and(|m| m.len() <= LOG_LIMIT) {
+            io(fs::rename(&path, old))?;
+        } else {
+            io(fs::remove_file(&path))?;
+        }
+    }
+    let log = io(fs::OpenOptions::new().create(true).append(true).open(path))?;
+    let remaining = LOG_LIMIT.saturating_sub(io(log.metadata())?.len());
+    let (reader, writer) = io(std::io::pipe())?;
+    c.stdout(Stdio::from(io(writer.try_clone())?))
+        .stderr(Stdio::from(writer))
         .stdin(Stdio::null());
     let mut child = io(c.spawn())?;
+    drop(c); // Close the parent's pipe writers before draining the child.
+    let output = std::thread::spawn(move || {
+        let mut reader = reader.take(remaining);
+        let mut log = std::io::BufWriter::new(log);
+        let _ = std::io::copy(&mut reader, &mut log);
+        let _ = log.flush();
+        let _ = std::io::copy(&mut reader.into_inner(), &mut std::io::sink());
+    });
     #[cfg(windows)]
     let _guard = ProcessGroup::attach(&child);
     loop {
@@ -449,9 +474,11 @@ fn run(mut c: Command, root: &Path, stop: &AtomicBool) -> Result<()> {
             }
             let _ = child.kill();
             let _ = child.wait();
+            let _ = output.join();
             return Err("Cancelled".into());
         }
         if let Some(status) = io(child.try_wait())? {
+            let _ = output.join();
             return if status.success() {
                 Ok(())
             } else {
@@ -570,6 +597,7 @@ fn install(root: &Path, stop: &AtomicBool, tx: &mpsc::Sender<Event>) -> Result<(
             .arg(&member);
         run(c, root, stop)?;
     }
+    let _ = fs::remove_file(&archive);
     phase(tx, "Downloading the private Python runtime...");
     let mut c = command(&uv, root);
     c.args(["python", "install", "3.11.14", "--no-bin"]);
@@ -659,7 +687,7 @@ fn work(
     stop: &AtomicBool,
     tx: &mpsc::Sender<Event>,
     selected: u8,
-) -> Result<PathBuf> {
+) -> Result<tempfile::TempDir> {
     check(stop)?;
     io(fs::create_dir_all(root))?;
     let lock = io(fs::OpenOptions::new()
@@ -691,14 +719,12 @@ fn work(
     if sample.frames() == 0 {
         return Err("The sample is empty".into());
     }
-    let id = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let out = root
-        .join("Separated")
-        .join(format!("{}-{id}", std::process::id()));
-    io(fs::create_dir_all(&out))?;
+    let separated = root.join("Separated");
+    io(fs::create_dir_all(&separated))?;
+    let staging = io(crate::job_scratch::create(
+        &separated, "stems", &["source.wav", "vocals.wav", "drums.wav", "bass.wav", "other.wav"],
+    ))?;
+    let out = staging.path();
     let wav = out.join("source.wav");
     let mut f = std::io::BufWriter::new(io(fs::File::create(&wav))?);
     io(os_engine::wav::write_f32_stereo_header(
@@ -718,7 +744,7 @@ fn work(
     drop(sample);
     phase(tx, &format!("Separating {}...", names(selected)));
     let mut c = command(&python(root), root);
-    c.arg(root.join("separate.py")).arg(&wav).arg(&out).arg(
+    c.arg(root.join("separate.py")).arg(&wav).arg(out).arg(
         indices(selected)
             .map(|n| STEMS[n])
             .collect::<Vec<_>>()
@@ -744,7 +770,7 @@ fn work(
             return Err("The separated audio failed validation".into());
         }
     }
-    Ok(out)
+    Ok(staging)
 }
 
 #[cfg(test)]
@@ -911,7 +937,8 @@ mod tests {
         let stop = AtomicBool::new(false);
         let (tx, _) = mpsc::channel();
         for mask in [1u8, 2, 9] {
-            let out = work(&root, &dir.join("input.wav"), false, &stop, &tx, mask).unwrap();
+            let scratch = work(&root, &dir.join("input.wav"), false, &stop, &tx, mask).unwrap();
+            let out = scratch.path();
             for (n, stem) in STEMS.iter().enumerate() {
                 assert_eq!(
                     out.join(format!("{stem}.wav")).exists(),
@@ -942,7 +969,8 @@ mod tests {
         let result = work(&root, &dir.join("input.wav"), true, &stop, &tx, 15);
         drop(tx);
         progress.join().unwrap();
-        let out = result.unwrap();
+        let scratch = result.unwrap();
+        let out = scratch.path();
         assert!(ready(&root));
         let first = fs::metadata(root.join("ready.txt"))
             .unwrap()
@@ -1038,5 +1066,7 @@ pub(crate) fn separate_for_chop(input: &str, stop: &AtomicBool) -> Result<[Strin
     if !ready(&root) { return Err("Set up Stem separation from an audio clip in ML Studio first, then retry here.".into()); }
     let (tx, _rx) = mpsc::channel();
     let out = work(&root, Path::new(input), false, stop, &tx, 15)?;
+    io(crate::job_scratch::unmark(&out))?;
+    let out = out.keep();
     Ok(std::array::from_fn(|n| out.join(format!("{}.wav", STEMS[n])).to_string_lossy().into_owned()))
 }

@@ -8,6 +8,8 @@
 
 #[path = "playlist_wave.rs"]
 mod wave_cache;
+mod transpose;
+pub(crate) const TRANSPOSE_VISIBILITY: &str = "visible_playlist-transpose";
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -214,6 +216,9 @@ pub enum Mark {
 /// Commands of the playlist's popup menus (§10).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cmd {
+    Transpose(i32),
+    Scoring(crate::scoring::Command),
+    Visual(crate::visual_scenes::Command),
     HeaderDrop(crate::playlist_tracks::drops::Command),
     #[cfg(plugin_windows)]
     SamplerTrack(crate::route_picker::SamplerTrackCommand),
@@ -318,6 +323,7 @@ pub enum Cmd {
     ClipDelete(usize),
     ClipUnique(usize),
     CleanupAudio(usize),
+    DeverbAudio(usize),
     ClipSession(usize),
     ClipEditSource(usize),
     ClipSelectSimilar(usize),
@@ -418,6 +424,7 @@ pub enum Cmd {
     /// file... (spec: ui/midi-files.md §1).
     MidiImport(bool),
     MidiExport(bool),
+    Score(crate::notation::Command),
     /// The Arpeggiate dialog's menus (spec: ui/piano-arpeggiate.md §1).
     Arp(crate::arpeggiate::ACmd),
     /// FILE ▸ Recent projects ▸ More: open recent project `n` (spec: ui/recent-projects.md §2).
@@ -609,6 +616,13 @@ pub enum EditTarget {
     /// The value box of "Type in value..." and whether it reads normalized values (spec: ui/type-in-value.md).
     TypeIn(crate::typein::Target, bool),
     Tempo,
+    TimelineTempo(u32),
+    TimelineTempoPosition(u32),
+    TimelineChord(u32),
+    TimelineVideoStart(usize),
+    VisualText(crate::visual_scenes::Key, bool),
+    VisualValue(crate::visual_scenes::Key, crate::visual_scenes::Parameter),
+    TimelineMarkerSeconds(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -669,6 +683,8 @@ pub(crate) struct PlacementEdge {
 }
 
 pub struct PlaylistState {
+    pub scoring: crate::scoring::Controls,
+    pub visuals: crate::visual_scenes::Controls,
     pub attached: Option<crate::attached_mixer::Attached>,
     pub(crate) inspector_layouts: crate::attached_mixer::InspectorLayouts,
     pub(crate) placement_edge: Option<PlacementEdge>,
@@ -798,6 +814,8 @@ impl Default for PlaylistState {
             row_h: ROW_H,
             last_header: None,
             last_clip: None,
+            scoring: Default::default(),
+            visuals: Default::default(),
             last_ruler: None,
             waves: RefCell::new(HashMap::new()),
             tones: RefCell::new(HashMap::new()),
@@ -1574,7 +1592,7 @@ const CATCH_PX:f32=7.;
 fn catch(s: &State, g: &PGeom, tick: f32, skip: &[usize]) -> Option<u32> {
     let targets: Vec<u32> = match s.playlist.snap {
         EditorSnap::Events => clips(s).iter().enumerate().filter(|(i, _)| !skip.contains(i)).flat_map(|(_, c)| [c.position, c.end()]).collect(),
-        EditorSnap::Markers => markers(s).iter().map(|m| m.position).collect(),
+        EditorSnap::Markers => markers(s).iter().map(|m| crate::scoring::marker_x(s, m).round() as u32).collect(),
         _ => return None,
     };
     targets.into_iter().map(|t| (t, (t as f32 - tick).abs() * g.ppt)).filter(|&(_, px)| px <= CATCH_PX).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(t, _)| t)
@@ -2502,7 +2520,7 @@ pub fn toggle_track(s: &mut State, t: u16) {
 /// moved to another track keeps the states from before the first one.
 pub fn toggle_solo(s: &mut State, t: u16) {
     let chosen=folder_members(s,t);let mut keep=chosen.clone();
-    for &row in &chosen{if is_group_track(s,row){keep.extend((row+1..TRACKS).take_while(|&r|track_info(s,r).is_some_and(|r|r.grouped)));}if let Some(parent)=group_track(s,row){keep.push(parent);}}
+    for &row in &chosen{if is_group_track(s,row){keep.extend((row+1..TRACKS).take_while(|&r|track_info(s,r).is_some_and(|r|r.grouped)));}if let Some(parent)=group_track(s,row).filter(|_| crate::comping::parent(s,row).is_none()){keep.push(parent);}}
     if let Some((was,_))=s.playlist.solo {let same=s.project.arrangement().is_some_and(|a|a.tracks.iter().enumerate().all(|(k,r)|r.enabled==keep.contains(&(k as u16))));end_solo(s);if was==t&&same{return;}}
     let arr = arr_mut(s);
     let states: Vec<bool> = arr.tracks.iter().map(|t| t.enabled).collect();
@@ -2636,7 +2654,15 @@ pub(crate) fn recorded_automation_on_row(s:&mut State,tgt:u32,name:&str,start:u3
     create_automation_on(s,tgt,name,value,Some(row),false,Some((start,end.max(start+1))))
 }
 
+pub(crate) fn create_visual_automation(s: &mut State, target: u32, name: &str, value: f64, row: u16, span: (u32, u32), scene: Option<crate::history::Snap>) {
+    create_automation_with_history(s, target, name, value, Some(row), false, Some(span), scene);
+}
+
 fn create_automation_on(s:&mut State,tgt:u32,name:&str,value:f64,free:Option<u16>,initialize:bool,span:Option<(u32,u32)>)->u16 {
+    create_automation_with_history(s,tgt,name,value,free,initialize,span,None)
+}
+
+fn create_automation_with_history(s:&mut State,tgt:u32,name:&str,value:f64,free:Option<u16>,initialize:bool,span:Option<(u32,u32)>,extra:Option<crate::history::Snap>)->u16 {
     // One undo step, "Create automation clip": the playlist, and the control's initial value while "Initialize controls
     // automatically" is on (spec: ui/settings-choices.md "Advanced: Initialize controls automatically").
     let init = if initialize || crate::init::entry(s,tgt).is_none() {crate::init::automatic(tgt, value)} else {None};
@@ -2648,6 +2674,7 @@ fn create_automation_on(s:&mut State,tgt:u32,name:&str,value:f64,free:Option<u16
     if init.is_some() {
         snap = crate::history::Snap::Several(vec![snap, crate::history::Snap::Init(tgt, crate::init::entry(s, tgt))]);
     }
+    if let Some(extra) = extra { snap = crate::history::Snap::Several(vec![snap, extra]); }
     crate::history::record(s, crate::history::CREATE_AUTOMATION, snap);
     let name = &unique_channel_name(s, name);
     let index = s.project.channels.iter().map(|c| c.index + 1).max().unwrap_or(0);
@@ -3079,6 +3106,13 @@ pub(crate) fn default_options_menu(s: &State, x: f32, y: f32) -> Popup {
                 PItem::new("Shift right", Cmd::ShiftTime(1)).key("Shift+Right"),
                 PItem::new("Shift up", Cmd::ShiftTracks(-1)).key("Shift+Up"),
                 PItem::new("Shift down", Cmd::ShiftTracks(1)).key("Shift+Down"),
+                PItem::sub("Transpose selected clips", [
+                    ("Up one semitone", 1, "Alt+Up"),
+                    ("Down one semitone", -1, "Alt+Down"),
+                    ("Up an octave", 12, "Ctrl+Alt+Up"),
+                    ("Down an octave", -12, "Ctrl+Alt+Down"),
+                ].into_iter().map(|(label, n, key)| PItem::new(label, Cmd::Transpose(n)).key(key)).collect())
+                    .dim(s.playlist.sel.is_empty()),
                 PItem::new("Make unique", Cmd::MakeUnique).key("Shift+Ctrl+C"),
                 PItem::sep(),
                 PItem::new("Mute", Cmd::Mute(true)).key("Alt+M"),
@@ -3149,12 +3183,24 @@ pub(crate) fn default_options_menu(s: &State, x: f32, y: f32) -> Popup {
     let mut remaining=items;
     let mut take=|label:&str| {let i=remaining.iter().position(|p|p.label==label).expect("playlist menu entry");remaining.remove(i)};
     let detail=crate::prefs::text("playlist_wave_detail").and_then(|v|v.parse::<u8>().ok()).unwrap_or(0);
-    let items=vec![
+    let mut view = vec![
+        take("Zoom"),
+        take("Visible clip controls"),
+        PItem::sub("Waveform detail when zoomed", ["Standard", "High", "Maximum (sample detail)"].iter()
+            .enumerate().map(|(i, label)| PItem::new(*label, Cmd::WaveDetail(i as u8)).mark(Mark::Radio(detail == i as u8))).collect()),
+    ];
+    view.extend(crate::scoring::view_menu(s));
+    let mut items = vec![
         take("Edit"),take("Select"),take("Group"),PItem::sep(),take("Tool"),take("Snap"),
         PItem::sub("Clip options",vec![take("Audio clip options"),take("Automation editing"),take("Pattern note colors")]),
-        PItem::sub("View",vec![take("Zoom"),take("Visible clip controls"),PItem::sub("Waveform detail when zoomed",["Standard","High","Maximum (sample detail)"].iter().enumerate().map(|(i,label)|PItem::new(*label,Cmd::WaveDetail(i as u8)).mark(Mark::Radio(detail==i as u8))).collect())]),
+        PItem::sub("View", view),
         take("Time markers"),PItem::sep(),crate::playlist_tracks::keyboard_picker_item(),take("Tools"),PItem::sub("Track cleanup",vec![take("Reset empty playlist tracks")]),
     ];
+    if !crate::workspace_visibility::shown(TRANSPOSE_VISIBILITY) {
+        if let Some(edit) = items.first_mut() {
+            edit.children.retain(|item| item.label != "Transpose selected clips");
+        }
+    }
     Popup { x, y, items, sub: None, scroll: [0; 2], cascade: Vec::new() }
 }
 
@@ -3218,6 +3264,9 @@ pub fn clip_menu(s: &State, i: usize, x: f32, y: f32) -> Popup {
         && crate::vocal_align::available(s, i);
     let comp = kind == PickKind::Audio && crate::comping::parent(s, c.track).is_some();
     let mut items = clip_menu_items(kind, i, c.muted, align, comp, s.playlist.range.is_some(), s.playlist.stretch);
+    if kind != PickKind::Automation && crate::workspace_visibility::shown(crate::scoring::CHORDS) {
+        items.insert(1, PItem::new("Extract Chords", Cmd::Scoring(crate::scoring::Command::Extract(i))));
+    }
     if crate::attached_mixer::active(s)&&kind==PickKind::Pattern{items.push(PItem::new("Use this track's instrument",Cmd::TrackLink(crate::playlist_links::Command::Retarget(i))).dim(crate::playlist_links::mode(s,c.track)!=os_model::PlaylistTrackMode::Instrument));}
     menu.popup(Popup { x, y, items, sub: None, scroll: [0; 2], cascade: Vec::new() })
 }
@@ -3273,7 +3322,8 @@ pub(crate) fn clip_menu_items(
                     .map(|mode| PItem::new(mode.label(), Cmd::Normalize(i, mode))).collect()),
                 PItem::new("Edit with ARA...", Cmd::AraMenu(i)),
                 PItem::new("Stem separation...", Cmd::SeparateStems(i)),
-            ];if crate::workspace_visibility::shown(tesla::cleanup::VISIBILITY){items.insert(0,PItem::new("Clean up audio in Tesla...",Cmd::CleanupAudio(i)));}items}),
+            ];if crate::workspace_visibility::shown(tesla::cleanup::VISIBILITY){items.insert(0,PItem::new("Clean up audio in Tesla...",Cmd::CleanupAudio(i)));}
+            if crate::workspace_visibility::shown(tesla::cleanup::DEVERB_VISIBILITY){items.insert(0,PItem::new("Deverb in Tesla...",Cmd::DeverbAudio(i)));}items}),
             PItem::sub("Select & organize", {
                 let mut organize = vec![PItem::new("Select all similar clips", Cmd::ClipSelectSimilar(i))];
                 organize.push(PItem::new("Random color", Cmd::ClipRandomColor(i)));
@@ -3527,7 +3577,7 @@ pub fn lane_menu(tick: u32, x: f32, y: f32) -> Popup {
 /// Move content left / right, then its action.
 pub fn marker_menu(s: &State, i: usize, tick: u32, x: f32, y: f32) -> Popup {
     let Some(m) = markers(s).get(i) else { return lane_menu(tick, x, y) };
-    let (b, st, t) = crate::views::toolbar::bst_ticks(f64::from(m.position) * 96.0 / f64::from(ppq(s)));
+    let (b, st, t) = crate::views::toolbar::bst_ticks(crate::scoring::marker_x(s, m) * 96.0 / f64::from(ppq(s)));
     let mut items = lane_items(tick);
     items.extend([
         PItem { head: true, ..PItem::new(format!("{} at {b}:{st:02}:{t:02}", m.name), Cmd::Nothing) },
@@ -3539,6 +3589,14 @@ pub fn marker_menu(s: &State, i: usize, tick: u32, x: f32, y: f32) -> Popup {
         PItem::new("Move content right", Cmd::MoveContent(i, true)),
         PItem::head("Action"),
     ]);
+    if m.kind == TimeMarker::PLAIN && crate::workspace_visibility::shown(crate::scoring::MARKERS) {
+        use crate::scoring::Command;
+        if m.linear_us.is_some() { items.insert(items.len() - 1, PItem::new("Set cue time in seconds...", Cmd::Scoring(Command::EditMarkerSeconds(i)))); }
+        items.insert(items.len() - 1, PItem::sub("Marker timebase", vec![
+            PItem::new("Musical (bars and beats)", Cmd::Scoring(Command::MarkerBase(i, false))).mark(Mark::Radio(m.linear_us.is_none())),
+            PItem::new("Linear (seconds)", Cmd::Scoring(Command::MarkerBase(i, true))).mark(Mark::Radio(m.linear_us.is_some())),
+        ]));
+    }
     items.extend(MARKER_ACTIONS.iter().map(|&(l, k)| PItem::new(l, Cmd::MarkerAction(i, k)).mark(Mark::Radio(m.kind == k))));
     Popup { x, y, items, sub: None, scroll: [0; 2], cascade: Vec::new() }
 }
@@ -4232,7 +4290,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
 }
 
 /// Round a tick to the nearest snap line (Slice tool).
-fn snap_round(s: &State, g: &PGeom, tick: f32, alt: bool) -> u32 {
+pub(crate) fn snap_round(s: &State, g: &PGeom, tick: f32, alt: bool) -> u32 {
     if alt {
         return tick.max(0.0).round() as u32;
     }
@@ -4303,7 +4361,15 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
     // tension or gain handle only that clip (and the hint bar). A stretch-mode resize changes every clip of the
     // stretched channels: the whole window.
     let stretching = !app.state.playlist.stretch_base.is_empty() && matches!(d, PlDrag::ResizeL { .. } | PlDrag::ResizeR { .. });
-    let handle = matches!(d, PlDrag::Fade { .. } | PlDrag::FadeTension { .. } | PlDrag::Gain { .. } | PlDrag::Crossfade { .. });
+    let edited_curve = match d {
+        PlDrag::Point { ch, .. } | PlDrag::Tension { ch, .. } => Some(ch),
+        PlDrag::PointPaint { clip, .. } => clips(&app.state).get(clip).and_then(|clip| match clip.source {
+            ClipSource::Channel(ch) => Some(ch), _ => None,
+        }),
+        _ => None,
+    };
+    let handle = edited_curve.is_some()
+        || matches!(d, PlDrag::Fade { .. } | PlDrag::FadeTension { .. } | PlDrag::Gain { .. } | PlDrag::Crossfade { .. });
     let moved: Option<Vec<usize>> = match &d {
         _ if stretching => None,
         PlDrag::Move { orig, .. } | PlDrag::ResizeL { orig, .. } | PlDrag::ResizeR { orig, .. } => Some(orig.iter().map(|&(i, _)| i).collect()),
@@ -4311,11 +4377,17 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
         PlDrag::Fade { targets, .. } | PlDrag::FadeTension { targets, .. } => Some(targets.clone()),
         PlDrag::Gain { starting_db, .. } => Some(starting_db.iter().map(|&(i, _)| i).collect()),
         PlDrag::Crossfade { a, b, .. } => Some(vec![*a, *b]),
-        _ => None,
+        _ => edited_curve.map(|ch| clips(&app.state).iter().enumerate()
+            .filter_map(|(i, clip)| (clip.source == ClipSource::Channel(ch)).then_some(i)).collect()),
     };
     let rects = |s: &State, idx: &[usize]| -> Vec<Rect> {
         let g = PGeom::new(s, grid);
-        idx.iter().filter_map(|&i| clips(s).get(i)).map(|c| g.clip_rect(c).outset(6.0).intersect(&grid)).collect()
+        let mut damage = Vec::with_capacity(idx.len());
+        for (i, clip) in idx.iter().filter_map(|&i| clips(s).get(i).map(|c| (i, c))) {
+            damage.push(g.clip_rect(clip).outset(6.0).intersect(&grid));
+            damage.extend(crate::playlist_motion::damage_bounds(s, &g, i, clip));
+        }
+        damage
     };
     let before = moved.as_deref().map(|idx| rects(&app.state, idx));
     let (x, y) = app.mouse;
@@ -4530,8 +4602,10 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
         PlDrag::Marker { i, t0, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
             let _ = t0;
+            let seconds = s.project.tempo_map(s.tempo).seconds(f64::from(t));
             if let Some(m) = arr_mut(s).markers.get_mut(i) {
                 m.position = t;
+                if m.linear_us.is_some() { m.linear_us = Some((seconds * 1_000_000.0).round() as u64); }
             }
         }
         PlDrag::PointSelect { clip, x0, y0 } => {
@@ -4949,14 +5023,14 @@ pub fn press_ruler(app: &mut App, grid: Rect, right: bool) {
 /// The marker under x in the marker lane.
 pub fn marker_at(s: &State, g: &PGeom, x: f32) -> Option<usize> {
     markers(s).iter().enumerate().rev().find(|(_, m)| {
-        let mx = g.x_of(m.position as f32);
+        let mx = g.x64(crate::scoring::marker_x(s, m)) as f32;
         x >= mx - marker_icon(m.kind).1.max(2.0) && x <= mx + marker_w(m)
     }).map(|(i, _)| i)
 }
 
 /// Width of a marker tab: its action's icon and its name.
 pub fn marker_w(m: &TimeMarker) -> f32 {
-    (m.name.chars().count() as f32 * 7.0 + 18.0 + marker_icon(m.kind).0).max(24.0)
+    (m.name.chars().count() as f32 * 7.0 + 18.0 + marker_icon(m.kind).0 + if m.linear_us.is_some() { 42.0 } else { 0.0 }).max(24.0)
 }
 
 /// How far a marker's name sits right of where it would without an action icon, and how far the icon reaches left of
@@ -4995,7 +5069,7 @@ pub fn press_markers(app: &mut App, grid: Rect, right: bool) {
         snapshot(s);
         let t0 = markers(s)[i].position;
         // As a click on the ruler: SONG mode, the initial values follow (§7).
-        s.playlist.pos = t0;
+        s.playlist.pos = markers(s)[i].song_tick(&s.project.tempo_map(s.tempo));
         s.song_mode = true;
         crate::init::apply(s);
         app.drag = Some(Drag::Pl(PlDrag::Marker { i, dt: 0, t0 }));
@@ -5108,6 +5182,10 @@ pub fn press_led(app: &mut App, t: u16, right: bool) {
 pub fn start_edit(s: &mut State, target: EditTarget, at: (f32, f32)) {
     let text = match target {
         EditTarget::Tempo => format!("{:.3}", s.tempo),
+        EditTarget::VisualText(key, artist) => crate::visual_scenes::text(s, key, artist),
+        EditTarget::VisualValue(key, param) => crate::visual_scenes::value_text(s, key, param),
+        target @ (EditTarget::TimelineTempo(_) | EditTarget::TimelineTempoPosition(_) | EditTarget::TimelineChord(_) | EditTarget::TimelineVideoStart(_) | EditTarget::TimelineMarkerSeconds(_)) =>
+            crate::scoring::edit_text(s, target),
         EditTarget::TrackName(t) => track_name(s, t),
         EditTarget::ArrangementName => arrangement_name(s),
         EditTarget::MarkerName(i) => markers(s).get(i).map(|m| m.name.clone()).unwrap_or_default(),
@@ -5124,12 +5202,19 @@ pub fn start_edit(s: &mut State, target: EditTarget, at: (f32, f32)) {
         EditTarget::SlotName(t, k) => crate::mixer::slot_name(s, t, k).unwrap_or_default(),
         EditTarget::TypeIn(t, norm) => crate::typein::text(s, t, norm),
     };
-    s.playlist.edit = Some(TextEdit { target, text, at, sel: false });
+    let sel = matches!(target, EditTarget::VisualText(..) | EditTarget::VisualValue(..) | EditTarget::TimelineTempo(_) | EditTarget::TimelineTempoPosition(_) | EditTarget::TimelineChord(_) | EditTarget::TimelineVideoStart(_) | EditTarget::TimelineMarkerSeconds(_));
+    s.playlist.edit = Some(TextEdit { target, text, at, sel });
 }
 
 /// Enter in the text box.
 pub fn commit_edit(s: &mut State) {
     let Some(e) = s.playlist.edit.take() else { return };
+    if let EditTarget::VisualValue(key, param) = e.target {
+        return crate::visual_scenes::edit_value(s, key, param, &e.text);
+    }
+    if let EditTarget::VisualText(key, artist) = e.target {
+        return crate::visual_scenes::edit_text(s, key, artist, &e.text);
+    }
     if let EditTarget::MixerName(n) = e.target {
         crate::mixer::rename_track(s, n, &e.text);
         return;
@@ -5149,10 +5234,13 @@ pub fn commit_edit(s: &mut State) {
         s.message = Some("Enter a tempo from 10 to 522 BPM.".into());
         return;
     }
+    if matches!(e.target, EditTarget::TimelineTempo(_) | EditTarget::TimelineTempoPosition(_) | EditTarget::TimelineChord(_) | EditTarget::TimelineVideoStart(_) | EditTarget::TimelineMarkerSeconds(_)) {
+        return crate::scoring::edit(s, e.target, e.text.trim());
+    }
     snapshot(s);
     let text = e.text.trim().to_string();
     match e.target {
-        EditTarget::Tempo => unreachable!(),
+        EditTarget::VisualText(..) | EditTarget::VisualValue(..) | EditTarget::Tempo | EditTarget::TimelineTempo(_) | EditTarget::TimelineTempoPosition(_) | EditTarget::TimelineChord(_) | EditTarget::TimelineVideoStart(_) | EditTarget::TimelineMarkerSeconds(_) => unreachable!(),
         EditTarget::ArrangementName => {
             if !text.trim().is_empty() {
                 arr_mut(s).name = Some(text.trim().to_string());
@@ -5209,6 +5297,8 @@ pub fn commit_edit(s: &mut State) {
 
 /// Run a menu / shortcut command. Returns a status message, if any.
 pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
+    if let Cmd::Visual(command) = cmd { crate::visual_scenes::run(app, command); return None; }
+    if let Cmd::Scoring(command) = cmd { return crate::scoring::run(app, command); }
     if let Cmd::HeaderDrop(command)=cmd {app.state.playlist.popup=None;return crate::playlist_tracks::drops::run(app,command);}
     if let Cmd::TrackLink(ref command)=cmd {let result=crate::playlist_links::run(app,command.clone());app.invalidate();return result;}
     if let Cmd::PopupBack(p) = cmd { app.state.playlist.popup = Some(*p); return None; }
@@ -5233,6 +5323,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         Cmd::UseMissingSample(row,old,path)=>{crate::import_report::relink(app,row as usize,&old,&path);return None;},
 
         Cmd::InputBinding(action) => { crate::input_bindings::edit(app, action); return None; }
+        Cmd::Score(command) => { crate::notation::run(app, command); return None; }
         Cmd::MenuLayout(action) => {
             crate::menu_layout::act(&mut app.state, action, app.mouse);
             app.invalidate();
@@ -5540,12 +5631,14 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         }
         Cmd::ClipUnique(_) => {if let Err(e)=crate::ara::store(app){return Some(e);}},
         Cmd::CleanupAudio(i)=>{crate::clip_cleanup::request(app,i);return None;},
+        Cmd::DeverbAudio(i)=>{crate::clip_cleanup::request_mode(app,i,true);return None;},
         Cmd::AraMenu(i) => return crate::ara::menu(app,i),
         Cmd::AraChoose(i,k) => return crate::ara::choose(app,i,k),
         Cmd::AraRemove(i) => return crate::ara::remove(app,i),
         Cmd::AraScan => {app.start_scan(crate::plugin_db::Mode::All);return Some("Scanning plugins; reopen Edit with ARA when the scan finishes".into());},
         Cmd::SeparateStems(i) => { crate::stem_separation::request(app, i); return None; }
         Cmd::FitLoop(i, cmd) => return crate::loop_fit::run(app, i, cmd),
+        Cmd::Transpose(semitones) => return transpose::run(app, semitones),
         Cmd::ClipPreview(i) => {
             if let Some(c) = clips(&app.state).get(i).cloned() {
                 app.preview_clip(&c);
@@ -5563,6 +5656,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
     let grid_w = grid.map_or(1400.0, |g| g.w);
     let grid_wh = grid.map_or((1400.0, 800.0), |g| (g.w, g.h));
     let msg = match cmd {
+        Cmd::Scoring(_) | Cmd::Visual(_) | Cmd::Transpose(_) => unreachable!(),
         Cmd::CompTrack(t) => Some(crate::comping::enable(s, t)),
         Cmd::CompUse(i, range) => Some(crate::comping::choose(s, i, range)),
         Cmd::Control(c) => { crate::playlist_controls::run(s, c); None }
@@ -5829,7 +5923,10 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         Cmd::MarkerAction(i, kind) => {
             if markers(s).get(i).is_some_and(|m| m.kind != kind) {
                 snapshot(s);
-                arr_mut(s).markers[i].kind = kind;
+                let tick = markers(s)[i].song_tick(&s.project.tempo_map(s.tempo));
+                let m = &mut arr_mut(s).markers[i];
+                m.kind = kind;
+                if kind != TimeMarker::PLAIN { m.linear_us = None; m.position = tick; sort_markers(s); }
                 s.piano.dirty = true;
             }
             None
@@ -5848,7 +5945,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             None
         },
         Cmd::RenameMarker(i) => {
-            let at = grid.zip(markers(s).get(i)).map_or((600.0, 200.0), |(g, m)| (PGeom::new(s, g).x_of(m.position as f32), g.y - MARKER_H));
+            let at = grid.zip(markers(s).get(i)).map_or((600.0, 200.0), |(g, m)| (PGeom::new(s, g).x64(crate::scoring::marker_x(s, m)) as f32, g.y - crate::scoring::height(s) - MARKER_H));
             start_edit(s, EditTarget::MarkerName(i), at);
             None
         }
@@ -6243,7 +6340,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         Cmd::Genre(_) => None,
         Cmd::Theme(_) => None,
         Cmd::Template(_) | Cmd::NewTemplate(_) => None,
-        Cmd::Arp(_) | Cmd::MidiImport(_) | Cmd::MidiExport(_) | Cmd::OpenRecent(_) | Cmd::OpenTapper => None,
+        Cmd::Arp(_) | Cmd::MidiImport(_) | Cmd::MidiExport(_) | Cmd::Score(_) | Cmd::OpenRecent(_) | Cmd::OpenTapper => None,
         Cmd::FlamPreset(_) => None,
         Cmd::Limit(_) => None,
         Cmd::Claw(_) => None,
@@ -6251,7 +6348,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         Cmd::Quant(_) => None,
         Cmd::ChopPattern(_) => None,
         Cmd::Messages(_) => None,
-        Cmd::DataFolder(_) | Cmd::CleanupAudio(_) => None,
+        Cmd::DataFolder(_) | Cmd::CleanupAudio(_) | Cmd::DeverbAudio(_) => None,
     };
     app.invalidate();
     msg
@@ -6528,6 +6625,11 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> 
         Key::Named(NamedKey::ArrowRight) if shift => Cmd::ShiftTime(1),
         Key::Named(NamedKey::ArrowUp) if shift => Cmd::ShiftTracks(-1),
         Key::Named(NamedKey::ArrowDown) if shift => Cmd::ShiftTracks(1),
+        Key::Named(dir @ (NamedKey::ArrowUp | NamedKey::ArrowDown))
+            if alt && !app.state.playlist.sel.is_empty() && app.drag.is_none() => {
+            let step = if ctrl { 12 } else { 1 };
+            Cmd::Transpose(if *dir == NamedKey::ArrowUp { step } else { -step })
+        }
         Key::Named(NamedKey::ArrowUp) if ctrl => {
             let s = &mut app.state;
             let rows=Rows::new(s);s.playlist.track=rows.row(i32::from(rows.rank(s.playlist.track))-1);
