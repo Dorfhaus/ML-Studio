@@ -92,10 +92,10 @@ If you cannot see the red record button, check **Settings > Visibility > Playlis
 Look in the track header beside the lane's mute/solo light, not in the top-right of the Playlist. Ordinary folder rows have no recording button. In the attached view, use a source lane with a Mixer channel; group separators do not have this button. Master and buses are shown in the inspector rather than as recording lanes.
 The nearby piano/keyboard icon opens the Piano Roll or instrument picker. It is not an audio-record button. Once the actual record button is visible, right-click it to choose an audio input, click it to arm, then press transport Play. A locked or frozen lane can prevent arming even when the button is visible.
 
-### Customize Playlist and Channel Rack record lights
-Keywords: record arm light red LED glow REC badge backlit square theme channel rack playlist
-In the standard workspace, open **Settings > Theme > Record lights**. Choose **Customize Playlist record light** or **Customize Channel Rack record light**. Select **Console LED**, **Backlit square**, or **REC badge**. The preview shows idle, armed, and recording states. Change each state's color, the bezel color, the light size, or the recording glow. Apply saves the appearance with the theme. Cancel discards the preview. Reset section restores the default appearance.
-Playlist buttons still arm their track and open input choices on right-click. The Channel Rack light shows note-recording status for the selected channel. Arm Notes with the transport Record button and start playback to see its recording state. The Rack light appears with or without the step grid. Hide it under **Settings > Visibility > Channel Rack > Channel Rack record lights**. **Visibility > Theme customization > Record light customization** hides the appearance editors while preserving saved styles.
+### Customize the Playlist and Traditional Mixer record buttons
+Keywords: disk recording arm light red LED glow REC badge backlit square theme traditional mixer playlist
+In the standard workspace, open **Settings > Theme > Record lights**. Choose **Customize Traditional Mixer record button** to change the existing disk-record button on Mixer inserts in the Traditional view. Choose **Original**, **Console LED**, **Backlit square**, or **REC badge**. The three new styles have adjustable idle and armed colors, bezel color, light size, and glow when armed. The preview shows idle and armed states.
+Choose **Customize Playlist record light** to set a separate style, including a recording color and glow for the Playlist. Click a record button to arm it or right-click for input options. Apply saves the appearance with the theme, Cancel discards the preview, and Reset section restores the default. **Visibility > Theme customization > Record light customization** hides the appearance editors while preserving saved styles.
 Related: Record audio directly in the Playlist | Record notes from a MIDI keyboard
 
 ### Prevent feedback and choose a recording input
@@ -2767,11 +2767,6 @@ Turning on visibility exposes the control where that feature is supported; it do
 ### Visibility: Step grid (Channel Rack)
 Keywords: visibility: step grid (channel rack) reference controls options settings
 To show or hide **Step grid**, open **Settings > Visibility > Channel Rack > Step grid**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
-Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
-
-### Visibility: Channel Rack record lights (Channel Rack)
-Keywords: visibility: channel rack record lights (channel rack) reference controls options settings
-To show or hide **Channel Rack record lights**, open **Settings > Visibility > Channel Rack > Channel Rack record lights**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: Mixer routing menu (Channel Rack)

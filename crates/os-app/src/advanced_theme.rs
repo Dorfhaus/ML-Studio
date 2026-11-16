@@ -25,9 +25,9 @@ pub const MIXER_COLORS_OPEN: &str = "Mixer labels and buttons...";
 pub const PLAYLIST_COLORS_OPEN: &str = "Playlist bar colors...";
 pub const SETTINGS_COLORS_OPEN: &str = "Settings colors...";
 pub const PLAYLIST_RECORD_LIGHT: &str = "Playlist record light";
-pub const RACK_RECORD_LIGHT: &str = "Channel Rack record light";
+pub const MIXER_RECORD_LIGHT: &str = "Traditional Mixer record button";
 pub const PLAYLIST_RECORD_OPEN: &str = "Customize Playlist record light...";
-pub const RACK_RECORD_OPEN: &str = "Customize Channel Rack record light...";
+pub const MIXER_RECORD_OPEN: &str = "Customize Traditional Mixer record button...";
 pub const RECORD_LIGHT_VISIBILITY: &str = "visible_theme-record-lights";
 pub const AREA_VISIBILITY: &str = "visible_theme-area-adjustments";
 pub const INSERT_VISIBILITY: &str = "visible_theme-insert-knobs";
@@ -378,9 +378,9 @@ const STYLES: &[StyleField] = &[
     StyleField { key: "playlist-record-light", label: "Record light style", values: Values::Choices(&appearance::RecordLightStyle::CHOICES) },
     StyleField { key: "playlist-record-size", label: "Light size (6–13 px)", values: Values::Number(13.0) },
     StyleField { key: "playlist-record-glow", label: "Recording glow (0–100%)", values: Values::Number(100.0) },
-    StyleField { key: "rack-record-light", label: "Record light style", values: Values::Choices(&appearance::RecordLightStyle::CHOICES) },
-    StyleField { key: "rack-record-size", label: "Light size (6–13 px)", values: Values::Number(13.0) },
-    StyleField { key: "rack-record-glow", label: "Recording glow (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "trad-record-light", label: "Record button style", values: Values::Choices(&appearance::RecordLightStyle::MIXER_CHOICES) },
+    StyleField { key: "trad-record-size", label: "Light size (6–13 px)", values: Values::Number(13.0) },
+    StyleField { key: "trad-record-glow", label: "Armed glow (0–100%)", values: Values::Number(100.0) },
 ];
 
 use os_theme::regions::{SECTIONS, section};
@@ -399,7 +399,7 @@ fn color_section(key: &str) -> &'static str {
 }
 
 fn color_label(key: &str) -> String {
-    if let Some(role) = key.strip_prefix("playlist_record_").or_else(|| key.strip_prefix("rack_record_")) {
+    if let Some(role) = key.strip_prefix("playlist_record_").or_else(|| key.strip_prefix("trad_record_")) {
         return match role {
             "idle" => "Idle color",
             "armed" => "Armed color",
@@ -436,7 +436,7 @@ fn color_label(key: &str) -> String {
 
 fn style_section(key: &str) -> &'static str {
     if key.starts_with("playlist-record-") { return PLAYLIST_RECORD_LIGHT; }
-    if key.starts_with("rack-record-") { return RACK_RECORD_LIGHT; }
+    if key.starts_with("trad-record-") { return MIXER_RECORD_LIGHT; }
     if key.starts_with("playlist-halo-") { return KEYBOARD_SECTION; }
     if let Some(area) = key.strip_prefix("tone-") {
         return SECTIONS.iter().find(|(id, _, _)| area.starts_with(&format!("{id}-"))).map(|(_, title, _)| *title).unwrap_or("Shape & finish");
@@ -456,10 +456,10 @@ fn style_section(key: &str) -> &'static str {
 pub fn groups(query: &str) -> Vec<(&'static str, Vec<Row>)> {
     let query = query.trim().to_ascii_lowercase();
     let mut result = Vec::new();
-    for title in ["Shape & finish", KEYBOARD_SECTION, PLAYLIST_RECORD_LIGHT, RACK_RECORD_LIGHT].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
+    for title in ["Shape & finish", KEYBOARD_SECTION, PLAYLIST_RECORD_LIGHT, MIXER_RECORD_LIGHT].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
         if title == INSERT_SECTION && !crate::workspace_visibility::shown(INSERT_VISIBILITY) { continue; }
         if title == METER_SECTION && !crate::workspace_visibility::shown(METER_VISIBILITY) { continue; }
-        if matches!(title, PLAYLIST_RECORD_LIGHT | RACK_RECORD_LIGHT)
+        if matches!(title, PLAYLIST_RECORD_LIGHT | MIXER_RECORD_LIGHT)
             && !crate::workspace_visibility::shown(RECORD_LIGHT_VISIBILITY) { continue; }
         let mut rows = STYLES.iter().enumerate()
             .filter(|(_, def)| (!def.key.starts_with("tone-") || crate::workspace_visibility::shown(AREA_VISIBILITY)) && style_section(def.key) == title && matches(&query, def.label, def.key, title))
@@ -473,7 +473,7 @@ pub fn groups(query: &str) -> Vec<(&'static str, Vec<Row>)> {
             if title == METER_SECTION { rows.insert(0, Row::MeterPreview); }
             if title == KEYBOARD_SECTION { rows.insert(0, Row::KeyboardPreview); }
             if title == PLAYLIST_RECORD_LIGHT { rows.insert(0, Row::RecordPreview(crate::record_light::Surface::Playlist)); }
-            if title == RACK_RECORD_LIGHT { rows.insert(0, Row::RecordPreview(crate::record_light::Surface::Rack)); }
+            if title == MIXER_RECORD_LIGHT { rows.insert(0, Row::RecordPreview(crate::record_light::Surface::TraditionalMixer)); }
             rows.push(Row::Reset(title));
             result.push((title, rows));
         }
@@ -593,9 +593,9 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
         Row::Preview => preview(ui, r),
         Row::RecordPreview(surface) => {
             use crate::record_light::{self, Lamp, Surface};
-            let face = match surface { Surface::Playlist => t.track_header, Surface::Rack => t.rack_row_box };
+            let face = match surface { Surface::Playlist => t.track_header, Surface::TraditionalMixer => t.mixer_strip };
             let width = ((r.w - 12.) / 3.).clamp(70., 103.);
-            for (index, lamp) in Lamp::ALL.into_iter().enumerate() {
+            for (index, &lamp) in surface.states().iter().enumerate() {
                 let chip = Rect::new(r.x + index as f32 * (width + 6.), r.y + 5., width, 50.);
                 ui.c.fill_rrect(chip, 4., face);
                 record_light::paint(ui.c, t, Rect::new(chip.cx()-19., chip.y+5., 38., 16.), surface, lamp, false);
@@ -689,7 +689,7 @@ pub fn paint(ui: &mut Ui, s: &State, row: Row, r: Rect) {
                     let mut x = control.x;
                     let fallback = match def.key {
                         "playlist-record-light" => t.appearance.playlist_record_light.style.label(),
-                        "rack-record-light" => t.appearance.rack_record_light.style.label(),
+                        "trad-record-light" => crate::record_light::Surface::TraditionalMixer.appearance(t).style.label(),
                         _ => "Inherit",
                     };
                     let current = fl::get_key(text, &style_key(i))

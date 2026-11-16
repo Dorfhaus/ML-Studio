@@ -6065,7 +6065,7 @@ impl App {
             SAct::Button(crate::advanced_theme::INSERT_OPEN) => return self.open_insert_theme_editor(),
             SAct::Button(crate::advanced_theme::METER_OPEN) => return self.open_theme_section(crate::advanced_theme::METER_SECTION),
             SAct::Button(crate::advanced_theme::PLAYLIST_RECORD_OPEN) => return self.open_theme_section(crate::advanced_theme::PLAYLIST_RECORD_LIGHT),
-            SAct::Button(crate::advanced_theme::RACK_RECORD_OPEN) => return self.open_theme_section(crate::advanced_theme::RACK_RECORD_LIGHT),
+            SAct::Button(crate::advanced_theme::MIXER_RECORD_OPEN) => return self.open_theme_section(crate::advanced_theme::MIXER_RECORD_LIGHT),
             SAct::Button(crate::advanced_theme::MIXER_COLORS_OPEN) => return self.open_theme_section(crate::advanced_theme::MIXER_COLORS),
             SAct::Button(crate::advanced_theme::PLAYLIST_COLORS_OPEN) => return self.open_theme_section(crate::advanced_theme::PLAYLIST_COLORS),
             SAct::Button(crate::advanced_theme::SETTINGS_COLORS_OPEN) => return self.open_theme_section(crate::advanced_theme::SETTINGS_COLORS),
@@ -27136,6 +27136,8 @@ LemonStudioStyle.button-radius=8
     #[test]
     fn theme_record_lights_preview_and_save_independent_styles() {
         use crate::advanced_theme as editor;
+        use crate::mixer::{self as mx, MHit};
+        use crate::record_light::Surface;
         use crate::views::settings::{self, SAct};
         use os_theme::{Color, appearance::RecordLightStyle as Style, fl};
         use winit::keyboard::{Key, NamedKey};
@@ -27146,22 +27148,24 @@ LemonStudioStyle.button-radius=8
         app.open_settings(settings::THEME);
         let mut c = Canvas::new(1600, 1000, 1.0).unwrap();
         frame(&mut app, &mut c, None);
-        let shortcut = hit_rect(&app, &Action::Settings(SAct::Button(editor::RACK_RECORD_OPEN)));
+        let shortcut = hit_rect(&app, &Action::Settings(SAct::Button(editor::MIXER_RECORD_OPEN)));
         click(&mut app, &mut c, shortcut);
         frame(&mut app, &mut c, None);
-        assert_eq!(app.state.settings.advanced_theme.as_ref().unwrap().query.text, editor::RACK_RECORD_LIGHT);
+        assert_eq!(app.state.settings.advanced_theme.as_ref().unwrap().query.text, editor::MIXER_RECORD_LIGHT);
+        assert_eq!(Surface::TraditionalMixer.appearance(&app.theme.colors).style, Style::Original);
+        assert!(editor::groups("channel rack record light").is_empty());
         let choose = app.hits.iter().find(|h| matches!(h.action,
             Action::Settings(SAct::ThemeEditor(editor::Hit::Choice(_, "REC badge"))))).unwrap().rect;
         click(&mut app, &mut c, choose);
-        assert_eq!(app.theme.colors.appearance.rack_record_light.style, Style::RecBadge);
+        assert_eq!(Surface::TraditionalMixer.appearance(&app.theme.colors).style, Style::RecBadge);
         assert_eq!(app.theme.colors.appearance.playlist_record_light.style, Style::ConsoleLed);
-        app.settings_act(SAct::ThemeEditor(editor::Hit::Field(editor::FieldFor::Hex("rack_record_live"))));
+        app.settings_act(SAct::ThemeEditor(editor::Hit::Field(editor::FieldFor::Hex("trad_record_armed"))));
         app.key(&Key::Character("#F91739".into()), false, false);
         app.key(&Key::Named(NamedKey::Enter), false, false);
         app.finish_theme_editor(true);
         let text = app.state.fl_text.as_deref().unwrap();
-        assert_eq!(fl::get_key(text, "LemonStudioStyle.rack-record-light"), Some("REC badge"));
-        assert_eq!(app.theme.colors.rack_record_live, Color::rgb(0xf91739));
+        assert_eq!(fl::get_key(text, "LemonStudioStyle.trad-record-light"), Some("REC badge"));
+        assert_eq!(app.theme.colors.trad_record_armed, Color::rgb(0xf91739));
 
         app.open_theme_section(editor::PLAYLIST_RECORD_LIGHT);
         frame(&mut app, &mut c, None);
@@ -27171,10 +27175,34 @@ LemonStudioStyle.button-radius=8
         assert_eq!(app.theme.colors.appearance.playlist_record_light.style, Style::BacklitSquare);
         app.finish_theme_editor(false);
         assert_eq!(app.theme.colors.appearance.playlist_record_light.style, Style::ConsoleLed);
-        assert_eq!(app.theme.colors.appearance.rack_record_light.style, Style::RecBadge);
+        assert_eq!(Surface::TraditionalMixer.appearance(&app.theme.colors).style, Style::RecBadge);
         crate::settings_file::set_flag(editor::RECORD_LIGHT_VISIBILITY, false);
-        assert!(editor::groups("record light").is_empty());
-        assert_eq!(app.theme.colors.appearance.rack_record_light.style, Style::RecBadge);
+        assert!(editor::groups(editor::MIXER_RECORD_LIGHT).is_empty());
+        assert_eq!(Surface::TraditionalMixer.appearance(&app.theme.colors).style, Style::RecBadge);
+
+        app.state.z = vec![Win::Mixer];
+        app.state.wins[Win::Mixer.slot().unwrap()].rect = Rect::new(0., 83., 1500., 435.);
+        app.state.project = test_project();
+        mx::track_mut(&mut app.state, 1).unwrap().recording.point = os_model::RecordingPoint::Effects;
+        for layout in 0..8 {
+            mx::set_layout(&mut app.state, mx::TRADITIONAL + layout);
+            frame(&mut app, &mut c, None);
+            let record = hit_rect(&app, &Action::Mix(MHit::Disk(1)));
+            let fader = hit_rect(&app, &Action::Fader(1));
+            assert!(record.w >= 19. && record.intersect(&fader).is_empty(), "{layout}: {record:?}");
+            if layout == 0 {
+                click(&mut app, &mut c, record);
+                assert!(app.state.mixer.recording.armed.contains(&1));
+                frame(&mut app, &mut c, None);
+                let (x0, y0, w, h) = c.device_rect(record);
+                assert!((y0..y0 + h).any(|y| (x0..x0 + w).any(|x| {
+                    let p = c.pixmap.pixel(x as u32, y as u32).unwrap();
+                    (p.red(), p.green(), p.blue()) == (249, 23, 57)
+                })), "The armed REC badge must use the theme's armed color");
+                click(&mut app, &mut c, record);
+                assert!(!app.state.mixer.recording.armed.contains(&1));
+            }
+        }
     }
 
     #[test]

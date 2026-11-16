@@ -1,6 +1,6 @@
 {
-  "generated_articles": 425,
-  "guide_articles": 690,
+  "generated_articles": 424,
+  "guide_articles": 689,
   "records": [
     {
       "title": "Visibility: Host and join sessions (Collaboration)",
@@ -540,10 +540,6 @@
     },
     {
       "title": "Visibility: Step grid (Channel Rack)",
-      "source": "crates/os-app/src/workspace_visibility.rs"
-    },
-    {
-      "title": "Visibility: Channel Rack record lights (Channel Rack)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -1705,7 +1701,7 @@
   ],
   "explicit_exclusions": {
     "settings_comments_needing_reverification": 16,
-    "dynamic_or_nonliteral_hints": 567,
+    "dynamic_or_nonliteral_hints": 566,
     "dynamic_menu_labels": 213
   },
   "scope": "Static preference declarations, direct editor hints, literal menu labels, configurable command shortcuts and constructor parameter names. Dynamic controls and behavioral completeness require manual review; catalog presence is not a claim that every feature is fully documented."

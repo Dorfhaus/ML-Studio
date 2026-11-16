@@ -389,7 +389,9 @@ def coordinator(notes=None,check=False,no_changelog=False):
             receipt = out / 'DISCORD-VERIFIED.json'
             atomic_json(receipt, result)
             return result, [receipt]
-        j.step('Post Discord changelog', post_discord)
+        maintenance = is_maintenance_build(r.ROOT, r.version())
+        if not maintenance:
+            j.step('Post Discord changelog', post_discord)
         def backup(_):
             env=dict(os.environ,LEMON_JUCE_SOURCE=c['juce_source'],PYTHONUTF8='1')
             b.command(out/'backup.log','powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',c['source_sync'],'-Source',r.ROOT,env=env)
@@ -399,7 +401,8 @@ def coordinator(notes=None,check=False,no_changelog=False):
             atomic_json(r.shared_folder()/'LATEST.json',latest)
             receipt=out/'BACKUP-VERIFIED.json';atomic_json(receipt,latest);return str(p),[p,receipt]
         j.step('Back up source',backup)
-        print('COMPLETE: website, Windows, Linux, both Macs, GitHub, signed feeds, Discord changelog and backup verified. '+str(out),flush=True)
+        discord = '' if maintenance else ', Discord changelog'
+        print('COMPLETE: website, Windows, Linux, both Macs, GitHub, signed feeds'+discord+' and backup verified. '+str(out),flush=True)
 
 
 def main():

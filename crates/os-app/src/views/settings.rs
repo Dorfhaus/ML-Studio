@@ -325,7 +325,7 @@ fn live(key: &str) -> bool {
     LIVE.contains(&key) || crate::prefs::find_check(key).is_some()
         || matches!(key, crate::vintage::LABEL | OPEN_VISIBILITY | crate::workspace_visibility::RESET | crate::menu_layout::OPEN
             | crate::advanced_theme::INSERT_OPEN | crate::advanced_theme::METER_OPEN | crate::advanced_theme::OPEN
-            | crate::advanced_theme::PLAYLIST_RECORD_OPEN | crate::advanced_theme::RACK_RECORD_OPEN
+            | crate::advanced_theme::PLAYLIST_RECORD_OPEN | crate::advanced_theme::MIXER_RECORD_OPEN
             | crate::advanced_theme::MIXER_COLORS_OPEN | crate::advanced_theme::PLAYLIST_COLORS_OPEN | crate::advanced_theme::SETTINGS_COLORS_OPEN | crate::advanced_theme::APPLY | crate::advanced_theme::CANCEL
             | crate::advanced_theme::EXPORT | crate::advanced_theme::WALLPAPER | crate::advanced_theme::CLEAR_WALLPAPER
             | crate::mixer_skin::OPEN | crate::mixer_skin::BACK | crate::mixer_skin::CLOSE | crate::theme_identity::OPEN)
@@ -1183,7 +1183,7 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                 Buttons(vec![(crate::advanced_theme::METER_OPEN, 186.0)]),
             ])))
             .chain(crate::workspace_visibility::shown(crate::advanced_theme::RECORD_LIGHT_VISIBILITY).then(|| g("Record lights", vec![
-                Buttons(vec![(crate::advanced_theme::PLAYLIST_RECORD_OPEN, 219.0), (crate::advanced_theme::RACK_RECORD_OPEN, 234.0)]),
+                Buttons(vec![(crate::advanced_theme::PLAYLIST_RECORD_OPEN, 219.0), (crate::advanced_theme::MIXER_RECORD_OPEN, 266.0)]),
             ])))
             .chain(crate::workspace_visibility::shown(crate::advanced_theme::QUICK_COLORS_VISIBILITY).then(|| g("Quick color settings", vec![
                 Buttons(vec![(crate::advanced_theme::MIXER_COLORS_OPEN, 176.0),

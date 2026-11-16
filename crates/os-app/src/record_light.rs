@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The three state indicators shared by Playlist track headers and Channel Rack rows.
-use crate::app::{Action, State, Ui};
+//! Record buttons for Playlist track headers and Traditional Mixer inserts.
 use os_theme::{Color, Palette, appearance::{RecordLight, RecordLightStyle}};
 use os_ui::{Canvas, Font, Rect};
 
-pub const RACK_VISIBILITY: &str = "visible_rack-record-lights";
-pub const RACK_COLUMN: f32 = 42.;
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
     Playlist,
-    Rack,
+    TraditionalMixer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,14 +32,24 @@ impl Surface {
     pub fn appearance(self, t: &Palette) -> RecordLight {
         match self {
             Self::Playlist => t.appearance.playlist_record_light,
-            Self::Rack => t.appearance.rack_record_light,
+            Self::TraditionalMixer => t.appearance.trad_record_light.unwrap_or(RecordLight {
+                style: RecordLightStyle::Original,
+                ..Default::default()
+            }),
         }
     }
 
     fn colors(self, t: &Palette) -> [Color; 4] {
         match self {
             Self::Playlist => [t.playlist_record_idle, t.playlist_record_armed, t.playlist_record_live, t.playlist_record_rim],
-            Self::Rack => [t.rack_record_idle, t.rack_record_armed, t.rack_record_live, t.rack_record_rim],
+            Self::TraditionalMixer => [t.trad_record_idle, t.trad_record_armed, t.trad_record_armed, t.trad_record_rim],
+        }
+    }
+
+    pub fn states(self) -> &'static [Lamp] {
+        match self {
+            Self::Playlist => &Lamp::ALL,
+            Self::TraditionalMixer => &[Lamp::Idle, Lamp::Armed],
         }
     }
 }
@@ -59,8 +65,15 @@ pub fn playlist_width(t: &Palette, available: f32) -> f32 {
 
 pub fn paint(c: &mut Canvas, t: &Palette, r: Rect, surface: Surface, lamp: Lamp, hovered: bool) {
     let look = surface.appearance(t);
+    if surface == Surface::TraditionalMixer && (t.style.vintage_2005 || look.style == RecordLightStyle::Original) {
+        let color = if lamp == Lamp::Idle { t.text_dim } else { t.h(0xff6868) };
+        c.fill_circle(r.cx(), r.cy(), 4., color);
+        return;
+    }
     let [idle, armed, recording, rim] = surface.colors(t);
     let color = match lamp { Lamp::Idle => idle, Lamp::Armed => armed, Lamp::Recording => recording };
+    // The Mixer button shows disk arm. Brighten its armed appearance without changing the Playlist's live state.
+    let lamp = if surface == Surface::TraditionalMixer && lamp == Lamp::Armed { Lamp::Recording } else { lamp };
     let glow = look.glow.unwrap_or(0.6);
     let w = r.w;
     let radius = (look.size.unwrap_or(9.) / 2.).min((r.h - 2.) / 2.);
@@ -68,7 +81,7 @@ pub fn paint(c: &mut Canvas, t: &Palette, r: Rect, surface: Surface, lamp: Lamp,
     c.push_clip(r);
     let edge = if hovered { t.glyph } else { rim };
     match look.style {
-        RecordLightStyle::ConsoleLed => {
+        RecordLightStyle::ConsoleLed | RecordLightStyle::Original => {
             let frame = (radius + 2.).min((r.h - 1.) / 2.);
             c.fill_circle(r.cx(), r.cy(), frame, t.sunken);
             c.stroke_circle(r.cx(), r.cy(), frame, 1., edge);
@@ -76,8 +89,10 @@ pub fn paint(c: &mut Canvas, t: &Palette, r: Rect, surface: Surface, lamp: Lamp,
         }
         style => {
             let badge = style == RecordLightStyle::RecBadge && w >= 34.;
-            let width = if badge { w - 2. } else { (radius * 2. + 10.).min(w - 2.) };
-            let face = Rect::new(r.cx() - width / 2., r.y + 0.5, width, r.h - 1.);
+            let compact_badge = style == RecordLightStyle::RecBadge && surface == Surface::TraditionalMixer && !badge;
+            let width = if badge || compact_badge { w - 2. } else { (radius * 2. + 10.).min(w - 2.) };
+            let height = if compact_badge { (radius * 2. + 4.).min(r.h - 1.) } else { r.h - 1. };
+            let face = Rect::new(r.cx() - width / 2., r.cy() - height / 2., width, height);
             let fill = match lamp {
                 Lamp::Idle => t.sunken,
                 Lamp::Armed => t.sunken.mix(color, 0.24),
@@ -91,15 +106,15 @@ pub fn paint(c: &mut Canvas, t: &Palette, r: Rect, surface: Surface, lamp: Lamp,
             c.stroke_rrect(face, 3., 1., edge);
             let x = if badge { face.x + 7. } else { face.cx() };
             let radius = if badge { (radius * 0.65).clamp(2., 4.) } else { (radius - 1.).max(2.) };
-            if lamp == Lamp::Recording {
+            if !compact_badge && lamp == Lamp::Recording {
                 c.fill_circle(x, face.cy(), radius, os_ui::kit::lemon::ink_on(fill));
-            } else {
+            } else if !compact_badge {
                 c.stroke_circle(x, face.cy(), radius, 1., color);
             }
-            if badge {
-                let label = Rect::new(face.x + 11., face.y, face.w - 14., face.h);
+            if badge || compact_badge {
+                let label = if badge { Rect::new(face.x + 11., face.y, face.w - 14., face.h) } else { face };
                 let ink = if lamp == Lamp::Idle { t.text_dim } else { os_ui::kit::lemon::ink_on(fill) };
-                c.text_center(Font::new(9).bold(), label, ink, "REC");
+                c.text_center(Font::new(if badge { 9 } else { 8 }).bold(), label, ink, "REC");
             }
         }
     }
@@ -126,33 +141,6 @@ fn lens(c: &mut Canvas, x: f32, y: f32, radius: f32, color: Color, lamp: Lamp, g
     }
 }
 
-pub fn rack_column() -> f32 {
-    if crate::workspace_visibility::shown(RACK_VISIBILITY) { RACK_COLUMN } else { 0. }
-}
-
-pub fn rack_lamp(s: &State, row: usize) -> Option<Lamp> {
-    let ch = s.project.channels.get(row)?;
-    use os_model::ChannelKind::{Layer, Plugin, Sampler};
-    if !matches!(ch.kind, Plugin | Sampler | Layer) { return None; }
-    let armed = s.selected_channel == row && s.rec.armed && crate::record::Opt::Notes.on();
-    Some(match (armed, s.rec.rack_note_record_channel == Some(ch.index)) {
-        (true, true) => Lamp::Recording,
-        (true, false) => Lamp::Armed,
-        _ => Lamp::Idle,
-    })
-}
-
-pub fn rack_indicator(ui: &mut Ui, s: &State, row: usize, rect: Rect) {
-    let Some(lamp) = rack_lamp(s, row) else { return; };
-    let hint = match lamp {
-        Lamp::Idle => "Select a channel and arm Notes with the transport Record button",
-        Lamp::Armed => "Note recording armed for this channel",
-        Lamp::Recording => "Recording notes on this channel",
-    };
-    ui.hit(rect, Action::Swallow, hint);
-    paint(ui.c, ui.t, rect, Surface::Rack, lamp, false);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,32 +162,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn record_lights_follow_note_capture_and_leave_room_for_rack_controls() {
-        use crate::record::Opt;
-        let mut app = crate::app::App::new(None);
-        app.state.project = crate::app::test_project();
-        app.state.song_mode = false;
-        let row = app.state.project.channels.iter().position(|ch| {
-            matches!(ch.kind, os_model::ChannelKind::Plugin | os_model::ChannelKind::Sampler)
-        }).unwrap();
-        app.state.selected_channel = row;
-        assert_eq!(rack_lamp(&app.state, row), Some(Lamp::Idle));
-        crate::mixer_recording::flag(Opt::Notes, true);
-        app.state.rec.armed = true;
-        assert_eq!(rack_lamp(&app.state, row), Some(Lamp::Armed));
-        app.transport.pretend_at(48., false);
-        app.record_tick();
-        assert_eq!(rack_lamp(&app.state, row), Some(Lamp::Recording));
-        crate::mixer_recording::flag(Opt::Notes, false);
-        app.record_tick();
-        assert_eq!(rack_lamp(&app.state, row), Some(Lamp::Idle));
-        app.state.vintage_2005 = false;
-        let visible = crate::views::rack::cols(&app.state);
-        assert!(visible.step_x >= visible.name_x + visible.name_w + 189.);
-        crate::settings_file::set_flag(RACK_VISIBILITY, false);
-        let hidden = crate::views::rack::cols(&app.state);
-        assert_eq!(visible.step_x - hidden.step_x, RACK_COLUMN);
-        assert_eq!(visible.name_w, hidden.name_w);
-    }
 }

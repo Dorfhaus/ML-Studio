@@ -365,10 +365,9 @@ tokens! {
     playlist_record_armed = 0xff5666, "Playlist record light when armed.";
     playlist_record_live = 0xff3549, "Playlist record light while recording.";
     playlist_record_rim = 0x6a7579, "Playlist record light bezel or frame.";
-    rack_record_idle = 0x793943, "Channel Rack record light when idle.";
-    rack_record_armed = 0xff5666, "Channel Rack record light when armed.";
-    rack_record_live = 0xff3549, "Channel Rack record light while recording.";
-    rack_record_rim = 0x6a7579, "Channel Rack record light bezel or frame.";
+    trad_record_idle = 0x793943, "Traditional Mixer record button when idle.";
+    trad_record_armed = 0xff3549, "Traditional Mixer record button when armed.";
+    trad_record_rim = 0x6a7579, "Traditional Mixer record button bezel or frame.";
     playlist_waveform = 0x7e8386, "Playlist keyboard & activity: Idle sample waveform.";
     playlist_waveform_active = 0xa8e44a, "Playlist keyboard & activity: Active sample waveform.";
     key_white = 0xe5e9f0, "Piano keyboard: white keys (right end of the gradient).";

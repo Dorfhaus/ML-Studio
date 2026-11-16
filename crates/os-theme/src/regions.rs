@@ -23,7 +23,7 @@ pub const SECTIONS: &[(&str, &str, &str)] = &[
 ];
 pub fn section(name: &str) -> &'static str {
     if name.starts_with("playlist_record_") { return "Playlist record light"; }
-    if name.starts_with("rack_record_") { return "Channel Rack record light"; }
+    if name.starts_with("trad_record_") { return "Traditional Mixer record button"; }
     if name.starts_with("playlist_key_") || name.starts_with("playlist_activity_") || name.starts_with("playlist_waveform") { return "Playlist"; }
     if name.starts_with("mixer_channel_") || name.starts_with("mixer_action_") {
         return "Mixer labels and buttons";

@@ -100,22 +100,28 @@ pub enum RecordLightStyle {
     ConsoleLed,
     BacklitSquare,
     RecBadge,
+    Original,
 }
 
 impl RecordLightStyle {
     pub const CHOICES: [&'static str; 3] = ["Console LED", "Backlit square", "REC badge"];
+    pub const MIXER_CHOICES: [&'static str; 4] = ["Original", "Console LED", "Backlit square", "REC badge"];
 
     fn parse(value: &str) -> Option<Self> {
         match value {
             "Console LED" => Some(Self::ConsoleLed),
             "Backlit square" => Some(Self::BacklitSquare),
             "REC badge" => Some(Self::RecBadge),
+            "Original" => Some(Self::Original),
             _ => None,
         }
     }
 
     pub fn label(self) -> &'static str {
-        Self::CHOICES[self as usize]
+        match self {
+            Self::Original => Self::MIXER_CHOICES[0],
+            _ => Self::CHOICES[self as usize],
+        }
     }
 }
 
@@ -133,7 +139,7 @@ pub struct Appearance {
     pub playlist_halo_visible: Option<bool>,
     pub playlist_halo_strength: Option<f32>,
     pub playlist_record_light: RecordLight,
-    pub rack_record_light: RecordLight,
+    pub trad_record_light: Option<RecordLight>,
     pub traditional_meter: TraditionalMeter,
     pub insert_knob: Option<Knob>,
     pub insert_full_knob: bool,
@@ -223,16 +229,20 @@ impl Appearance {
         let insert_pointer_length = num("insert-pointer-length", 100.0);
         let insert_face_custom = insert_face_finish.is_some() || insert_face_edge_width.is_some()
             || insert_pointer_width.is_some() || insert_pointer_length.is_some();
-        let record_light = |style, size, glow| RecordLight {
-            style: RecordLightStyle::parse(&option(style)).unwrap_or_default(),
+        let record_light = |style, size, glow, default| RecordLight {
+            style: RecordLightStyle::parse(&option(style)).unwrap_or(default),
             size: num(size, 13.0).map(|n| n.max(6.0)),
             glow: num(glow, 100.0).map(|n| n / 100.0),
         };
         Self {
             playlist_halo_visible: visible("playlist-halo-visible"),
             playlist_halo_strength: num("playlist-halo-strength", 200.0).map(|n| n / 100.0),
-            playlist_record_light: record_light("playlist-record-light", "playlist-record-size", "playlist-record-glow"),
-            rack_record_light: record_light("rack-record-light", "rack-record-size", "rack-record-glow"),
+            playlist_record_light: record_light("playlist-record-light", "playlist-record-size", "playlist-record-glow", RecordLightStyle::ConsoleLed),
+            trad_record_light: RecordLightStyle::parse(&option("trad-record-light")).map(|style| RecordLight {
+                style,
+                size: num("trad-record-size", 13.0).map(|n| n.max(6.0)),
+                glow: num("trad-record-glow", 100.0).map(|n| n / 100.0),
+            }),
             traditional_meter: TraditionalMeter {
                 fill: match option("trad-meter-fill").as_str() {
                     "Gradient" => Some(PeakMeterFill::Gradient),

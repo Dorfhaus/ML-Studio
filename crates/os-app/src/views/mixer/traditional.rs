@@ -584,9 +584,22 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         ui.c.text_center(Font::new(10),fx,if on {Color::rgb(0x000000)} else {ui.t.text},"FX");
     }
     if !master {
-        let rec=Rect::new(sx-7.,by-122.,14.,14.);
-        ui.hit(rec,Action::Mix(MHit::Disk(n)),"Arm / disarm disk recording");
-        ui.c.fill_circle(rec.cx(),rec.cy(),4.,if s.mixer.recording.armed.contains(&n){ui.t.h(0xff6868)}else{ui.t.text_dim});
+        use crate::record_light::{self, Lamp, Surface};
+        use os_theme::appearance::RecordLightStyle;
+        let surface = Surface::TraditionalMixer;
+        let style = surface.appearance(t).style;
+        let rec = if t.style.vintage_2005 || style == RecordLightStyle::Original {
+            Rect::new(sx - 7., by - 122., 14., 14.)
+        } else if style == RecordLightStyle::RecBadge {
+            // Use the space to the left of the fader without widening the insert.
+            let left = (sx - 28.).max(left + 1.);
+            Rect::new(left, by - 122., sx + 10. - left, 14.)
+        } else {
+            Rect::new(sx - 9., by - 122., 18., 14.)
+        };
+        let hover = ui.hit(rec, Action::Mix(MHit::Disk(n)), "Arm / disarm disk recording");
+        let lamp = if s.mixer.recording.armed.contains(&n) { Lamp::Armed } else { Lamp::Idle };
+        record_light::paint(ui.c, t, rec, surface, lamp, hover);
     }
     // Routing (spec: ui/mixer.md §5): the current track's green ⬇ (its cables are drawn over all strips: `cables`),
     // a send knob where the current track sends, else the ▲ "route to this track" button; an orange "^" marks tracks that receive a route.

@@ -385,9 +385,6 @@ fn ruler(ui: &mut Ui, window: Rect, columns: Cols, grid: Option<&Grid>) {
         text(ui, false),
         false,
     );
-    if crate::record_light::rack_column() > 0. {
-        label(ui, Rect::new(name.right() + 149., y, 38., name.h), "REC", text(ui, false), false);
-    }
     let grip = Rect::new(name.right() - 3.0, y + 2.0, 9.0, name.h - 4.0);
     let hot = ui.hit(grip, Action::RackDots, "Drag to resize channel buttons");
     for index in 0..3 {
@@ -593,9 +590,6 @@ fn controls(
         },
         false,
     );
-    if crate::record_light::rack_column() > 0. {
-        crate::record_light::rack_indicator(ui, s, index, Rect::new(name.right() + 149., name.cy() - 8., 38., 16.));
-    }
 }
 
 fn dial(ui: &mut Ui, s: &State, x: f32, y: f32, id: KnobId, bipolar: bool) {

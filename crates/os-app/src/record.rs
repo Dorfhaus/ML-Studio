@@ -199,7 +199,6 @@ pub struct Rec {
     pub smart: crate::smart_recording::Smart,
     pub armed: bool,
     pub(crate) note_record_row: Option<u16>,
-    pub(crate) rack_note_record_channel: Option<u16>,
     /// One-click audio recording is taking in (its button is lit; `crate::one_click`).
     pub audio: bool,
     held: Vec<Held>,
@@ -803,11 +802,6 @@ impl App {
         if note_row != self.state.rec.note_record_row {
             self.state.rec.note_record_row = note_row;
             self.damage_win(crate::app::Win::Playlist);
-        }
-        let rack_channel = if self.rec_live(Opt::Notes) { crate::piano::channel(&self.state) } else { None };
-        if rack_channel != self.state.rec.rack_note_record_channel {
-            self.state.rec.rack_note_record_channel = rack_channel;
-            self.damage_win(crate::app::Win::ChannelRack);
         }
     }
 

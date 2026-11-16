@@ -150,7 +150,6 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ]),
     ("Channel Rack", &[
         ("Step grid", crate::rack::STEP_GRID_VISIBILITY),
-        ("Channel Rack record lights", crate::record_light::RACK_VISIBILITY),
         ("Mixer routing menu", crate::rack_controls::ROUTING_VISIBILITY),
         ("Live MIDI note glow", crate::midi_play::RACK_ACTIVITY),
         ("Loop mode button", "visible_rack-loop"),
