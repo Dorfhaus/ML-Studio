@@ -2545,7 +2545,8 @@ fn prefer(ui: &mut Ui, cur: Prefer, x0: f32, y: f32, ty: f32) {
     let lw = ui.c.text(f, x0, ty, t.text, "Preferred format");
     let lemon = super::lemon(ui);
     let mut x = x0 + lw + 12.0;
-    for p in [Prefer::Vst3, Prefer::Clap, Prefer::Vst2] {
+    let formats = [Prefer::Vst3, Prefer::Clap, Prefer::Vst2, Prefer::AudioUnit];
+    for &p in &formats[..if cfg!(target_os = "macos") { 4 } else { 3 }] {
         let b = Rect::new(x, y + 3.0, 54.0, 21.0);
         let on = p == cur;
         let hov = ui.hit(b, Action::Settings(SAct::Plug(Plug::Prefer(p))), "Listed when a plugin is found in several formats");

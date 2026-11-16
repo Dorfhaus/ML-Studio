@@ -80,12 +80,18 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(j.data['steps']['build']['status'],'failed')
 
     def test_full_coordinator_restarts_failed_publish_without_rebuilding(self):
+        self.coordinator_restarts_failed_publish(mac_only=False)
+
+    def test_mac_coordinator_preserves_scope_when_resumed(self):
+        self.coordinator_restarts_failed_publish(mac_only=True)
+
+    def coordinator_restarts_failed_publish(self,mac_only):
         from contextlib import ExitStack
         import threading
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);out=root/'Desktop';share=root/'share';share.mkdir();out.mkdir();source=root/'source';(source/'packaging').mkdir(parents=True);(source/'packaging/download-page.html').write_text('page')
             reference=root/'reference.mlmixref';reference.write_bytes(b'fixture')
-            calls=[];barrier=threading.Barrier(4,timeout=10);failed=[False]
+            calls=[];barrier=threading.Barrier(2 if mac_only else 4,timeout=10);failed=[False]
             def makeplan(folder,scope):
                 folder=Path(folder);folder.mkdir(parents=True,exist_ok=True);file=folder/'test.bin';file.write_bytes(scope.encode())
                 dest=folder/'publish-plan.json';c.atomic_json(dest,dict(version=7,commit='abc',scope=scope,files=[dict(path='mac/7/'+scope+'.bin',local='test.bin',sha256=c.digest(file))]));return dest
@@ -93,14 +99,19 @@ class PipelineTests(unittest.TestCase):
             def lin(cfg,log):calls.append('linux');barrier.wait();f=out/'linux-binary';f.write_bytes(b'linux');return f
             def remote(args,log,sync=False):
                 if args[0]=='worker':
+                    self.assertEqual(args[2:],['--mac-only'] if mac_only else [])
                     calls.append(args[1]);barrier.wait();makeplan(share/('mac-'+args[1]),'mac-'+args[1])
                 elif args[0]=='publish-worker':
                     calls.append('publish-'+args[1])
                     if args[1]=='mac-arm64' and not failed[0]:failed[0]=True;raise RuntimeError('simulated lost connection')
                     c.atomic_json(share/args[1]/'PUBLISHED.json',{'verified':True})
             def stage(plan,name):dest=c.stage_plan(plan,share/name);return str(dest),c.plan_files(dest)
-            def verify(plans,folder,website):
+            protected={p: 'fixture' for p in p.WINDOWS_LINUX_LINKS}
+            def verify(plans,folder,website,before=None):
                 self.assertNotIn(website, plans)
+                scopes={json.loads(Path(plan).read_text())['scope'] for plan in plans}
+                self.assertEqual(scopes, set(p.MAC_PLATFORMS) if mac_only else set(p.MAC_PLATFORMS)|{'windows-linux','helper'})
+                self.assertEqual(before, protected if mac_only else None)
                 f=folder/'github-release.json';c.atomic_json(f,{'tag':'fixture'});return str(f),[f]
             def ghverify(plan,folder,commit=None):f=folder/'GITHUB-VERIFIED.json';c.atomic_json(f,{'url':'fixture'});return 'fixture',[f]
             def backup(*args,**kw):
@@ -113,15 +124,23 @@ class PipelineTests(unittest.TestCase):
                 stack.enter_context(patch.object(p.discord_changelog, 'bot_api', return_value=object()))
                 post = stack.enter_context(patch.object(p.discord_changelog, 'publish', return_value={'verified': True}))
                 stack.enter_context(patch.object(p,'helper_stage',lambda folder:stage(makeplan(folder/'helper','helper'),'helper')))
-                with self.assertRaisesRegex(RuntimeError,'lost connection'):p.coordinator()
+                stack.enter_context(patch.object(p,'prepare',lambda *a,**kw:None))
+                capture=stack.enter_context(patch.object(p,'download_digests',return_value=protected))
+                with self.assertRaisesRegex(RuntimeError,'lost connection'):p.coordinator(mac_only=mac_only)
                 p.coordinator()
-            for name in ['windows','linux','arm64','x86_64']:self.assertEqual(calls.count(name),1,name)
+            for name in ['arm64','x86_64']:self.assertEqual(calls.count(name),1,name)
+            for name in ['windows','linux']:self.assertEqual(calls.count(name),0 if mac_only else 1,name)
             post.assert_called_once()
             self.assertTrue(json.loads((out/'DISCORD-VERIFIED.json').read_text())['verified'])
             self.assertEqual(calls.count('publish-mac-arm64'),2)
             self.assertEqual(calls.count('publish-mac-x86_64'),1)
-            self.assertEqual(calls.count('publish-helper'),1)
-            self.assertLess(calls.index('publish-helper'),calls.index('publish-windows-linux'))
+            if mac_only:
+                self.assertNotIn('publish-helper',calls)
+                self.assertNotIn('publish-windows-linux',calls)
+                capture.assert_called_once_with(p.WINDOWS_LINUX_LINKS)
+            else:
+                self.assertLess(calls.index('publish-helper'),calls.index('publish-windows-linux'))
+                capture.assert_not_called()
             self.assertEqual(json.loads((out/'state.json').read_text())['steps']['Back up source']['status'],'complete')
 
 if __name__=='__main__':unittest.main()

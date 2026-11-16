@@ -34,6 +34,8 @@ pub mod rec {
     pub const VST_VERSION: u32 = 57;
     /// ML Studio extension, outside the Fruity Wrapper record range.
     pub const VST2_ARCH: u32 = u32::from_le_bytes(*b"MLPA");
+    /// ML Studio Audio Unit identity: component type, subtype and manufacturer.
+    pub const AUDIO_UNIT: u32 = u32::from_le_bytes(*b"MLAU");
 }
 
 /// What Lemon Studio writes as a new VST2 wrapper state's VST version.
@@ -116,7 +118,9 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 /// (spec: plugins.md §4).
 fn format_of(r: &Records, path: &str) -> &'static str {
     let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".vst3") {
+    if r.get(rec::AUDIO_UNIT).is_some_and(|id| id.len() == 12) {
+        "au"
+    } else if lower.ends_with(".vst3") {
         "vst3"
     } else if lower.ends_with(".clap") {
         "clap"
@@ -149,6 +153,7 @@ pub fn decode(data: &[u8]) -> Option<PluginRef> {
     let mut id = match format {
         "vst3" => r.get(rec::GUID).filter(|g| g.len() == 16).map(hex).unwrap_or_default(),
         "vst2" => r.get(rec::FOURCC).and_then(vst2_id).unwrap_or_default(),
+        "au" => r.get(rec::AUDIO_UNIT).map(hex).unwrap_or_default(),
         _ => String::new(),
     };
     if format == "vst2" && !id.is_empty() && r.get(rec::VST2_ARCH) == Some(b"x86") {
@@ -193,6 +198,13 @@ pub fn encode(base: Option<&[u8]>, p: &PluginRef) -> Vec<u8> {
         r.set(rec::VST2_ARCH, b"x86".to_vec());
     } else {
         r.remove(rec::VST2_ARCH);
+    }
+    if p.format == "au" {
+        if let Some(id) = unhex(&p.id).filter(|id| id.len() == 12) {
+            r.set(rec::AUDIO_UNIT, id);
+        }
+    } else {
+        r.remove(rec::AUDIO_UNIT);
     }
     r.set(rec::STATE, p.state.clone());
     r.set(rec::NAME, p.name.as_bytes().to_vec());

@@ -1,6 +1,6 @@
 {
-  "generated_articles": 424,
-  "guide_articles": 690,
+  "generated_articles": 425,
+  "guide_articles": 692,
   "records": [
     {
       "title": "Visibility: Host and join sessions (Collaboration)",
@@ -1267,6 +1267,10 @@
       "source": "crates/os-app/src/loop_fit.rs"
     },
     {
+      "title": "Menu Layout - menu labels 1",
+      "source": "crates/os-app/src/menu_layout.rs"
+    },
+    {
       "title": "Messages - menu labels 1",
       "source": "crates/os-app/src/messages.rs"
     },
@@ -1701,7 +1705,7 @@
   ],
   "explicit_exclusions": {
     "settings_comments_needing_reverification": 16,
-    "dynamic_or_nonliteral_hints": 566,
+    "dynamic_or_nonliteral_hints": 568,
     "dynamic_menu_labels": 213
   },
   "scope": "Static preference declarations, direct editor hints, literal menu labels, configurable command shortcuts and constructor parameter names. Dynamic controls and behavioral completeness require manual review; catalog presence is not a claim that every feature is fully documented."

@@ -50,7 +50,7 @@ pub fn child_main(args: &[String]) -> ! {
             }
             Err(e) => serde_json::json!({ "ok": false, "error": e, "crashed": os_host::guard::tripped() }),
         },
-        _ => serde_json::json!({ "ok": false, "error": format!("usage: {ARG} clap|vst3|vst2|native <path>") }),
+        _ => serde_json::json!({ "ok": false, "error": format!("usage: {ARG} clap|vst3|vst2|au|native <path>") }),
     };
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "\n{TAG}{out}");

@@ -31,5 +31,6 @@ with tempfile.TemporaryDirectory(prefix='lemon-publication-') as folder:
     for path in assets:
         expected='sha256:'+hashlib.sha256(path.read_bytes()).hexdigest()
         if remote.get(path.name,{}).get('digest')!=expected:raise SystemExit('GitHub asset digest mismatch: '+path.name)
-    gh('release','edit',tag,'--draft=false','--latest')
-    print('Complete DAW release published and asset hashes verified:',tag)
+    latest = '--latest=false' if plan.get('latest') is False else '--latest'
+    gh('release','edit',tag,'--draft=false',latest)
+    print('DAW release published and asset hashes verified:',tag)

@@ -1,6 +1,6 @@
 """Isolated public build workers. Credentials never enter these environments."""
 from pathlib import Path
-import json, os, shutil, struct, subprocess, tarfile, zipfile
+import json, os, shutil, struct, subprocess, tarfile, tempfile, zipfile
 import release as r
 import storage
 from checkpoints import atomic_json, digest
@@ -118,7 +118,39 @@ def linux_package(config,binary,win_plan,out,log):
     return r.write_plan(site,out,'windows-linux')
 
 
-def mac(config,arch,out,log):
+def verify_mac_package(dmg, update, arch, out, log):
+    with tempfile.TemporaryDirectory(prefix='mac-smoke-', dir=out) as scratch:
+        scratch=Path(scratch)
+        mount=scratch/'installer'
+        mount.mkdir()
+        command(log,'hdiutil','attach','-nobrowse','-readonly','-mountpoint',mount,dmg)
+        try:
+            app=mount/'ML Studio.app'
+            command(log,'codesign','--verify','--deep','--strict',app)
+            feed=json.loads((update/'signed.json').read_text())
+            files=json.loads(feed['payload'])['files']
+            for entry in files:
+                if any(digest(root/entry['name'])!=entry['sha256'] for root in (app,update)):
+                    raise RuntimeError('Installer and updater differ: '+entry['name'])
+            profile=scratch/'profile'
+            profile.mkdir()
+            env=dict(os.environ,OPENSTUDIO_USER_DIR=str(profile),OPENSTUDIO_NO_PLUGIN_BUILD='1')
+            binary=app/'Contents/MacOS/lemonstudio'
+            report=out/'startup-report.txt'
+            command(log,'arch','-'+arch,binary,'--startup-report',report,env=env)
+            if str(profile) not in report.read_text():
+                raise RuntimeError('Mac startup did not use the clean profile')
+            result=subprocess.check_output(['arch','-'+arch,binary,'--scan-plugin','au','macOS Audio Units'],env=env,text=True,timeout=30)
+            scan=json.loads(next(line[7:] for line in result.splitlines() if line.startswith('OSSCAN ')))
+            ids={plugin['id'] for plugin in scan.get('plugins',[])}
+            if not scan['ok'] or not {'61756D75646C73206170706C','617566786C7061736170706C'}<=ids:
+                raise RuntimeError('Packaged Mac app did not discover the expected Audio Units')
+            atomic_json(out/'audio-unit-smoke.json',{'architecture':arch,'registered_plugins':len(ids),'installer_matches_updater':True})
+        finally:
+            command(log,'hdiutil','detach',mount)
+
+
+def mac(config,arch,out,log,verify_au=False):
     storage.build_preflight(Path(config['cache'])/('mac-'+arch), out)
     env=environment(config,'mac-'+arch);out=Path(out);out.mkdir(parents=True);env['LEMON_PACKAGE_OUT']=str(out)
     command(log,'bash',r.ROOT/'packaging/mac/build-release.command',env=env)
@@ -127,6 +159,8 @@ def mac(config,arch,out,log):
         dest=site/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(out/Path(rel).name,dest)
     shutil.copy2(out/f'mac-{arch}.json',site/'platforms'/f'mac-{arch}.json')
     command(log,r.sys.executable,r.ROOT/'packaging/prepare-unix-update.py','--platform','mac-'+arch,'--site',site,'--app',Path(env['CARGO_TARGET_DIR'])/'bundled/ML Studio.app',env=env)
+    if verify_au:
+        verify_mac_package(site/manifest['url'],site/'mac/updates'/arch/str(r.version()),arch,out,log)
     return r.write_plan(site,out,'mac-'+arch)
 
 

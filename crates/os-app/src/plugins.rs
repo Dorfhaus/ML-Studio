@@ -375,6 +375,12 @@ pub fn load_file(path: &Path, format: os_host::Format) -> Result<Arc<dyn Library
             os_host::Format::Clap => os_clap::Library::load(path).map(|l| l as Arc<dyn Library>),
             os_host::Format::Vst3 => os_vst3::Module::load(path).map(|l| l as Arc<dyn Library>),
             os_host::Format::Vst2 => os_vst2::Module::load(path).map(|l| l as Arc<dyn Library>),
+            os_host::Format::AudioUnit => {
+                #[cfg(target_os = "macos")]
+                { os_host::audio_unit::Registry::load(path).map(|l| l as Arc<dyn Library>) }
+                #[cfg(not(target_os = "macos"))]
+                { Err("Audio Unit plug-ins require macOS".into()) }
+            }
             os_host::Format::Native => os_native::NativeLibrary::load(path).map(|l| l as Arc<dyn Library>),
         }
     };
@@ -445,6 +451,7 @@ pub fn format_name(f: os_host::Format) -> &'static str {
         os_host::Format::Clap => "CLAP",
         os_host::Format::Vst3 => "VST3",
         os_host::Format::Vst2 => "VST2",
+        os_host::Format::AudioUnit => "AU",
         os_host::Format::Native => "native",
     }
 }
@@ -468,6 +475,7 @@ impl Plugins {
         let mut seen: HashSet<String> = builtin.clone();
         for f in cache.files.iter().filter(|f| f.status == crate::plugin_db::Status::Ok) {
             let Some(format) = os_host::Format::parse(&f.format) else { continue };
+            if format == os_host::Format::AudioUnit && !cfg!(target_os = "macos") { continue; }
             let path = PathBuf::from(&f.path);
             let descs: Vec<Descriptor> = f.plugins.iter().map(|r| r.descriptor(format, &path)).collect();
             let lib: Arc<dyn Library> = Arc::new(LazyLibrary { path: path.clone(), format, plugins: descs.clone(), real: OnceLock::new() });

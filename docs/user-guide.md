@@ -824,6 +824,7 @@ Related: Report a problem and check for updates | Browse samples, favorites and 
 Keywords: plugin format VST3 VST2 CLAP scan paths architecture instrument effect wrapper editor D detach keyboard focus
 Install a plugin that matches the operating system and processor, then scan its installation folder from Settings > Plugins. Add instruments to the Channel Rack and effects to Mixer slots. The plugin's native format and identity matter when reopening projects.
 Open the wrapper menu for its preset, parameter, compatibility and processing options. The D control switches between an attached editor and a separate window. Keyboard focus and typing-piano priority determine whether unmodified keys play notes, go to the plugin, or run DAW shortcuts.
+On macOS, keep **macOS Audio Units** enabled under **Settings > Plugins > Search folders** and click **Find new plugins** to list registered AUv2 instruments and effects. Choose an instrument in the Channel Rack or an effect in a Mixer slot. With **Combine** enabled, **Preferred format > AU** lists the Audio Unit first when the same plugin is available in several formats. ML Studio saves the component identity and presets with the project. On another Mac, install the same Audio Unit and scan before opening the project.
 On 64-bit Windows, select **Download 32-bit VST2 bridge** under Settings > Plugins > Legacy VST2 to install the optional Carla component. ML Studio rescans after the download. Add the 32-bit DLL's folder to Search folders if it is outside your existing scan locations. Bridged instruments and effects appear in the same pickers as other plugins, marked **32-bit VST2**. Their own editors open in separate windows. Use Presets in the Channel Rack row menu or Mixer slot menu to browse their programs. When both builds of a VST2 are available and Combine is enabled, the 64-bit build is listed first. Projects made with the bridge remember which 32-bit build they used.
 A missing plugin can leave a saved slot or channel that cannot process. Check the format and scan error first. Preserve the project before substituting another plugin. Use a render to share the sound with someone who lacks the original plugin.
 Related: Find installed plugins | Recover a missing plugin or preset | Use an ARA audio editor
@@ -3942,6 +3943,12 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 
 - Fit to length [submenu]
 
+### Menu Layout - menu labels 1
+Keywords: menu layout - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Use this track's instrument
+
 ### Messages - menu labels 1
 Keywords: messages - menu labels 1 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
@@ -4282,29 +4289,29 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Add time signature change...
 - Place loop
 - Change to marker loop
-- Extract Chords
 - Use this track's instrument
 - Detect sample tempo
 - Make it fit
+- Half length (double time)
 
 ### Playlist - menu labels 5
 Keywords: playlist - menu labels 5 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
-- Half length (double time)
 - Double length (half time)
 - Fit to bars [submenu]
 - Reset to original duration
 - Stretch clip edges
 - Trim clip edges
 - Edit audio timing
+- Send to mixer track...
 - Preview
 - Muted
 - Rename...
 - Make Unique
-- Send to mixer track...
 - Clip effects...
 - Change color...
+- Extract Chords
 - Vocal Align to this clip…
 - Time / stretching [submenu]
 
@@ -4954,18 +4961,19 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Back to the colours from before the picker opened
 - Switch the workspace appearance
 - Name your new submenu
+- Drag to reorder; drop on the middle of a submenu to move inside. Esc cancels.
 - Search visibility controls
 - Brightens Playlist clips in this theme
 - Change the text colour so it reads on every surface
 - MP3 music genres
 - Remove this folder
 - Listed when a plugin is found in several formats
-- Sort by this column
 
 ### Settings view - control hints 2
 Keywords: settings view - control hints 2 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
+- Sort by this column
 - Find: type to keep the plugins whose name, vendor or file contain the text (Esc clears)
 - Display PPI: drag, or turn the mouse wheel
 

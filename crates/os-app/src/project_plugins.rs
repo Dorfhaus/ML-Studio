@@ -61,9 +61,9 @@ pub fn has_recreation(id: &str) -> bool {
 pub fn is_wrapped(d: &Descriptor) -> bool {
     #[cfg(test)]
     if WRAP_BUILTINS.with(|w| w.get()) {
-        return matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2);
+        return matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2 | Format::AudioUnit);
     }
-    matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2) && (!is_builtin(d) || matches!(d.name.as_str(),"ML Chop"|"ML Wave"|"ML Plasma") || crate::plugins::LINKED_EFFECTS.contains(&d.name.as_str()))
+    matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2 | Format::AudioUnit) && (!is_builtin(d) || matches!(d.name.as_str(),"ML Chop"|"ML Wave"|"ML Plasma") || crate::plugins::LINKED_EFFECTS.contains(&d.name.as_str()))
 }
 
 /// The project-file identity of a hosted plugin with its saved state. A built-in effect with no file plugin of its own
@@ -80,7 +80,7 @@ pub fn plugin_ref(d: &Descriptor, state: Vec<u8>) -> PluginRef {
         format: d.format.as_str().into(),
         // A CLAP id has no place in the wrapper state (spec §4): such plugins are found by file and name.
         id: if d.is_vst2_x86() { format!("{}:x86", d.id) }
-            else if matches!(d.format, Format::Vst3 | Format::Vst2) { d.id.clone() }
+            else if matches!(d.format, Format::Vst3 | Format::Vst2 | Format::AudioUnit) { d.id.clone() }
             else { String::new() },
         name: d.name.clone(),
         vendor: d.vendor.clone(),
@@ -367,6 +367,10 @@ fn same_plugin_name(d: &Descriptor, saved: &str) -> bool {
 
 fn find_installed(list: &[Available], r: &PluginRef, missing: &std::collections::HashSet<String>) -> Option<usize> {
     let format = Format::parse(&r.format);
+    if format == Some(Format::AudioUnit) {
+        return list.iter().position(|a| a.desc.format == Format::AudioUnit
+            && !r.id.is_empty() && a.desc.id.eq_ignore_ascii_case(&r.id) && !missing.contains(&a.desc.uid()));
+    }
     let architecture = if r.is_vst2_x86() {
         Some(true)
     } else if format == Some(Format::Vst2) {
@@ -378,7 +382,7 @@ fn find_installed(list: &[Available], r: &PluginRef, missing: &std::collections:
     } else {
         None
     };
-    let available = |a: &Available| !missing.contains(&a.desc.uid())
+    let available = |a: &Available| a.desc.format != Format::AudioUnit && !missing.contains(&a.desc.uid())
         && architecture.is_none_or(|x86| a.desc.is_vst2_x86() == x86);
     if format == Some(Format::Vst2) && !r.path.is_empty() {
         let original = r.path.replace('\\', "/");
@@ -904,6 +908,65 @@ mod tests {
         let r2 = wrapped_channel(&again.channels[row]).unwrap();
         assert_eq!(Some(r2.state), b.plugins.state(row));
         assert_eq!(again.mixer[3].slots[2], saved.mixer[3].slots[2]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn audio_units_scan_host_and_reopen_project() {
+        use crate::plugin_db::{Cache, FileScan, Prefs, Status};
+        use os_host::audio_unit::REGISTRY_PATH;
+        use std::path::Path;
+
+        let folders = crate::plugin_db::search_dirs(&Prefs::default());
+        let found = crate::plugin_db::discover(&folders.into_iter()
+            .filter(|folder| folder.path == Path::new(REGISTRY_PATH)).collect::<Vec<_>>(), Vec::new());
+        assert_eq!(found.len(), 1);
+        let scanned = crate::plugin_scan::scan_here(&found[0].path, Format::AudioUnit);
+        assert_eq!(scanned.status, Status::Ok);
+        let cache = Cache { version: 1, files: vec![FileScan {
+            path: REGISTRY_PATH.into(), format: "au".into(), size: 0, modified: 0,
+            status: Status::Ok, error: String::new(), plugins: scanned.plugins,
+        }] };
+
+        let mut app = App::new(None);
+        app.state.project = crate::app::test_project();
+        app.state.file = None;
+        app.state.path = None;
+        app.plugins.merge(&cache);
+        let synth_id = "61756D75646C73206170706C";
+        let effect_id = "617566786C7061736170706C";
+        let synth = app.plugins.available.iter().position(|a| a.desc.id == synth_id).unwrap();
+        let name = app.plugins.available[synth].desc.name.clone();
+        let row = crate::app::add_plugin_channel(&mut app.state.project, &name);
+        app.plugins.create(row, synth).unwrap();
+        app.state.hosted_rows.push(row);
+
+        let effect = app.plugins.effects.iter().position(|a| a.desc.id == effect_id).unwrap();
+        let title = app.plugins.effects[effect].desc.name.clone();
+        app.state.project.mixer[1].slots[0] = Some(SlotPlugin { name: title, state: Vec::new() });
+        app.plugins.create_effect(1, 0, effect, None).unwrap();
+        let key = fx_key(1, 0);
+        let cutoff = {
+            let plugin = app.plugins.hosted[&key].plugin.lock().unwrap();
+            (0..plugin.param_count()).find_map(|i| plugin.param_info(i)
+                .filter(|p| p.automatable && p.name.to_ascii_lowercase().contains("cutoff"))).unwrap().id
+        };
+        assert!(app.plugins.hosted[&key].plugin.lock().unwrap().set_param(cutoff, 0.31));
+        let path = std::env::temp_dir().join(format!("ml-au-roundtrip-{}.lmn", std::process::id()));
+        app.save_to(path.clone());
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        let saved = os_flp::project::load(&os_flp::FlpFile::parse(&bytes).unwrap()).unwrap();
+        assert_eq!(wrapped_channel(&saved.channels[row]).unwrap().id, synth_id);
+        assert_eq!(wrapped_slot(saved.mixer[1].slots[0].as_ref().unwrap()).unwrap().id, effect_id);
+
+        let mut reopened = App::new(None);
+        reopened.state.project = saved;
+        reopened.plugins.merge(&cache);
+        reopened.sync_wrapped();
+        assert_eq!(reopened.plugins.descriptor(row).unwrap().format, Format::AudioUnit);
+        let value = reopened.plugins.hosted[&key].plugin.lock().unwrap().param_value(cutoff).unwrap();
+        assert!((value - 0.31).abs() < 0.001);
     }
 
     /// Every Lemon effect is compiled in: `FILE_MAPPED`, then `LINKED_EFFECTS` in that order, each an effect from this program.

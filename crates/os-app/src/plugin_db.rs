@@ -25,6 +25,7 @@ pub enum Prefer {
     Vst3,
     Clap,
     Vst2,
+    AudioUnit,
 }
 
 impl Prefer {
@@ -33,6 +34,7 @@ impl Prefer {
             Prefer::Vst3 => "VST3",
             Prefer::Clap => "CLAP",
             Prefer::Vst2 => "VST2",
+            Prefer::AudioUnit => "AU",
         }
     }
 }
@@ -367,6 +369,7 @@ impl SearchDir {
             DirKind::Standard(Format::Clap) => "CLAP",
             DirKind::Standard(Format::Vst3) => "VST3",
             DirKind::Standard(Format::Vst2) => "VST2",
+            DirKind::Standard(Format::AudioUnit) => "AU",
             DirKind::Standard(Format::Native) => "native",
             DirKind::Added => "All formats",
         }
@@ -386,6 +389,12 @@ pub fn search_dirs(p: &Prefs) -> Vec<SearchDir> {
             let on = !p.standard_off.iter().any(|o| same_path(Path::new(o), &path));
             v.push(SearchDir { path, kind: DirKind::Standard(f), on });
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let path = PathBuf::from(os_host::audio_unit::REGISTRY_PATH);
+        let on = !p.standard_off.iter().any(|off| same_path(Path::new(off), &path));
+        v.push(SearchDir { path, kind: DirKind::Standard(Format::AudioUnit), on });
     }
     v.extend(p.folders.iter().map(|f| SearchDir { path: PathBuf::from(&f.path), kind: DirKind::Added, on: f.on }));
     v
@@ -425,11 +434,15 @@ pub fn discover(dirs: &[SearchDir], native: Vec<PathBuf>) -> Vec<Found> {
     let mut seen = HashSet::new();
     let mut walked = HashSet::new();
     for d in dirs.iter().filter(|d| d.on) {
+        if d.kind == DirKind::Standard(Format::AudioUnit) {
+            out.push(Found { path: d.path.clone(), format: Format::AudioUnit });
+            continue;
+        }
         let formats = match d.kind {
             DirKind::Standard(Format::Clap) => Formats { clap: true, ..Formats::NONE },
             DirKind::Standard(Format::Vst3) => Formats { vst3: true, ..Formats::NONE },
             DirKind::Standard(Format::Vst2) => Formats { vst2: true, ..Formats::NONE },
-            DirKind::Standard(Format::Native) => Formats::NONE,
+            DirKind::Standard(Format::Native | Format::AudioUnit) => Formats::NONE,
             DirKind::Added => Formats { clap: true, vst3: true, vst2: true },
         };
         walk(&d.path, 0, formats, &mut walked, &mut seen, &mut out);
@@ -499,7 +512,7 @@ pub fn stamp(path: &Path, format: Format) -> (u64, u64) {
         Format::Vst3 => os_vst3::module_file(path),
         Format::Clap => os_clap::module_file(path),
         Format::Vst2 => os_vst2::module_file(path),
-        Format::Native => path.to_path_buf(),
+        Format::Native | Format::AudioUnit => path.to_path_buf(),
     };
     let file = if module.exists() { module } else { path.to_path_buf() };
     let Ok(md) = std::fs::metadata(&file) else { return (0, 0) };
@@ -552,7 +565,8 @@ pub fn sweep(
         let (size, modified) = stamp(&f.path, f.format);
         let prev = old_by.get(&(path_key(&f.path), f.format.as_str()));
         match prev {
-            Some(p) if mode == Mode::Changed && p.size == size && p.modified == modified && !(p.status.failed() && rescan_errors) => {
+            Some(p) if mode == Mode::Changed && f.format != Format::AudioUnit
+                && p.size == size && p.modified == modified && !(p.status.failed() && rescan_errors) => {
                 files[i] = Some((*p).clone());
             }
             _ => todo.push((i, size, modified)),
@@ -664,6 +678,7 @@ fn rank(d: &Descriptor, prefer: Prefer) -> usize {
         Prefer::Vst3 => Some(Format::Vst3),
         Prefer::Clap => Some(Format::Clap),
         Prefer::Vst2 => Some(Format::Vst2),
+        Prefer::AudioUnit => Some(Format::AudioUnit),
     };
     if Some(d.format) == preferred {
         return 1;
@@ -672,7 +687,8 @@ fn rank(d: &Descriptor, prefer: Prefer) -> usize {
         Format::Vst3 => 2,
         Format::Clap => 3,
         Format::Vst2 => 4,
-        Format::Native => 5,
+        Format::AudioUnit => 5,
+        Format::Native => 6,
     }
 }
 

@@ -4,6 +4,15 @@
   "sections": [
     {
       "date": "2026-11-16",
+      "title": "Audio Unit plug-in support for macOS \u00b7 public build 2026111604",
+      "changes": [
+        "Find installed AUv2 instruments and effects in Plugin Manager, then load instruments in the Channel Rack and effects in the Mixer.",
+        "Audio Unit parameter automation and plug-in settings are saved with the project. Plug-ins that provide a compatible Cocoa editor can open their own controls.",
+        "Available in the Apple silicon and Intel macOS builds."
+      ]
+    },
+    {
+      "date": "2026-11-16",
       "title": "Permanent supporter activation, flexible menus and toolbar, and Windows legacy plug-in support \u00b7 public build 2026111602",
       "changes": [
         "ML Studio remains free. Optional lifetime supporter activation (\u20ac10 or more) removes the Donate button and reminders after successful song and Visualizer exports. Activation stays valid across future updates and works offline after import.",

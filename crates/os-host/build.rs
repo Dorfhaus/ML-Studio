@@ -8,6 +8,14 @@
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(plugin_guard)");
     println!("cargo:rerun-if-changed=src/guard.c");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rerun-if-changed=src/audio_unit.m");
+        cc::Build::new().file("src/audio_unit.m").flag("-fobjc-arc").compile("os_audio_unit");
+        for framework in ["AudioToolbox", "CoreFoundation", "AppKit"] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+        return;
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") || std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
     }

@@ -20,6 +20,8 @@
 
 #[cfg(target_os = "macos")]
 pub mod bundle;
+#[cfg(target_os = "macos")]
+pub mod audio_unit;
 pub mod guard;
 mod guarded;
 mod meter;
@@ -42,6 +44,7 @@ pub enum Format {
     Clap,
     Vst3,
     Vst2,
+    AudioUnit,
     /// Plugins written against the native SDK of the DAW whose projects Lemon Studio opens (`os-native`).
     Native,
 }
@@ -53,13 +56,14 @@ impl Format {
             Format::Clap => "clap",
             Format::Vst3 => "vst3",
             Format::Vst2 => "vst2",
+            Format::AudioUnit => "au",
             Format::Native => "native",
         }
     }
 
     /// The format named by `as_str`.
     pub fn parse(s: &str) -> Option<Format> {
-        [Format::Clap, Format::Vst3, Format::Vst2, Format::Native].into_iter().find(|f| f.as_str() == s)
+        [Format::Clap, Format::Vst3, Format::Vst2, Format::AudioUnit, Format::Native].into_iter().find(|f| f.as_str() == s)
     }
 }
 
