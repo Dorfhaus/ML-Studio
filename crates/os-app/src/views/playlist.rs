@@ -1571,6 +1571,16 @@ pub(crate) fn activity_halo(c:&mut os_ui::Canvas,t:&os_theme::Palette,face:Rect,
     c.stroke_rrect(face.inset(1.5/scale),(radius-1./scale).max(0.),2./scale,color(42.));
 }
 
+fn mute_led(ui: &mut Ui, led: Rect, on: bool, hovered: bool, vintage: bool) {
+    if vintage {
+        let r = Rect::new(led.cx() - 7., led.cy() - 7., 14., 14.);
+        if on { crate::vintage_rack_art::led_on(ui.c, r); } else { crate::vintage_rack_art::led_off(ui.c, r); }
+    } else {
+        // Match the registered hit target so crossing its interior cannot change the LED during a partial paint.
+        os_ui::kit::led(ui.c, ui.t, led.cx(), led.cy(), 6.0, os_ui::kit::State::hover(hovered).with_on(on));
+    }
+}
+
 /// Track face, grouped corners and direct instrument/recording controls.
 fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w: f32) {
     const INDENT: f32 = 6.0;
@@ -1677,11 +1687,8 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
     if base_height < 36.0 {
         let face = Rect::new(hr.x, hr.y, hr.w, base_height - gap);
         let led = Rect::new(face.right() - 17.0, face.y, 16.0, face.h);
-        ui.hit(led, Action::PlLed(row), "Mute track (right-click / Ctrl+click: solo)");
-        if s.vintage_2005 {
-            let r=Rect::new(led.cx()-7.,led.cy()-7.,14.,14.);
-            if on {crate::vintage_rack_art::led_on(ui.c,r);}else{crate::vintage_rack_art::led_off(ui.c,r);}
-        } else {super::led(ui, led.cx(), led.cy(), on);}
+        let hovered = ui.hit(led, Action::PlLed(row), "Mute track (right-click / Ctrl+click: solo)");
+        mute_led(ui, led, on, hovered, s.vintage_2005);
         let expanded = crate::vocal::expanded(s, row);
         let record = crate::attached_mixer::record_button_visible(s,row);
         let record_width = crate::record_light::playlist_width(t, face.w - 115.);
@@ -1716,7 +1723,7 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
     ui.c.fill_rect(Rect::new(toggle.x+if active.is_some(){10.0}else{2.0},toggle.y+2.0,6.0,6.0),if active.is_some(){ui.t.tx(0x253039)}else{t.text});
     let hot = ui.hit(auto, Action::PlAutomation(row), hint);
     clip_kind_icon(ui, PickKind::Automation, auto.inset(1.0), crate::attached_mixer::lane_icon(s,row,hot).unwrap_or(if active.is_some() || hot { t.glyph } else { t.text_faint }));
-    ui.hit(led, Action::PlLed(row), "Mute track (right-click / Ctrl+click: solo)");
+    let hovered = ui.hit(led, Action::PlLed(row), "Mute track (right-click / Ctrl+click: solo)");
     crate::vocal::head(ui,s,row,Rect::new(hr.x+27.,led.y,17.,14.));
     crate::warp::head(ui,s,row,Rect::new(hr.x+47.,led.y,14.,14.));
     let record_right = led.x - if lead { 23. } else { 5. };
@@ -1757,10 +1764,7 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
         // FL draws a lock where the LED is on such a group (§6a).
         draw_padlock(ui.c, led.cx(), led.cy() + 1., 1., t.led(0xa0dd48), true);
     } else {
-        if s.vintage_2005 {
-            let r=Rect::new(led.cx()-7.,led.cy()-7.,14.,14.);
-            if on {crate::vintage_rack_art::led_on(ui.c,r);}else{crate::vintage_rack_art::led_off(ui.c,r);}
-        } else {super::led(ui, led.cx(), led.cy(), on);}
+        mute_led(ui, led, on, hovered, s.vintage_2005);
     }
     crate::vocal::keys(ui,s,g,row,hr);
     ui.hit(Rect::new(hr.x,hr.bottom()-3.,hr.w,4.),Action::PlRowResize(row),"Drag to resize this Playlist track");

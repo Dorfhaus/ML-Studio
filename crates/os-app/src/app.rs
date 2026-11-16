@@ -12298,6 +12298,56 @@ mod tests {
     }
 
     #[test]
+    fn playlist_mute_hover_stays_whole_during_partial_repaints() {
+        use crate::playlist as pl;
+        for scale in [1.0, 1.25] {
+            for height in [pl::ROW_MIN, pl::ROW_H] {
+                let mut app = App::new(None);
+                app.state.project = default_project();
+                app.state.project.arrangements.clear();
+                pl::arr_mut(&mut app.state).tracks[2].height = Some(height);
+                app.set_design(Design::Lemon, false);
+                app.state.startup_layout_pending = false;
+                app.state.z = vec![Win::Playlist];
+                app.state.show_browser = false;
+                let mut canvas = Canvas::new((1280. * scale) as u32, (850. * scale) as u32, scale).unwrap();
+                frame(&mut app, &mut canvas, None);
+                let _ = app.take_damage();
+
+                let action = Action::PlLed(2);
+                let led = hit_rect(&app, &action);
+                let pixels = |canvas: &Canvas| {
+                    let (x, y, w, h) = canvas.device_rect(led);
+                    (y..y + h).flat_map(|y| {
+                        (x..x + w).map(move |x| canvas.pixmap.pixel(x as u32, y as u32).unwrap())
+                    }).collect::<Vec<_>>()
+                };
+                let idle = pixels(&canvas);
+                app.mouse_move(led.x + 0.5, led.cy());
+                assert_eq!(app.hover.as_ref(), Some(&action));
+                let damage = app.take_damage();
+                frame_damage(&mut app, &mut canvas, damage);
+                let highlighted = pixels(&canvas);
+                assert_ne!(highlighted, idle, "the button highlights at the edge of its hit target");
+
+                // A small repaint can happen while the pointer moves within the same button.
+                app.mouse_move(led.cx(), led.cy());
+                app.damage_rect(Rect::new(led.x, led.y, led.w / 2., led.h));
+                let damage = app.take_damage();
+                frame_damage(&mut app, &mut canvas, damage);
+                assert_eq!(pixels(&canvas), highlighted, "partial paint at {scale}, row height {height}");
+                frame(&mut app, &mut canvas, None);
+                assert_eq!(pixels(&canvas), highlighted, "the full paint agrees with the partial paint");
+
+                app.mouse_move(led.right() + 24., led.cy());
+                let damage = app.take_damage();
+                frame_damage(&mut app, &mut canvas, damage);
+                assert_eq!(pixels(&canvas), idle, "leaving the button clears the entire highlight");
+            }
+        }
+    }
+
+    #[test]
     fn mini_keyboard_pixel_lines_and_individual_note_lights() {
         use os_ui::Color;
         let app=App::new(None);let t=&app.theme.colors;
