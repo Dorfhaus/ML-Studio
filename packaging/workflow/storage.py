@@ -93,6 +93,29 @@ def release_active(folder):
     return False
 
 
+def old_mac_package_stages(cfg):
+    # These directories are disposable inputs to hdiutil. The completed DMGs live in release_roots.
+    names = {'ML Studio.app', 'Lemon Studio.app', 'Applications', 'LICENSE',
+             'THIRD-PARTY-NOTICES.txt', 'Lemon Studio Source.zip', 'READ ME.txt'}
+    cutoff = time.time() - 24 * 60 * 60
+    for name in cfg.get('cache_roots', []):
+        target = Path(name)
+        if target.name not in ('mac-arm64', 'mac-x86_64'):
+            continue
+        cache = plain_root(target)
+        root = cache/'bundled'
+        if not (cache/'CACHEDIR.TAG').is_file() or (cache/'.git').exists() or not root.is_dir() or linked(root):
+            continue
+        for p in root.iterdir():
+            if not re.fullmatch(r'mac-package-[a-z0-9_]{8}', p.name) or not p.is_dir() or linked(p):
+                continue
+            if p.stat().st_mtime >= cutoff or release_active(p):
+                continue
+            apps = p/'Applications'
+            if (not apps.exists() or apps.is_symlink()) and {child.name for child in p.iterdir()} <= names:
+                yield p
+
+
 def plan(cfg):
     """Only version-numbered packages and explicitly named executable backups expire."""
     result = []
@@ -117,7 +140,7 @@ def plan(cfg):
         files.sort(key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
         # The installed executable is build one; four rollback binaries make five.
         result.extend(files[4:])
-    return result
+    return result + list(old_mac_package_stages(cfg))
 
 
 def maintain(cfg=None, apply=False):

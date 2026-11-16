@@ -864,11 +864,23 @@ fn complete(app: &mut App, result: Result<PathBuf, String>) {
         |modal| !matches!(&modal.body,Body::Msg(msg) if msg.then==Then::VisualizerVideoProgress),
     );
     match result {
-        Ok(p) => app.state.message = Some(format!("Exported {}", p.display())),
+        Ok(p) => { app.state.message = Some(format!("Exported {}", p.display())); crate::donate::prompt(app); },
         Err(e) if e.starts_with("Video export cancelled") => app.state.message = Some(e),
         Err(e) => error(app, &e),
     }
     app.invalidate();
+}
+
+#[cfg(test)]
+#[test]
+fn supporter_video_reminder_only_follows_successful_completion() {
+    let mut app=App::new(None);app.state.dialogs.clear();
+    for message in ["Video export cancelled", "Worker failed"] {
+        complete(&mut app,Err(message.into()));
+        assert!(!app.state.dialogs.iter().any(|m|matches!(&m.body,Body::Msg(msg) if msg.then==Then::SupporterPrompt)));app.state.dialogs.clear();
+    }
+    complete(&mut app,Ok(PathBuf::from("export.mp4")));
+    assert!(app.state.dialogs.iter().any(|m|matches!(&m.body,Body::Msg(msg) if msg.then==Then::SupporterPrompt)));
 }
 
 fn command(exe: &Path) -> Command {

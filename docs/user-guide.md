@@ -94,7 +94,7 @@ The nearby piano/keyboard icon opens the Piano Roll or instrument picker. It is 
 
 ### Customize the Playlist and Traditional Mixer record buttons
 Keywords: disk recording arm light red LED glow REC badge backlit square theme traditional mixer playlist
-In the standard workspace, open **Settings > Theme > Record lights**. Choose **Customize Traditional Mixer record button** to change the existing disk-record button on Mixer inserts in the Traditional view. Choose **Original**, **Console LED**, **Backlit square**, or **REC badge**. The three new styles have adjustable idle and armed colors, bezel color, light size, and glow when armed. The preview shows idle and armed states.
+In the standard workspace, open **Settings > Theme > Record lights**. Choose **Customize Traditional Mixer record button** to change the existing disk-record button on Mixer inserts in the Traditional view. Choose **Original**, **Console LED**, **Backlit square**, or **REC badge**. Console LED is the default when no record-button style has been saved. Existing explicit theme choices are preserved. The three new styles have adjustable idle and armed colors, bezel color, light size, and glow when armed. The preview shows idle and armed states.
 Choose **Customize Playlist record light** to set a separate style, including a recording color and glow for the Playlist. Click a record button to arm it or right-click for input options. Apply saves the appearance with the theme, Cancel discards the preview, and Reset section restores the default. **Visibility > Theme customization > Record light customization** hides the appearance editors while preserving saved styles.
 Related: Record audio directly in the Playlist | Record notes from a MIDI keyboard
 
@@ -824,6 +824,7 @@ Related: Report a problem and check for updates | Browse samples, favorites and 
 Keywords: plugin format VST3 VST2 CLAP scan paths architecture instrument effect wrapper editor D detach keyboard focus
 Install a plugin that matches the operating system and processor, then scan its installation folder from Settings > Plugins. Add instruments to the Channel Rack and effects to Mixer slots. The plugin's native format and identity matter when reopening projects.
 Open the wrapper menu for its preset, parameter, compatibility and processing options. The D control switches between an attached editor and a separate window. Keyboard focus and typing-piano priority determine whether unmodified keys play notes, go to the plugin, or run DAW shortcuts.
+On 64-bit Windows, select **Download 32-bit VST2 bridge** under Settings > Plugins > Legacy VST2 to install the optional Carla component. ML Studio rescans after the download. Add the 32-bit DLL's folder to Search folders if it is outside your existing scan locations. Bridged instruments and effects appear in the same pickers as other plugins, marked **32-bit VST2**. Their own editors open in separate windows. Use Presets in the Channel Rack row menu or Mixer slot menu to browse their programs. When both builds of a VST2 are available and Combine is enabled, the 64-bit build is listed first. Projects made with the bridge remember which 32-bit build they used.
 A missing plugin can leave a saved slot or channel that cannot process. Check the format and scan error first. Preserve the project before substituting another plugin. Use a render to share the sound with someone who lacks the original plugin.
 Related: Find installed plugins | Recover a missing plugin or preset | Use an ARA audio editor
 
@@ -1266,7 +1267,13 @@ Related: Put ML Studio windows on several monitors
 Keywords: menu layout arrange submenu hide items piano roll channel rack mixer
 Guide: menus
 Open Settings > Menus and choose the menu to customize. Show or hide entries and use the structure controls to reorder them or place them in submenus.
+Drag an entry by its label or dotted handle to reorder it. The line shows where it will land; drop on the middle of a submenu to move it inside. Scroll to reach further entries while holding the mouse. Escape cancels a drag, and Undo restores the previous arrangement. Audio and pattern clip menus include Extract Chords in this editor.
 Menu layouts are saved to your profile. Restore the menu's defaults if a command becomes hard to find.
+
+### Move toolbar controls
+Keywords: toolbar layout CPU memory audio load AI assistant update report bug drag arrange
+Open View > Toolbars > Edit, then drag panels between positions or rows. Audio load/CPU/memory, AI assistant, Update and Report a bug use the same saved layout as the transport and window shortcuts. Drag a panel into the palette to remove it, or drag it back from the palette. Workspace Visibility can also hide these controls. Donate remains fixed until supporter activation.
+Report a bug opens the ML Studio Discord community. Include your app build, operating system, steps to reproduce the issue, and expected and actual results in the bug report section.
 
 ### Show a window or restore your workspace
 Keywords: window missing channel rack mixer browser playlist layout
@@ -2093,6 +2100,18 @@ Hold Shift while dragging a built-in mixer knob for ten-times finer movement. Yo
 
 The choice is saved per profile and returns when switching back to Full Mixer. It applies to docked and detached Mixer windows. Changing the size preserves track settings, routing and project data. Settings > Visibility > Mixer > Full Mixer size selector hides the dropdown while keeping the chosen size. Traditional FL-style Mixer and Channel Strip keep their own size controls.
 
+
+### Supporting ML Studio
+Keywords: donate donation supporter lifetime activation Ko-fi PayPal export reminder license restore
+
+ML Studio will always be free. The fixed yellow **Donate** button opens an optional supporter dialog. A one-time contribution of **€10 or more** through the ML Studio supporter item on Ko-fi permanently removes that button and the reminder shown after successful song and Visualizer exports. Contributions above €10 are appreciated. **Continue free** closes the reminder without affecting your exported file or any audio feature.
+
+After paying, follow the Ko-fi delivery link. Enter your purchase email and **Ko-fi transaction ID** (not the PayPal transaction ID) to download your `.mlsupport` activation file. Choose **Donate → Activate supporter** or **Settings → General → Support ML Studio → Activate supporter...**, then select that file. Payment notifications can take a few minutes. If delivery fails, contact dorfhaus2@gmail.com with your receipt. Use a separate checkout for the supporter item, without other shop products or a discount below €10.
+
+Activation is saved outside projects and theme settings and survives normal updates. Keep the activation file to restore it after a reinstall or on another computer. It works offline after import. Do not share or resell your personal activation file. Older app versions without supporter activation cannot import it.
+
+The Donate button has fixed colors and size and is excluded from toolbar visibility and layout customization until supporter activation. This is an intentional exception to Workspace Visibility. Export failures, cancellations, and intermediate renders do not show donation reminders.
+
 <!-- source-reference-start -->
 ### Visibility: Host and join sessions (Collaboration)
 Keywords: visibility: host and join sessions (collaboration) reference controls options settings
@@ -2424,14 +2443,14 @@ Keywords: visibility: create ara shortcuts in mixer (toolbar extras) reference c
 To show or hide **Create ARA shortcuts in Mixer**, open **Settings > Visibility > Toolbar extras > Create ARA shortcuts in Mixer**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: 32-bit VST2 bridge setup (Toolbar extras)
+Keywords: visibility: 32-bit vst2 bridge setup (toolbar extras) reference controls options settings
+To show or hide **32-bit VST2 bridge setup**, open **Settings > Visibility > Toolbar extras > 32-bit VST2 bridge setup**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Update button (Toolbar extras)
 Keywords: visibility: update button (toolbar extras) reference controls options settings
 To show or hide **Update button**, open **Settings > Visibility > Toolbar extras > Update button**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
-Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
-
-### Visibility: Donate button (Toolbar extras)
-Keywords: visibility: donate button (toolbar extras) reference controls options settings
-To show or hide **Donate button**, open **Settings > Visibility > Toolbar extras > Donate button**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: Report a Bug button (Toolbar extras)
@@ -3833,6 +3852,7 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Default device
 - Type in BPM...
 - Tap tempo
+- Presets [submenu]
 
 ### Ara - menu labels 1
 Keywords: ara - menu labels 1 reference controls options settings
@@ -4968,9 +4988,9 @@ These are the control hints shown by this editor. Read modifier instructions as 
 Keywords: toolbar view - control hints 1 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
+- Support ML Studio: €10 or more removes donation reminders and this button
 - Open Tesla audio editor
-- Donate through Michael Lane's PayPal.me page
-- Report a bug or send feedback: review technical details before submitting
+- Report a bug in the ML Studio Discord community
 - Toolbar options · some controls are hidden at this width
 - Logo - drag onto the palette to take it off
 - About ML Studio

@@ -49,6 +49,8 @@ mod browser;
 mod browser_files;
 mod browser_preview;
 mod plugin_downloads;
+#[cfg(all(windows, target_arch = "x86_64"))]
+mod legacy_vst;
 mod plugin_picker;
 mod plugin_artwork;
 mod plugin_previews;

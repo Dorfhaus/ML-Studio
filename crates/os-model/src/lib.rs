@@ -1630,8 +1630,8 @@ pub struct SlotPlugin {
 pub struct PluginRef {
     /// `clap`, `vst3` or `vst2`.
     pub format: String,
-    /// VST3: the class id as 32 uppercase hex digits; VST2: the unique id as 8 hex digits; CLAP: empty when the file
-    /// does not store it (the plugin is then found by path and name).
+    /// VST3: the class id as 32 uppercase hex digits. VST2: the unique id as 8 hex digits, with
+    /// an optional `:x86` suffix on saved 32-bit Windows plug-ins. CLAP: empty when unavailable.
     pub id: String,
     pub name: String,
     pub vendor: String,
@@ -1639,6 +1639,20 @@ pub struct PluginRef {
     pub path: String,
     /// The plugin's own saved state.
     pub state: Vec<u8>,
+}
+
+impl PluginRef {
+    pub fn is_vst2_x86(&self) -> bool {
+        self.format == "vst2" && self.id.ends_with(":x86")
+    }
+
+    pub fn class_id(&self) -> &str {
+        if self.is_vst2_x86() {
+            self.id.trim_end_matches(":x86")
+        } else {
+            &self.id
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]

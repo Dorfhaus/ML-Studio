@@ -147,6 +147,13 @@ pub fn scan_here(path: &Path, format: Format) -> Scanned {
 /// How the sweep scans one file: a plugin this program cannot load (its file tells) is not tried at all; native files
 /// are scanned in this process (nothing is loaded), the others in a scanner process.
 fn scan_file(path: &Path, format: Format) -> Scanned {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    if crate::legacy_vst::is_x86(path, format) {
+        if !crate::legacy_vst::available() {
+            return Scanned::failed(Status::Unsupported, "32-bit VST2: download the optional bridge in Settings > Plugins");
+        }
+        return scan_here(path, format);
+    }
     if let Some(why) = unsupported(path, format) {
         return Scanned::failed(Status::Unsupported, why);
     }

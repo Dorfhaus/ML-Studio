@@ -75,6 +75,9 @@ pub enum Kind {
     Other,
 }
 
+/// Scan-cache marker for a Windows x86 VST2 hosted by the optional bridge.
+pub const VST2_X86: &str = "windows-vst2-x86";
+
 /// A plugin a library offers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Descriptor {
@@ -106,7 +109,12 @@ impl Descriptor {
     /// The plugin's identity for project files and plugin lists: `format:id` (e.g. `clap:org.openstudio.open-sampler`,
     /// `vst3:` + 32 hex digits). The path is not part of it (plugins move between folders and machines).
     pub fn uid(&self) -> String {
-        format!("{}:{}", self.format.as_str(), self.id)
+        let architecture = if self.is_vst2_x86() { ":x86" } else { "" };
+        format!("{}:{}{architecture}", self.format.as_str(), self.id)
+    }
+
+    pub fn is_vst2_x86(&self) -> bool {
+        self.format == Format::Vst2 && self.features.iter().any(|f| f == VST2_X86)
     }
 }
 

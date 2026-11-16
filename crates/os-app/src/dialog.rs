@@ -54,6 +54,8 @@ fn accel(label: &str) -> char {
 /// The work that waits for a dialog's answer (`App::dialog_done`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Then {
+    SupporterPrompt,
+    SupporterFile,
     RecoverProject(PathBuf, String),
     InputBindings(bool),
     SplitPattern(u16),

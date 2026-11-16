@@ -26,6 +26,13 @@ use super::{ClipPx, Face, Font, CUPRUM};
 static REGULAR: &[u8] = include_bytes!("../fonts/Barlow/BarlowSemiCondensed-Regular.ttf");
 static SEMIBOLD: &[u8] = include_bytes!("../fonts/Barlow/BarlowSemiCondensed-SemiBold.ttf");
 static NARROW: &[u8] = include_bytes!("../fonts/Barlow/BarlowCondensed-Medium.ttf");
+static SYMBOLS: [&[u8]; 2] = [include_bytes!("../fonts/NotoSymbols/NotoSansSymbols.ttf"), include_bytes!("../fonts/NotoSymbols/NotoSansSymbols2-Regular.ttf")];
+
+fn glyph_font(font: FontRef<'static>, c: char) -> FontRef<'static> {
+    if font.charmap().map(c) != 0 || c.is_ascii() { return font; }
+    // FontRef borrows the bundled font: no allocation or disk lookup during paint.
+    SYMBOLS.iter().filter_map(|bytes| FontRef::from_index(bytes, 0)).find(|f| f.charmap().map(c) != 0).unwrap_or(font)
+}
 /// The space text is blended in.
 const GAMMA: f32 = 1.8;
 
@@ -179,8 +186,9 @@ impl Sw {
         }
         let (which, k) = self.setup(f, scale);
         let fd = self.face(which);
-        let gm = fd.font.glyph_metrics(&[]).scale(Self::px(f, scale) * fd.size_k);
-        let a = gm.advance_width(fd.font.charmap().map(c)) * k;
+        let font = glyph_font(fd.font, c);
+        let gm = font.glyph_metrics(&[]).scale(Self::px(f, scale) * fd.size_k);
+        let a = gm.advance_width(font.charmap().map(c)) * k;
         self.advances.insert(key, a);
         a
     }
@@ -196,7 +204,8 @@ impl Sw {
             };
             let px = Self::px(f, scale) * fd.size_k;
             // The light face (the song position digits) has no cut of its own here: the regular stands in.
-            let mut scaler = self.ctx.builder(fd.font).size(px).hint(true).build();
+            let font = glyph_font(fd.font, c);
+            let mut scaler = self.ctx.builder(font).size(px).hint(true).build();
             let mut r = Render::new(&[Source::Outline]);
             r.format(Format::Alpha);
             r.offset(Vector::new(f32::from(phase) / PHASES, 0.0));
@@ -204,7 +213,7 @@ impl Sw {
             if (k - 1.0).abs() > 1e-3 || f.italic {
                 r.transform(Some(Transform::new(k, 0.0, slant, 1.0, 0.0, 0.0)));
             }
-            let g = match r.render(&mut scaler, fd.font.charmap().map(c)) {
+            let g = match r.render(&mut scaler, font.charmap().map(c)) {
                 Some(img) => Glyph {
                     w: img.placement.width as usize,
                     h: img.placement.height as usize,

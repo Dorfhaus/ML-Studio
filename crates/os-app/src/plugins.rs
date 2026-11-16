@@ -366,6 +366,10 @@ fn linked(cell: &OnceLock<Option<Arc<os_clap::Library>>>, entry: *const std::ffi
 
 /// Loads plugin file `path` of `format` under the crash guard (spec: plugins/plugin-formats.md, "Crash containment").
 pub fn load_file(path: &Path, format: os_host::Format) -> Result<Arc<dyn Library>, String> {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    if crate::legacy_vst::is_x86(path, format) {
+        return crate::legacy_vst::load(path, None);
+    }
     let load = || -> Result<Arc<dyn Library>, String> {
         match format {
             os_host::Format::Clap => os_clap::Library::load(path).map(|l| l as Arc<dyn Library>),
@@ -415,6 +419,15 @@ impl Library for LazyLibrary {
         let real = match self.real.get() {
             Some(lib) => lib.clone(),
             None => {
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                let bridged = self.plugins.iter().any(Descriptor::is_vst2_x86);
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                let lib = if bridged {
+                    crate::legacy_vst::load(&self.path, Some(&self.plugins))?
+                } else {
+                    load_file(&self.path, self.format)?
+                };
+                #[cfg(not(all(windows, target_arch = "x86_64")))]
                 let lib = load_file(&self.path, self.format)?;
                 self.real.get_or_init(|| lib).clone()
             }
@@ -1080,7 +1093,14 @@ impl Plugins {
     /// its own (Tesla plays its sample) or show what it hears.
     pub fn editor_open(&self) -> bool {
         #[cfg(plugin_windows)]
-        return self.hosted.values().any(|h| {let open=h.window.is_some();#[cfg(any(windows,target_os="macos"))] let open=open||h.rack_editor.is_some();open});
+        return self.hosted.values().any(|h| {
+            let open = h.window.is_some();
+            #[cfg(any(windows, target_os = "macos"))]
+            let open = open || h.rack_editor.is_some();
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            let open = open || h.plugin.try_lock().is_ok_and(|p| p.desc().is_vst2_x86() && p.editor_open());
+            open
+        });
         #[cfg(not(plugin_windows))]
         false
     }
@@ -1091,6 +1111,10 @@ impl Plugins {
         #[cfg(any(windows,target_os="macos"))] self.close_rack(row);
         let (owner, scale) = (self.owner, self.scale);
         let h = self.hosted.get(&row).ok_or("not a plugin channel")?;
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        if h.plugin.lock().is_ok_and(|p| p.desc().is_vst2_x86()) {
+            return editor_action(&h.plugin, os_host::EditorAction::Open { parent: std::ptr::null_mut(), scale }).map(|_| ());
+        }
         if let Some(w) = &h.window {
             w.raise();
             return Ok(());

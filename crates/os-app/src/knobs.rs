@@ -68,6 +68,7 @@ impl KnobId {
             KnobId::ChanVol(_) => 0.03,
             KnobId::ChanPan(_) => 0.015,
             KnobId::MixPan(_) => 0.025,
+            KnobId::Send(..) => PER_NOTCH * 1.15,
             KnobId::Swing => 0.045,
             KnobId::Strum(k) => k.notch(),
             KnobId::Arp(k) => k.notch(),
@@ -82,6 +83,7 @@ impl KnobId {
             // spec: ui/channel-rack.md §11 (0.4 % / px volume, 0.8 % / px pan) and §7 (30 px = 17 % swing).
             KnobId::ChanVol(_) | KnobId::ChanPan(_) => 0.004,
             KnobId::Swing => 0.17 / 30.0,
+            KnobId::Send(..) => PER_PX * 1.15,
             // All native channel-strip knobs share the EQ gain knobs' mouse travel.
             KnobId::Eq(..) | KnobId::Strip(..) => 1.5625 / 160.0,
             // A tension's side is half as many notches as a strength's (spec: ui/piano-strum.md §1).

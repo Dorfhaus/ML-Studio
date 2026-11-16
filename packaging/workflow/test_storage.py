@@ -71,6 +71,28 @@ class StorageTest(unittest.TestCase):
                 storage.build_preflight(target)
             self.assertFalse(target.exists())
 
+    def test_removes_only_abandoned_mac_package_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)/'mac-arm64'
+            bundled = target/'bundled'
+            bundled.mkdir(parents=True)
+            (target/'CACHEDIR.TAG').touch()
+            names = ('mac-package-oooooooo', 'mac-package-nnnnnnnn',
+                     'mac-package-aaaaaaaa', 'mac-package-uuuuuuuu', 'ML Studio.app')
+            old, fresh, active, unknown, app = [bundled/name for name in names]
+            for folder in (old, fresh, active, unknown, app):
+                folder.mkdir()
+            (old/'Lemon Studio Source.zip').touch()
+            (unknown/'project.lmn').touch()
+            (active/'.storage-active').touch()
+            earlier = storage.time.time() - 48 * 60 * 60
+            for folder in (old, active, unknown, app):
+                os.utime(folder, (earlier, earlier))
+            cfg = {'cache_roots': [str(target)]}
+            self.assertEqual(storage.maintain(cfg, apply=True), [str(old.resolve())])
+            self.assertFalse(old.exists())
+            self.assertTrue(all(folder.is_dir() for folder in (fresh, active, unknown, app)))
+
     def test_low_disk_stops_before_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(storage, 'settings', return_value={}), \

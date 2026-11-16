@@ -874,14 +874,18 @@ pub fn dropped(app: &mut App, path: &Path) -> Option<String> {
     }
     let name = shown_name(path);
     let Some(uid) = uid_of(path) else { return Some(format!("{name}: drop it on a plugin window, a channel or a mixer slot")) };
-    let same = |d: &os_host::Descriptor| d.uid().eq_ignore_ascii_case(&uid);
-    if let Some(i) = app.plugins.available.iter().position(|a| same(&a.desc)) {
+    let same = |d: &os_host::Descriptor| d.uid().eq_ignore_ascii_case(&uid)
+        || (d.is_vst2_x86() && format!("vst2:{}", d.id).eq_ignore_ascii_case(&uid));
+    let find = |list: &[crate::plugins::Available]| list.iter().enumerate()
+        .filter(|(_, a)| same(&a.desc) && !app.plugins.missing.contains(&a.desc.uid()))
+        .min_by_key(|(_, a)| a.desc.is_vst2_x86()).map(|(index, _)| index);
+    if let Some(i) = find(&app.plugins.available) {
         crate::plugin_menu::add_generator(app, i, None);
         let row = app.state.project.channels.len() - 1;
         app.plugins.preset_waits.push((row, path.to_path_buf(), std::time::Instant::now()));
         return Some(format!("Loading {name} in a new channel"));
     }
-    if let Some(i) = app.plugins.effects.iter().position(|a| same(&a.desc)) {
+    if let Some(i) = find(&app.plugins.effects) {
         let t = app.state.selected_mixer;
         let slot = slot.or_else(|| app.state.project.mixer.iter().find(|m| m.index == t).and_then(|m| m.slots.iter().enumerate().find(|(k,s)|*k!=10&&s.is_none()).map(|(k,_)|k)).map(|k| k as u8));
         let Some(k) = slot else { return Some("Every slot of this track is in use".into()) };

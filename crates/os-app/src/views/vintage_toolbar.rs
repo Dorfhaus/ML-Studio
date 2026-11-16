@@ -6,7 +6,7 @@ use super::{FrameInfo,menus};
 use crate::workspace_visibility::{shown,WINDOW_BUTTONS};
 
 pub fn active(s:&State,width:f32)->bool {
-    s.vintage_2005 && !s.bar.editing
+    super::toolbar::legacy_vintage(s) && !s.bar.editing
         && width - s.toolbar_actions.width(true) + s.toolbar_actions.meters_width()
             >= if crate::notation::shortcut_shown() { 1048.0 } else { 1015.0 }
         && transport_available()

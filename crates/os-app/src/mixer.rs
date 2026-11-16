@@ -945,7 +945,7 @@ pub fn hit(app: &mut App, h: MHit) -> Option<String> {
         }
         MHit::SlotArrow(i) => {
             let t = s.selected_mixer;
-            s.playlist.popup = Some(if slot_name(s, t, i).is_some() { slot_menu(s, i, at.0, at.1) } else { effect_menu(s, i, at.0, at.1) });
+            app.state.playlist.popup = Some(slot_plugin_menu(app, t, i, at));
             None
         }
         MHit::SlotLed(i) => toggle_slot(s, s.selected_mixer, i),
@@ -996,8 +996,7 @@ pub fn right(app: &mut App, h: MHit) -> bool {
     if locked_hit(&app.state, h) { app.state.message = Some(LOCK_MESSAGE.into()); return true; }
     if let MHit::TrackSlot(t,i)=h {
         app.state.selected_mixer=t;
-        let s=&mut app.state;
-        s.playlist.popup=Some(if slot_name(s,t,i).is_some(){slot_menu(s,i,app.mouse.0,app.mouse.1)}else{effect_menu(s,i,app.mouse.0,app.mouse.1)});
+        app.state.playlist.popup = Some(slot_plugin_menu(app, t, i, app.mouse));
         return true;
     }
     let at = app.mouse;
@@ -1034,7 +1033,7 @@ pub fn right(app: &mut App, h: MHit) -> bool {
         // The slot's plugin menu, like a left click (spec: ui/plugin-menu.md §1).
         MHit::SlotArrow(i) => {
             let t = s.selected_mixer;
-            s.playlist.popup = Some(if slot_name(s, t, i).is_some() { slot_menu(s, i, at.0, at.1) } else { effect_menu(s, i, at.0, at.1) });
+            app.state.playlist.popup = Some(slot_plugin_menu(app, t, i, at));
         }
         MHit::SlotScroll => {},
         MHit::AddSlot => { let n=s.selected_mixer;let count=slot_count(s,n).saturating_add(1).min(user_slot_capacity(s,n));s.mixer.slots_shown.insert(n,count);s.mixer.slot_scroll.insert(n,count.saturating_sub(10)); },
@@ -2032,6 +2031,18 @@ pub fn effect_menu(s: &State, slot: u8, x: f32, y: f32) -> Popup {
 }
 
 /// Filled slot ▸ (§7.2).
+fn slot_plugin_menu(app: &App, track: u16, slot: u8, (x, y): (f32, f32)) -> Popup {
+    if slot_name(&app.state, track, slot).is_none() {
+        return effect_menu(&app.state, slot, x, y);
+    }
+    let mut menu = slot_menu(&app.state, slot, x, y);
+    let key = crate::plugins::fx_key(track, slot);
+    if app.plugins.descriptor(key).is_some_and(|desc| desc.is_vst2_x86()) {
+        crate::presets::fill_window_menu(app, key, &mut menu);
+    }
+    menu
+}
+
 pub fn slot_menu(s: &State, slot: u8, x: f32, y: f32) -> Popup {
     crate::menu_layout::Menu::MixerSlot.popup(default_slot_menu(s, slot, x, y))
 }

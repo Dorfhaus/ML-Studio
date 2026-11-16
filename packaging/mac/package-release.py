@@ -17,15 +17,17 @@ out = Path(os.environ['LEMON_PACKAGE_OUT']) if os.environ.get('LEMON_PACKAGE_OUT
 out.mkdir(parents=True, exist_ok=True)
 source = out/f'ML-Studio-Source-Mac-{arch}-{version}.zip'
 subprocess.run([sys.executable, str(root/'packaging/export-source.py'), str(source), "--public"], check=True)
-stage = Path(tempfile.mkdtemp(prefix='mac-package-', dir=app.parent))
-subprocess.run(['ditto', str(app), str(stage/'ML Studio.app')], check=True)
-(stage/'Applications').symlink_to('/Applications')
-for name in ('LICENSE','THIRD-PARTY-NOTICES.txt'): shutil.copy2(root/name, stage/name)
-shutil.copy2(source, stage/'Lemon Studio Source.zip')
-(stage/'READ ME.txt').write_text(f'ML Studio - Michael Lane edition\nMac architecture: {arch}\nDrag the app to Applications. This community build is ad-hoc signed, not notarized.\nMatching editable source and notices are included. Existing projects and settings are preserved.\n')
 dmg = out/f'ML-Studio-Mac-{arch}-{version}.dmg'
 if dmg.exists(): raise SystemExit('Versioned DMG already exists; preserve published artifacts and increment the build number for changes.')
-subprocess.run(['hdiutil','create','-volname','ML Studio','-srcfolder',str(stage),'-format','UDZO',str(dmg)], check=True)
+with tempfile.TemporaryDirectory(prefix='mac-package-', dir=app.parent) as scratch:
+    stage = Path(scratch)
+    subprocess.run(['ditto', str(app), str(stage/'ML Studio.app')], check=True)
+    (stage/'Applications').symlink_to('/Applications')
+    for name in ('LICENSE', 'THIRD-PARTY-NOTICES.txt'):
+        shutil.copy2(root/name, stage/name)
+    shutil.copy2(source, stage/'Lemon Studio Source.zip')
+    (stage/'READ ME.txt').write_text(f'ML Studio - Michael Lane edition\nMac architecture: {arch}\nDrag the app to Applications. This community build is ad-hoc signed, not notarized.\nMatching editable source and notices are included. Existing projects and settings are preserved.\n')
+    subprocess.run(['hdiutil','create','-volname','ML Studio','-srcfolder',str(stage),'-format','UDZO',str(dmg)], check=True)
 subprocess.run(['hdiutil','verify',str(dmg)], check=True)
 manifest = {'version':int(version),'label':f'Mac {arch}', 'url':f'mac/{version}/{dmg.name}', 'source':f'mac/{version}/{source.name}', 'sha256':hashlib.sha256(dmg.read_bytes()).hexdigest()}
 (out/f'mac-{arch}.json').write_text(json.dumps(manifest, indent=2))

@@ -1,0 +1,16 @@
+Noto Sans Symbols 2, SIL Open Font License 1.1.
+Upstream: https://github.com/notofonts/symbols
+Google Fonts commit: 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
+Unmodified ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf and OFL.txt
+Used only for symbols missing from the selected UI font.
+
+Noto Sans Symbols, unmodified variable TTF (renamed file only).
+Google Fonts commit: 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
+Source: ofl/notosanssymbols/NotoSansSymbols[wght].ttf
+License: OFL-Symbols.txt
+
+SHA-256 checksums:
+f7e7e04b4a24b6c78893d50cbfd2b2f6cae49617ab047bfef668d252adb128f7  NotoSansSymbols.ttf
+7d5fb73b7ca67a6798101741f5d280a3d016a56a197afcd4199dbb57b4b82a21  NotoSansSymbols2-Regular.ttf
+b118dd41337806a5d4797052c77caf3bd096aed783e5eb21b4d11154351e1ac0  OFL-Symbols.txt
+b118dd41337806a5d4797052c77caf3bd096aed783e5eb21b4d11154351e1ac0  OFL.txt

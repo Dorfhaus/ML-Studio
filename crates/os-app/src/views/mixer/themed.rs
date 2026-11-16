@@ -112,7 +112,15 @@ pub(super) fn button(ui: &mut Ui, r: Rect, on: bool, hover: bool, _: Color) -> C
 
 pub(super) fn signal_switch(ui: &mut Ui, r: Rect, on: bool, hover: bool, swap: bool) {
     let ink = button(ui, r, on, hover, ui.t.accent);
-    ui.c.text_center(if ui.t.style.vintage_2005 { Font::vintage(10) } else { Font::new(12) }, r, ink, if swap { "⇔" } else { "Ø" });
+    if swap {
+        let (x,y)=(r.cx(),r.cy());
+        ui.c.line(x-4.,y-2.,x+4.,y-2.,1.,ink);
+        ui.c.line(x+4.,y+2.,x-4.,y+2.,1.,ink);
+        ui.c.polyline(&[(x+2.,y-4.),(x+4.,y-2.),(x+2.,y)],1.,ink);
+        ui.c.polyline(&[(x-2.,y),(x-4.,y+2.),(x-2.,y+4.)],1.,ink);
+    } else {
+        ui.c.text_center(if ui.t.style.vintage_2005 { Font::vintage(10) } else { Font::new(12) }, r, ink, "Ø");
+    }
 }
 
 pub(super) fn rocker(ui: &mut Ui, r: Rect, on: bool, hover: bool) {

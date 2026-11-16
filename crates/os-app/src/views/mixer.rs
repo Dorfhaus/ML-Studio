@@ -1661,9 +1661,9 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
     }
     let themed = ui.mixer_finish == Finish::Theme;
     if themed {
-        if !os_ui::kit::panel_finish(ui.c, t, r, t.mixer_panel) {
-            ui.c.fill_rect(r, t.mixer_panel);
-        }
+        // This is an interior surface, not another floating window. The enclosing
+        // mixer owns the border; a second rounded panel made dark double seams.
+        ui.c.fill_rect(r, t.mixer_panel);
     } else if mx::view(s) == mx::WIDE {
         console_skin::panel(ui, r, Color::rgb(0x25282b), false);
     } else {
@@ -1702,13 +1702,13 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
     let kp = ((room - 15.0) / 503.0).clamp(0.3, 1.0).min(slot_limit);
     let q = kp.max(0.55);
     // Recording input selector above the effects.
-    let input_bg = ui.t.s(0x2b2e30);
+    let input_bg = if themed { t.mixer_panel } else { ui.t.s(0x2e3133) };
     ui.c.fill_rect(Rect::new(r.x, r.y + 23.0, r.w, 36.0), input_bg);
-    crate::recording_pickup::button(ui,s,n,Rect::new(r.x+2.,r.y+28.,25.,23.));
-    let combo=Rect::new(r.x+27.,r.y+28.,159.,23.);
+    crate::recording_pickup::button(ui,s,n,Rect::new(r.x+6.,r.y+29.,25.,24.));
+    let combo=Rect::new(r.x+35.,r.y+29.,(r.w-41.).max(24.),24.);
     let label=s.mixer.recording.inputs.get(&n).map(|i|format!("{} - {}",i.label(),i.device)).unwrap_or_else(||"(none)".into());
     let hov=ui.hit(combo,Action::Mix(MHit::Input(n)),format!("Audio input: {label}. Selecting an input arms audio recording"));
-    ui.c.fill_rect(combo,if hov{t.button}else{input_bg});
+    ui.c.fill_rrect(combo,3.,if hov{t.button}else{t.sunken});
     let font = console_font(ui,s,13);
     let font = label_font(ui.c, font, &label, combo.w - 20.);
     ui.c.text_clip(font,combo.x+4.,combo.y+3.,combo.w-20.,t.text,&label);
@@ -1718,7 +1718,7 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
     ui.hit(Rect::new(r.x,r.y+61.,r.w,330.*kp),Action::Mix(MHit::SlotScroll),"Scroll effect slots");
     for visible in 0..10 {
         let i=first+visible;
-        let row = Rect::new(r.x + 4.0, r.y + 61.0 + 30.0 * kp * visible as f32, r.w - 8.0, 28.0 * kp);
+        let row = Rect::new(r.x + 6.0, r.y + 61.0 + 30.0 * kp * visible as f32, r.w - 12.0, 28.0 * kp);
         let k = mx::visible_user_slot(s,n,i);
         let plugin = mx::slot_name(s, n, k);
         let font_size = (12.0 * kp.max(0.62)).round() as u16;

@@ -79,7 +79,9 @@ pub fn plugin_ref(d: &Descriptor, state: Vec<u8>) -> PluginRef {
     PluginRef {
         format: d.format.as_str().into(),
         // A CLAP id has no place in the wrapper state (spec §4): such plugins are found by file and name.
-        id: if matches!(d.format, Format::Vst3 | Format::Vst2) { d.id.clone() } else { String::new() },
+        id: if d.is_vst2_x86() { format!("{}:x86", d.id) }
+            else if matches!(d.format, Format::Vst3 | Format::Vst2) { d.id.clone() }
+            else { String::new() },
         name: d.name.clone(),
         vendor: d.vendor.clone(),
         path: path.to_string_lossy().into_owned(),
@@ -365,13 +367,40 @@ fn same_plugin_name(d: &Descriptor, saved: &str) -> bool {
 
 fn find_installed(list: &[Available], r: &PluginRef, missing: &std::collections::HashSet<String>) -> Option<usize> {
     let format = Format::parse(&r.format);
-    for exact in [true,false] {
-        if let Some(i)=list.iter().position(|a|!missing.contains(&a.desc.uid()) && if exact {
-            !r.id.is_empty()&&Some(a.desc.format)==format&&a.desc.id.eq_ignore_ascii_case(&r.id)
-        }else{!r.path.is_empty()&&same_file(&a.desc.path,&r.path)&&same_plugin_name(&a.desc, &r.name)}){return Some(i);}
+    let architecture = if r.is_vst2_x86() {
+        Some(true)
+    } else if format == Some(Format::Vst2) {
+        match os_vst2::pe_machine(std::path::Path::new(&r.path)) {
+            Some("x86") => Some(true),
+            Some("x86_64") => Some(false),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let available = |a: &Available| !missing.contains(&a.desc.uid())
+        && architecture.is_none_or(|x86| a.desc.is_vst2_x86() == x86);
+    if format == Some(Format::Vst2) && !r.path.is_empty() {
+        let original = r.path.replace('\\', "/");
+        if let Some(index) = list.iter().position(|a| available(a)
+            && a.desc.format == Format::Vst2
+            && a.desc.id.eq_ignore_ascii_case(r.class_id())
+            && a.desc.path.to_string_lossy().replace('\\', "/").eq_ignore_ascii_case(&original)) {
+            return Some(index);
+        }
+    }
+    if let Some((index, _)) = list.iter().enumerate()
+        .filter(|(_, a)| available(a) && !r.id.is_empty() && Some(a.desc.format) == format
+            && a.desc.id.eq_ignore_ascii_case(r.class_id()))
+        .min_by_key(|(_, a)| a.desc.is_vst2_x86()) {
+        return Some(index);
+    }
+    if let Some(index) = list.iter().position(|a| available(a)
+        && !r.path.is_empty() && same_file(&a.desc.path, &r.path) && same_plugin_name(&a.desc, &r.name)) {
+        return Some(index);
     }
     for same_format in [true,false]{
-        let candidates:Vec<_>=list.iter().enumerate().filter(|(_,a)|same_plugin_name(&a.desc, &r.name)&&!missing.contains(&a.desc.uid())&&(!same_format||Some(a.desc.format)==format)).collect();
+        let candidates:Vec<_>=list.iter().enumerate().filter(|(_,a)|same_plugin_name(&a.desc, &r.name)&&available(a)&&(!same_format||Some(a.desc.format)==format)).collect();
         if candidates.len()==1{return Some(candidates[0].0);}
         if candidates.len()>1{return None;} // An ambiguous catalog entry is never an automatic identity match.
     }
@@ -391,7 +420,7 @@ pub fn switched_format(d: &Descriptor, r: &PluginRef) -> Option<String> {
 fn substitute_notice(d:&Descriptor,r:&PluginRef)->Option<String>{
     switched_format(d,r).or_else(||{
         // Stable class IDs outrank vendor display strings, which can change between versions.
-        let identity=!r.id.is_empty()&&d.id.eq_ignore_ascii_case(&r.id);
+        let identity=!r.id.is_empty()&&d.id.eq_ignore_ascii_case(r.class_id());
         // CLAP IDs are not stored in this wrapper. Preserve portable file/name identity,
         // including linked Lemon plugins whose installed directory differs from their descriptor.
         let stored_file=r.path.rsplit(['\\','/']).next().unwrap_or("");

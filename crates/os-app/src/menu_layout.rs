@@ -117,7 +117,7 @@ impl Menu {
                 true,
                 s.playlist.stretch,
             ),
-            Self::PatternClip => clip_menu_items(
+            Self::PatternClip => { let mut items = clip_menu_items(
                 PickKind::Pattern,
                 0,
                 false,
@@ -125,7 +125,10 @@ impl Menu {
                 false,
                 false,
                 s.playlist.stretch,
-            ),
+            );
+                items.push(PItem::new("Use this track's instrument", Cmd::TrackLink(crate::playlist_links::Command::Retarget(0))));
+                items
+            },
             Self::AutomationClip => clip_menu_items(
                 PickKind::Automation,
                 0,
@@ -425,10 +428,15 @@ pub struct Editor {
     expanded: HashSet<String>,
     pub name: crate::dialog::Field,
     pub name_focused: bool,
+    pub drop_target: Option<(String, DropPosition)>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropPosition { Before, Inside, After }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    Drag(String),
     Choose,
     Select(Menu),
     Expand(String),
@@ -441,6 +449,39 @@ pub enum Action {
     Dissolve(String),
     Undo,
     Reset,
+}
+
+fn drop_edit(rows: &[Node], id: &str, target: &str, position: DropPosition, parent: &str) -> Option<Edit> {
+    if let Some(i) = rows.iter().position(|n| n.id == target) {
+        let node = &rows[i];
+        let (parent, before) = match position {
+            DropPosition::Inside if node.destination() => (node.id.clone(), None),
+            DropPosition::Inside => return None,
+            DropPosition::Before => (parent.into(), Some(target.into())),
+            DropPosition::After => (parent.into(), rows.iter().skip(i + 1).find(|n| n.id != id).map(|n| n.id.clone())),
+        };
+        // Never remove a node from its own descendant or from itself.
+        fn contains(rows: &[Node], id: &str, target: &str) -> bool {
+            rows.iter().any(|n| if n.id == id { n.id == target || find(&n.children, target).is_some() }
+                else { contains(&n.children, id, target) })
+        }
+        if id == target || contains(rows, id, &parent) { return None; }
+        return Some(Edit::Move { id: id.into(), parent, before });
+    }
+    rows.iter().find_map(|n| drop_edit(&n.children, id, target, position, &n.id))
+}
+
+pub fn finish_drag(s: &mut State, id: &str) {
+    let Some((target, position)) = s.settings.menu_editor.drop_target.take() else { return; };
+    let menu = s.settings.menu_editor.menu;
+    let mut edits = menu.edits();
+    let mut tree = Tree::new(menu.catalog(s));
+    tree.replay(&edits);
+    if let Some(edit) = drop_edit(&tree.rows, id, &target, position, "") {
+        if position == DropPosition::Inside { s.settings.menu_editor.expanded.insert(target); }
+        edits.push(edit);
+        menu.save(&edits);
+    }
 }
 
 #[derive(Debug)]

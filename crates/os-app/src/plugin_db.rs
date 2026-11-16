@@ -332,7 +332,9 @@ impl Cache {
         self.files
             .iter()
             .filter(|f| f.status == Status::Ok)
-            .flat_map(|f| f.plugins.iter().filter(|r| r.usable()).map(move |r| format!("{}:{}", f.format, r.id)))
+            .filter_map(|f| Format::parse(&f.format).map(|format| (f, format)))
+            .flat_map(|(f, format)| f.plugins.iter().filter(|r| r.usable())
+                .map(move |r| r.descriptor(format, Path::new(&f.path)).uid()))
             .collect()
     }
 
@@ -687,8 +689,15 @@ pub fn combined_into(list: &[Available], prefs: &Prefs, missing: &HashSet<String
     let ranks: Vec<usize> = list.iter().map(|a| rank(&a.desc, prefs.prefer)).collect();
     for i in (0..list.len()).filter(|&i| live[i]) {
         let better = (0..list.len())
-            .filter(|&j| j != i && live[j] && base[j] == base[i] && list[j].desc.format != list[i].desc.format)
-            .filter(|&j| ranks[j] < ranks[i] && vendors_match(&list[j].desc.vendor, &list[i].desc.vendor))
+            .filter(|&j| j != i && live[j] && base[j] == base[i] && vendors_match(&list[j].desc.vendor, &list[i].desc.vendor))
+            .filter(|&j| {
+                let (candidate, current) = (&list[j].desc, &list[i].desc);
+                if candidate.format == current.format {
+                    current.is_vst2_x86() && !candidate.is_vst2_x86() && candidate.id.eq_ignore_ascii_case(&current.id)
+                } else {
+                    ranks[j] < ranks[i]
+                }
+            })
             .min_by_key(|&j| (ranks[j], j));
         out[i] = better;
     }
@@ -776,7 +785,13 @@ fn entries(list: &[Available], prefs: &Prefs, missing: &HashSet<String>) -> Vec<
         .map(|&i| {
             let d = &list[i].desc;
             let twin = shown.iter().any(|&k| k != i && list[k].desc.format != d.format && base_name(&list[k].desc.name) == base_name(&d.name));
-            let label = if twin { format!("{} ({})", strip_marker(&d.name), format_label(d.format)) } else { d.name.clone() };
+            let label = if d.is_vst2_x86() {
+                format!("{} (32-bit VST2)", strip_marker(&d.name))
+            } else if twin {
+                format!("{} ({})", strip_marker(&d.name), format_label(d.format))
+            } else {
+                d.name.clone()
+            };
             let vendor = if crate::project_plugins::is_builtin(d) {
                 BUILTIN_VENDOR.to_string()
             } else if d.vendor.trim().is_empty() {
@@ -869,7 +884,7 @@ pub fn table(available: &[Available], effects: &[Available], cache: &Cache, pref
                 format: format_label(d.format),
                 kind: kind_label(kind),
                 vendor: if builtin { BUILTIN_VENDOR.into() } else { d.vendor.clone() },
-                status: if builtin { "built in".into() } else { "ok".into() },
+                status: if builtin { "built in" } else if d.is_vst2_x86() { "32-bit bridged" } else { "ok" }.into(),
                 file: if builtin { "(built in)".into() } else { file_name(&path) },
                 path: if builtin { String::new() } else { path },
                 note,

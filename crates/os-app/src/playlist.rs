@@ -3264,9 +3264,6 @@ pub fn clip_menu(s: &State, i: usize, x: f32, y: f32) -> Popup {
         && crate::vocal_align::available(s, i);
     let comp = kind == PickKind::Audio && crate::comping::parent(s, c.track).is_some();
     let mut items = clip_menu_items(kind, i, c.muted, align, comp, s.playlist.range.is_some(), s.playlist.stretch);
-    if kind != PickKind::Automation && crate::workspace_visibility::shown(crate::scoring::CHORDS) {
-        items.insert(1, PItem::new("Extract Chords", Cmd::Scoring(crate::scoring::Command::Extract(i))));
-    }
     if crate::attached_mixer::active(s)&&kind==PickKind::Pattern{items.push(PItem::new("Use this track's instrument",Cmd::TrackLink(crate::playlist_links::Command::Retarget(i))).dim(crate::playlist_links::mode(s,c.track)!=os_model::PlaylistTrackMode::Instrument));}
     menu.popup(Popup { x, y, items, sub: None, scroll: [0; 2], cascade: Vec::new() })
 }
@@ -3297,19 +3294,22 @@ pub(crate) fn clip_menu_items(
         let quick_fit = time.remove(1);
         let mut items = vec![
             PItem::head("Audio clip"),
+            PItem::new("Send to mixer track...", Cmd::ClipRoute(i)).key(
+                if crate::workspace_visibility::shown(CLIP_ROUTE_DRAG_VISIBILITY) { "Drag to Mixer" } else { "" }
+            ),
             PItem::new("Preview", Cmd::ClipPreview(i)),
             PItem::new("Muted", Cmd::ClipMute(i)).mark(Mark::Check(muted)),
             PItem::new("Rename...", Cmd::ClipRename(i)),
             PItem::new("Make Unique", Cmd::ClipUnique(i)),
-            PItem::new("Send to mixer track...", Cmd::ClipRoute(i)).key(
-                if crate::workspace_visibility::shown(CLIP_ROUTE_DRAG_VISIBILITY) { "Drag to Mixer" } else { "" }
-            ),
             PItem::sep(),
             PItem::new("Clip effects...", Cmd::ClipEffects(i)),
             quick_fit,
         ];
         if crate::workspace_visibility::shown("visible_playlist-custom-swatches") {
             items.insert(4, PItem::new("Change color...", Cmd::ClipColor(i)));
+        }
+        if crate::workspace_visibility::shown(crate::scoring::CHORDS) {
+            items.insert(2, PItem::new("Extract Chords", Cmd::Scoring(crate::scoring::Command::Extract(i))));
         }
         if align {
             items.push(PItem::new("Vocal Align to this clip…", Cmd::VocalAlign(i)));
@@ -3350,6 +3350,9 @@ pub(crate) fn clip_menu_items(
     ];
     match kind {
         PickKind::Pattern => {
+            if crate::workspace_visibility::shown(crate::scoring::CHORDS) {
+                items.insert(1, PItem::new("Extract Chords", Cmd::Scoring(crate::scoring::Command::Extract(i))));
+            }
             items.push(PItem::new("Edit selected MIDI clips together",Cmd::ClipSession(i)));
             items.push(PItem::new("Edit pattern",Cmd::ClipEditSource(i)));
             items.push(PItem::new("Reset pattern stretch",Cmd::ResetPatternStretch(i)));

@@ -33,7 +33,7 @@ impl Surface {
         match self {
             Self::Playlist => t.appearance.playlist_record_light,
             Self::TraditionalMixer => t.appearance.trad_record_light.unwrap_or(RecordLight {
-                style: RecordLightStyle::Original,
+                style: RecordLightStyle::ConsoleLed,
                 ..Default::default()
             }),
         }

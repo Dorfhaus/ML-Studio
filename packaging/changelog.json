@@ -3,6 +3,20 @@
   "intro": "The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.",
   "sections": [
     {
+      "date": "2026-11-16",
+      "title": "Permanent supporter activation, flexible menus and toolbar, and Windows legacy plug-in support \u00b7 public build 2026111602",
+      "changes": [
+        "ML Studio remains free. Optional lifetime supporter activation (\u20ac10 or more) removes the Donate button and reminders after successful song and Visualizer exports. Activation stays valid across future updates and works offline after import.",
+        "Settings > Menus now supports dragging entries to reorder them or move them into submenus, with drop indicators, Escape to cancel, Undo and saved per-profile layouts. Extract Chords is included in audio and pattern clip menu customization.",
+        "Send to mixer track / Drag to Mixer is now the first action in the default audio clip menu. Mixer send knobs respond 15% faster to dragging and scrolling; Shift still provides fine adjustment.",
+        "Audio load/CPU/memory, AI assistant, Update and Report a bug can be rearranged or removed using the toolbar editor. Existing layouts migrate without losing their saved panels. Report a bug now opens the ML Studio Discord community.",
+        "Workspace shortcuts open with one click when a transient menu is open. Fixed missing UI symbol glyphs, replaced menu reorder arrows with drawn icons, and cleaned up the Mixer effects panel's borders and input selector.",
+        "Console LED is the default record-light style for the Playlist and Traditional Mixer when no explicit style is saved. Existing theme choices, custom colors, size and glow remain available.",
+        "Windows: optional Carla hosting adds 32-bit VST2 support with setup available from the app. Native 64-bit plug-ins keep their normal hosting path. Carla is not a loader for FL Studio's native-only plug-ins.",
+        "macOS: temporary installer staging is removed after use, and abandoned installer copies are cleaned up."
+      ]
+    },
+    {
       "date": "2026-11-15",
       "title": "Custom record lights and Mixer appearance, plus macOS and Windows fixes \u00b7 public build 2026111503",
       "changes": [

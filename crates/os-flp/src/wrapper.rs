@@ -32,6 +32,8 @@ pub mod rec {
     pub const VENDOR: u32 = 56;
     /// A VST2 plugin's VST version (2400 in every VST2 wrapper state FL Studio wrote that has been seen).
     pub const VST_VERSION: u32 = 57;
+    /// ML Studio extension, outside the Fruity Wrapper record range.
+    pub const VST2_ARCH: u32 = u32::from_le_bytes(*b"MLPA");
 }
 
 /// What Lemon Studio writes as a new VST2 wrapper state's VST version.
@@ -144,11 +146,14 @@ pub fn decode(data: &[u8]) -> Option<PluginRef> {
     let r = Records::parse(data)?;
     let path = text(r.get(rec::PATH));
     let format = format_of(&r, &path);
-    let id = match format {
+    let mut id = match format {
         "vst3" => r.get(rec::GUID).filter(|g| g.len() == 16).map(hex).unwrap_or_default(),
         "vst2" => r.get(rec::FOURCC).and_then(vst2_id).unwrap_or_default(),
         _ => String::new(),
     };
+    if format == "vst2" && !id.is_empty() && r.get(rec::VST2_ARCH) == Some(b"x86") {
+        id.push_str(":x86");
+    }
     Some(PluginRef {
         format: format.into(),
         id,
@@ -174,7 +179,7 @@ pub fn encode(base: Option<&[u8]>, p: &PluginRef) -> Vec<u8> {
         r.remove(rec::GUID);
     }
     if p.format == "vst2" {
-        if let Ok(id) = u32::from_str_radix(&p.id, 16) {
+        if let Ok(id) = u32::from_str_radix(p.class_id(), 16) {
             r.set(rec::FOURCC, id.to_le_bytes().to_vec());
         }
         if r.get(rec::VST_VERSION).is_none() {
@@ -183,6 +188,11 @@ pub fn encode(base: Option<&[u8]>, p: &PluginRef) -> Vec<u8> {
     } else {
         r.remove(rec::FOURCC);
         r.remove(rec::VST_VERSION);
+    }
+    if p.is_vst2_x86() {
+        r.set(rec::VST2_ARCH, b"x86".to_vec());
+    } else {
+        r.remove(rec::VST2_ARCH);
     }
     r.set(rec::STATE, p.state.clone());
     r.set(rec::NAME, p.name.as_bytes().to_vec());

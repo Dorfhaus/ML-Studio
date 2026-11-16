@@ -178,6 +178,8 @@ impl TextEngine {
     pub fn extent(&mut self, f: Font, scale: f32, s: &str) -> (i32, i32) {
         if let Some((font, f)) = self.theme_face(f) { return font.extent(f, scale, s); }
         #[cfg(windows)]
+        if self.portable.needs_fallback(s) { return self.portable.extent(f, scale, s); }
+        #[cfg(windows)]
         if let Some(g) = &mut self.gdi {
             return g.extent(f, scale, s);
         }
@@ -212,6 +214,8 @@ impl TextEngine {
         if let Some((font, f)) = self.theme_face(f) {
             return font.draw(pix, clip, f, scale, x, y, c, s, vertical);
         }
+        #[cfg(windows)]
+        if self.portable.needs_fallback(s) { return self.portable.draw(pix, clip, f, scale, x, y, c, s, vertical); }
         #[cfg(windows)]
         if let Some(g) = &mut self.gdi {
             return g.draw(pix, clip, f, scale, x, y, c, s, vertical);
@@ -564,6 +568,16 @@ mod portable {
     use os_theme::Color;
     use tiny_skia::Pixmap;
 
+    // Shared once, rather than reparsed for every theme/font instance. SIL OFL 1.1;
+    // the unmodified fonts and attribution are in fonts/NotoSymbols.
+    fn symbols() -> &'static [fontdue::Font; 2] {
+        static FONTS: std::sync::OnceLock<[fontdue::Font; 2]> = std::sync::OnceLock::new();
+        FONTS.get_or_init(|| [
+            fontdue::Font::from_bytes(include_bytes!("../fonts/NotoSymbols/NotoSansSymbols.ttf") as &[u8], fontdue::FontSettings::default()).expect("bundled symbol font"),
+            fontdue::Font::from_bytes(include_bytes!("../fonts/NotoSymbols/NotoSansSymbols2-Regular.ttf") as &[u8], fontdue::FontSettings::default()).expect("bundled symbol font"),
+        ])
+    }
+
     /// Vertical metrics in em: (ascent, descent) as GDI takes them (the OS/2 table's win ascent / descent).
     type Vm = (f32, f32);
 
@@ -614,6 +628,11 @@ mod portable {
     }
 
     impl Fd {
+        #[cfg(any(windows, test))]
+        pub fn needs_fallback(&self, text: &str) -> bool {
+            text.chars().any(|c| !c.is_ascii() && self.font.lookup_glyph_index(c) == 0
+                && symbols().iter().any(|f| f.lookup_glyph_index(c) != 0))
+        }
         pub fn new() -> Result<Fd, String> {
             Self::from_bytes(CUPRUM)
         }
@@ -657,7 +676,8 @@ mod portable {
         fn glyph(&mut self, c: char, f: Font, scale: f32) -> &Glyph {
             let (px, k) = (Self::px(f, scale), self.squeeze(f, scale));
             let key = (c, px.to_bits(), k.to_bits(), f.bold, f.italic);
-            let font = &self.font;
+            let font = if self.font.lookup_glyph_index(c) != 0 || c.is_ascii() { &self.font }
+                else { symbols().iter().find(|font| font.lookup_glyph_index(c) != 0).unwrap_or(&self.font) };
             self.cache.entry(key).or_insert_with(|| {
                 let (m, cov) = font.rasterize(c, px);
                 // Condense.
@@ -790,6 +810,19 @@ mod portable {
             assert_eq!(fd.metrics(Font::new(20), 1.5), (33, 27));
             // The light face sits on Segoe UI's baseline.
             assert_eq!(fd.metrics(Font::light(32, 13), 1.0).1, 35);
+        }
+
+        #[test]
+        fn missing_ui_symbols_have_cached_fallback_glyphs() {
+            let mut fd=Fd::from_bytes(include_bytes!("../fonts/Barlow/BarlowSemiCondensed-Regular.ttf")).unwrap();
+            for ch in "↑↓←→★☆✓✕♭♯⚙▶▸".chars() {
+                assert!(fd.font.lookup_glyph_index(ch)!=0 || symbols().iter().any(|f|f.lookup_glyph_index(ch)!=0),"{ch} must not render .notdef");
+                for scale in [1.,1.25,1.5,2.] {
+                    let g=fd.glyph(ch,Font::new(14),scale);
+                    assert!(g.w>0 && g.h>0 && g.cov.iter().any(|&v|v>0));
+                }
+            }
+            assert!(!fd.needs_fallback("File?"));
         }
 
         #[test]

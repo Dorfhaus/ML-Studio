@@ -258,6 +258,11 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) -> usize {
         ui.part(Seg::Toolbar, Rect::new(0.0, 0.0, w, band_h(s)), |ui| ui.scaled(scale, |ui, k| toolbar::paint(ui, s, f, w / k)));
     }
     let overlays = ui.hit_count();
+    if s.toolbar.hidden && s.native_view.is_none() && !crate::donate::active() {
+        // Preserve Hide toolbars for the workspace, while keeping the fixed supporter control.
+        let r=Rect::new((w-94.0).max(0.0),8.0,84.0,24.0);
+        ui.part(Seg::Toolbar,r,|ui|toolbar::supporter_button(ui,r));
+    }
     if let Some(rect) = toolbar::floating_hint_rect(s) {
         ui.part(Seg::Hint, rect.outset(1.0), |ui| toolbar::paint_floating_hint(ui, s, f, rect));
     }

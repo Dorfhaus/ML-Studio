@@ -301,6 +301,7 @@ pub const LIVE: &[&str] = &[
     MANAGE_SHORTCUTS,
     "Manage plugins",
     "Manage messages",
+    crate::donate::ACTIVATE,
     REFRESH_MIDI,
     "Add folder...",
     "Find new plugins",
@@ -960,6 +961,10 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                     Check("Show undo history in the browser when undoing changes", false),
                     Check("Show recent changes at the top", false),
                 ]),
+                gf("Support ML Studio", true, vec![
+                    txt(if crate::donate::active() { "Lifetime supporter active. Thank you!" } else { "ML Studio is free. Supporter activation removes donation reminders." }),
+                    Buttons(vec![(crate::donate::ACTIVATE, 180.0)]),
+                ]),
                 gf("Hints and warnings", true, vec![
                     Buttons(vec![("Manage messages", 138.0)]),
                     combo("100MB (default)", 110.0, "Project data size warning"),
@@ -1068,11 +1073,21 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
             }
             scanning.push(Buttons(vec![("Find new plugins", 130.0), ("Rescan all", 100.0)]));
             scanning.push(Text(d.status_line(), true));
-            vec![
+            let mut groups = vec![
                 g("Search folders", vec![Folders(folders), Buttons(vec![("Add folder...", 110.0)])]),
                 g("Scanning", scanning),
-                g("Plugins", vec![Table]),
-            ]
+            ];
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            if crate::workspace_visibility::shown(crate::legacy_vst::VISIBILITY) {
+                use crate::legacy_vst as bridge;
+                let mut controls = vec![txt(bridge::status())];
+                if !bridge::available() {
+                    controls.push(Buttons(vec![(bridge::INSTALL, 236.0)]));
+                }
+                groups.push(g("Legacy VST2", controls));
+            }
+            groups.push(g("Plugins", vec![Table]));
+            groups
         }
         THEME if st.advanced_theme.as_ref().is_some_and(|s| s.identity) => {
             use crate::advanced_theme::{self as a, IdentityRow as I, Row as E};
@@ -1307,7 +1322,8 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                 } else {
                     vec![txt("Licence: GNU General Public License, version 3 or later.")]
                 },
-                vec![txt("Fonts: Cuprum (SIL Open Font License). Icons: Tabler Icons (MIT).")],
+                vec![txt("Fonts: Cuprum, Barlow and Noto Sans Symbols (SIL Open Font License)."),
+                    txt("Icons: Tabler Icons (MIT).")],
                 if cfg!(windows) {
                     vec![txt("ASIO® output: the ASIO SDK by Steinberg Media Technologies GmbH (GPL version 3)."), Row::AsioLogo]
                 } else {
@@ -1317,6 +1333,7 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
             .into_iter()
             .flatten()
             .collect()),
+            g("Noto Symbols font licence", include_str!("../../../os-ui/fonts/NotoSymbols/OFL.txt").lines().map(txt).collect()),
             g("Licence", vec![
                 Big("ML Studio needs no account.".into()),
                 txt("It is free software: you can redistribute it and/or modify it under the terms"),
@@ -1854,7 +1871,11 @@ fn menu_button(ui: &mut Ui, r: Rect, label: &str, action: Option<crate::menu_lay
     } else {
         kit::bordered(ui.c, r, 2., t.s(0x161819), kit::face(t.s(0x212425), kit::State::hover(hover)));
     }
-    ui.c.text_center(LABEL, r, if hover { t.glyph } else if active { t.text } else { t.text_dim }, label);
+    let ink = if hover { t.glyph } else if active { t.text } else { t.text_dim };
+    match label {
+        "↑" | "↓" => crate::icons::draw(ui.c, if label == "↑" { crate::icons::Icon::ArrowUp } else { crate::icons::Icon::ArrowDown }, r.inset(6.), ink),
+        _ => ui.c.text_center(LABEL, r, ink, label),
+    }
 }
 
 fn paint_row(ui: &mut Ui, s: &State, group: &'static str, row: &Row, g: Rect, y: f32, h: f32) {
@@ -1989,13 +2010,28 @@ fn paint_row_at(ui: &mut Ui, s: &State, group: &'static str, row: &Row, g: Rect,
             let x = x0 + 18. * entry.depth.min(8) as f32;
             let right = g.right() - 12.;
             let r = Rect::new(x, y + 3., 24., 24.);
+            let drag_rect = Rect::new(r.right() + 2., y, (right - 220. - r.right()).max(1.), 30.);
+            ui.hit(drag_rect, Action::Settings(SAct::MenuLayout(M::Drag(entry.id.clone()))),
+                "Drag to reorder; drop on the middle of a submenu to move inside. Esc cancels.");
+            for offset in [0., 4., 8.] {
+                ui.c.fill_circle(drag_rect.x + 3., y + 10. + offset, 1., t.text_dim);
+            }
+            if let Some((id, position)) = &s.settings.menu_editor.drop_target {
+                if *id == entry.id {
+                    use crate::menu_layout::DropPosition as D;
+                    match position {
+                        D::Inside => ui.c.fill_rrect(drag_rect, 3., t.accent.with_alpha(48)),
+                        D::Before | D::After => ui.c.fill_rect(Rect::new(drag_rect.x, if *position == D::Before { y } else { y + 29. }, drag_rect.w, 2.), t.accent),
+                    }
+                }
+            }
             if entry.folder {
                 menu_button(ui, r, if entry.expanded { "-" } else { "+" },
                     Some(M::Expand(entry.id.clone())), "Expand or collapse the submenu in this editor");
             }
             let ink = if entry.hidden || entry.parent_hidden { t.text_dim } else { t.text };
-            ui.c.text_clip(if entry.folder { f.bold() } else { f }, r.right() + 7., ty,
-                right - 228. - r.right(), ink, &entry.label);
+            ui.c.text_clip(if entry.folder { f.bold() } else { f }, r.right() + 14., ty,
+                right - 235. - r.right(), ink, &entry.label);
             let visibility = if entry.hidden { "Hidden" } else if entry.parent_hidden { "In hidden group" } else { "Shown" };
             menu_button(ui, Rect::new(right - 214., r.y, 91., r.h), visibility,
                 Some(M::Toggle(entry.id.clone(), !entry.hidden)), "Show or hide this entry");

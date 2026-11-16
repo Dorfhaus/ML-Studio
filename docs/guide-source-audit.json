@@ -1,6 +1,6 @@
 {
   "generated_articles": 424,
-  "guide_articles": 689,
+  "guide_articles": 690,
   "records": [
     {
       "title": "Visibility: Host and join sessions (Collaboration)",
@@ -267,11 +267,11 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
-      "title": "Visibility: Update button (Toolbar extras)",
+      "title": "Visibility: 32-bit VST2 bridge setup (Toolbar extras)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
-      "title": "Visibility: Donate button (Toolbar extras)",
+      "title": "Visibility: Update button (Toolbar extras)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {

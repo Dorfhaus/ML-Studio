@@ -23,6 +23,12 @@ pub const MORE_W: f32 = 18.0;
 pub const MORE_HINT: &str = "More windows and toolbar options";
 pub(crate) const OPEN_HIGHLIGHTS: &str = "visible_win-open-highlights";
 
+pub(crate) fn supporter_button(ui: &mut Ui, r: Rect) {
+    let hover = ui.hit(r, Action::Donate, "Support ML Studio: €10 or more removes donation reminders and this button");
+    ui.c.fill_rrect(r, 4.0, if hover { Color::rgb(0xf7f473) } else { Color::rgb(0xe9e554) });
+    ui.c.text_center(Font::new(12), r, Color::rgb(0x14171a), "Donate");
+}
+
 /// Every open window stays lit, including covered, collapsed and detached editors.
 pub(super) fn window_shortcut_open(s: &State, action: &Action) -> bool {
     shown(OPEN_HIGHLIGHTS) && match action {
@@ -134,22 +140,29 @@ struct Ctx<'a> {
     preview: bool,
 }
 
+pub(crate) fn legacy_vintage(s: &State) -> bool {
+    s.vintage_2005 && !crate::settings_file::flag("toolbar_vintage_custom_layout",false)
+}
+
 pub(crate) fn visible_layout(s:&State)->crate::toolbar::Layout {
-    let mut layout = if s.vintage_2005 {
+    let mut layout = if legacy_vintage(s) {
         use Panel::*;
         crate::toolbar::Layout { rows: vec![
             vec![Caption, Hint, Recording, Volume, Pitch, Snap, Windows],
             vec![Menu, Transport, Time, Pattern, Utilities],
         ], logo: false }
     } else { s.bar.layout.clone() };
-    if s.vintage_2005 && crate::input_bindings::has_pinned() { layout.rows[1].push(Panel::CustomActions); }
+    if legacy_vintage(s) && crate::input_bindings::has_pinned() { layout.rows[1].push(Panel::CustomActions); }
     if !s.bar.editing {
         layout.logo &= shown("visible_logo");
         for row in &mut layout.rows {
             row.retain(|panel| match panel {
                 Panel::Caption => s.vintage_2005,
                 Panel::Hint => s.vintage_2005 && inline_hint(s),
-                Panel::Cpu => false,
+                Panel::Cpu => !legacy_vintage(s) && shown("visible_cpu") && crate::settings_file::flag("toolbar_cpu_visible",true),
+                Panel::Ai => !legacy_vintage(s) && (s.ai.enabled || !s.ai.client.is_empty() || shown("visible_ai")),
+                Panel::Update => !legacy_vintage(s) && shown("visible_update"),
+                Panel::Feedback => !legacy_vintage(s) && shown("visible_feedback"),
                 Panel::Menu | Panel::Transport | Panel::Space | Panel::Flex => true,
                 Panel::Windows => crate::notation::shortcut_shown() || WINDOW_BUTTONS[..5].iter().any(|key| shown(key)),
                 Panel::Tools => WINDOW_BUTTONS[5..].iter().any(|key| shown(key)),
@@ -236,7 +249,7 @@ impl ActionSizes {
             ai: if ai_active || shown("visible_ai") { 119.0 } else { 0.0 },
             update: button(canvas, "visible_update", font, "Update"),
             tesla: if shown("visible_tesla") && crate::settings_file::flag("toolbar_tesla", false) { 30.0 } else { 0.0 },
-            donate: button(canvas, "visible_donate", font, "Donate"),
+            donate: if crate::donate::active() { 0.0 } else { 90.0 },
             feedback: button(canvas, "visible_feedback", Font::new(11), "Report a bug"),
             hint: if hint && shown("visible_hint") { Panel::Hint.width() + 6.0 } else { 0.0 },
             scope: if vintage && shown("visible_vintage_scope") { 145.0 } else { 0.0 },
@@ -252,7 +265,8 @@ impl ActionSizes {
     pub fn meters_width(self) -> f32 { self.cpu + self.scope }
     pub fn combined(self)->bool{self.cpu==245.}
     pub fn width(self, vintage: bool) -> f32 {
-        self.ai + self.tesla + self.cpu + self.scope + self.hint + self.update + self.donate + self.feedback + 38.0 + if vintage { 0.0 } else { 104.0 }
+        let fixed_actions = vintage && !crate::settings_file::flag("toolbar_vintage_custom_layout",false);
+        self.tesla + self.scope + self.hint + self.donate + 38.0 + if fixed_actions { self.ai + self.cpu + self.update + self.feedback } else if vintage { 0. } else { 104.0 }
     }
 }
 
@@ -268,7 +282,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
     let sizes = s.toolbar_actions;
     let window_w = 104.0;
     let mini_cpu_w = sizes.cpu;
-    let show_cpu = mini_cpu_w > 0.0;
+    let show_cpu = legacy_vintage(s) && mini_cpu_w > 0.0;
     let native_vintage = super::vintage_toolbar::active(s, width);
     let actions_w = sizes.width(s.vintage_2005) - if native_vintage { sizes.meters_width() } else { 0.0 };
     let content_width = (width - actions_w).max(100.0);
@@ -355,7 +369,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
         let cr=Rect::new(width-actions_w+2.,8.,48.,24.);
         if native_vintage {
             // The original upper shelf already owns the vintage meters.
-        } else if s.vintage_2005 {
+        } else if legacy_vintage(s) {
             let mut x = cr.x;
             if show_cpu {
                 super::vintage_toolbar::cpu(ui, s, x, 0.0);
@@ -364,8 +378,8 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
             if sizes.scope > 0.0 {
                 super::vintage_toolbar::scope(ui, s, x, 0.0);
             }
-        } else if sizes.combined() {live_monitor(ui,s,Rect::new(cr.x,3.,mini_cpu_w-6.,34.));}
-        else if mini_cpu_w > 54.0 {
+        } else if legacy_vintage(s) && sizes.combined() {live_monitor(ui,s,Rect::new(cr.x,3.,mini_cpu_w-6.,34.));}
+        else if legacy_vintage(s) && mini_cpu_w > 54.0 {
             let a=At{dx:cr.x-crate::app::CPU_RECT.x,dy:0.};
             classic_cpu(ui,s,a);
         } else if show_cpu {ui.c.fill_rrect(cr,3.,t.sunken);
@@ -376,8 +390,11 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
         ui.c.fill_rect(Rect::new(cr.x+4.,cr.bottom()-5.,40.,2.),t.toolbar_line);
         ui.c.fill_rect(Rect::new(cr.x+4.,cr.bottom()-5.,40.*(load as f32/100.).min(1.),2.),ink);
         }
-        let mut x = cr.x + if native_vintage { 0.0 } else { sizes.meters_width() };
-        if sizes.ai > 0.0 {
+        if s.vintage_2005 && !legacy_vintage(s) && sizes.scope > 0. {
+            super::vintage_toolbar::scope(ui,s,cr.x,0.);
+        }
+        let mut x = cr.x + if native_vintage { 0.0 } else if legacy_vintage(s) { sizes.meters_width() } else { sizes.scope };
+        if legacy_vintage(s) && sizes.ai > 0.0 {
             let ai = Rect::new(x, 8.0, sizes.ai - 6.0, 24.0);
             let hover = ui.hit(ai, Action::Ai, if !s.ai.enabled && crate::voice_assistant::available() {
                 "AI assistant"
@@ -404,7 +421,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
             icons::draw(ui.c, Icon::Wave, b.inset(4.0), t.accent);
             x += sizes.tesla;
         }
-        if sizes.update > 0.0 {
+        if legacy_vintage(s) && sizes.update > 0.0 {
             let r = Rect::new(x, 8.0, sizes.update - 6.0, 24.0);
             let (label, hint) = crate::updates::display();
             let hover = ui.hit(r, Action::Updates, if hint.is_empty() { "Automatic updates: check now".to_string() } else { hint });
@@ -415,15 +432,13 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
         }
         if sizes.donate > 0.0 {
             let r = Rect::new(x, 8.0, sizes.donate - 6.0, 24.0);
-            let hover = ui.hit(r, Action::Donate, "Donate through Michael Lane's PayPal.me page");
-            if studio { studio_tile(ui, r, if hover { t.button_hi } else { t.sunken }); }
-            else { ui.c.fill_rrect(r, 3.0, t.sunken); }
-            ui.c.text_clip(action_font, r.x + 6.0, r.y + 5.0, r.w - 12.0, t.text, "Donate");
+            // Fixed supporter control: independent of toolbar presets and theme customization.
+            supporter_button(ui,r);
             x += sizes.donate;
         }
-        if sizes.feedback > 0.0 {
+        if legacy_vintage(s) && sizes.feedback > 0.0 {
             let r = Rect::new(x, 8.0, sizes.feedback - 6.0, 24.0);
-            ui.hit(r, Action::ReportBug, "Report a bug or send feedback: review technical details before submitting");
+            ui.hit(r, Action::ReportBug, "Report a bug in the ML Studio Discord community");
             if studio { studio_tile(ui, r, t.accent); } else { ui.c.fill_rrect(r, 3.0, t.accent); }
             ui.c.text_center(Font::new(11), r, t.sunken, "Report a bug");
         }
@@ -505,7 +520,7 @@ fn panel(ui: &mut Ui, c: &Ctx, p: Panel) -> bool {
         Panel::Recording => return recording(ui, c),
         Panel::Time => time(ui, c),
         Panel::Monitor => monitor(ui, c),
-        Panel::Cpu => classic_cpu(ui,c.s,c.a),
+        Panel::Cpu | Panel::Ai | Panel::Update | Panel::Feedback => action_panel(ui,c,p),
         Panel::Utilities => return utilities(ui, c),
         Panel::Menu => menu_bar(ui, c),
         Panel::Volume => volume(ui, c),
@@ -519,6 +534,39 @@ fn panel(ui: &mut Ui, c: &Ctx, p: Panel) -> bool {
         Panel::Space | Panel::Flex => {}
     }
     true
+}
+
+/// These controls use the same placement, drag handles and saved layout as every other panel.
+fn action_panel(ui: &mut Ui, c: &Ctx, p: Panel) {
+    let (s,t) = (c.s,ui.t);
+    let (_,x,_) = p.home();
+    let r = c.a.r(Rect::new(x+3.,8.,p.width()-6.,24.));
+    if p == Panel::Cpu {
+        if crate::settings_file::flag("toolbar_cpu_combined",true) {
+            live_monitor(ui,s,Rect::new(r.x,r.y-5.,r.w,34.));
+        } else if crate::settings_file::flag("toolbar_cpu_classic",false) {
+            classic_cpu(ui,s,At{dx:r.x-crate::app::CPU_RECT.x,dy:c.a.dy});
+        } else {
+            ui.c.fill_rrect(r,3.,t.sunken);
+            ui.hit(r,Action::CpuPanel,s.cpu.hint());
+            let load=s.cpu.now.load;
+            let ink=if load>=100{t.meter_clip}else if load>=75{t.meter_high}else{t.text_dim};
+            ui.c.text_center(Font::new(10),r,ink,&format!("CPU {}%",load.min(999)));
+        }
+        return;
+    }
+    let (action,label,hint) = match p {
+        Panel::Ai => (Action::Ai,"AI assistant",if s.ai.enabled {"Manage or disconnect the AI assistant".to_string()} else {"Connect an AI assistant".into()}),
+        Panel::Update => {let (label,hint)=crate::updates::display(); (Action::Updates,label,if hint.is_empty(){"Check for updates".into()}else{hint})},
+        Panel::Feedback => (Action::ReportBug,"Report a bug","Report a bug in the ML Studio Discord community".into()),
+        _ => return,
+    };
+    let hover=ui.hit(r,action,hint);
+    let face=if p==Panel::Feedback {t.accent} else if hover {t.button_hi} else {t.sunken};
+    if super::lemon(ui) {studio_tile(ui,r,face);} else {ui.c.fill_rrect(r,3.,face);}
+    let ink=if p==Panel::Feedback {t.sunken}else{t.text};
+    ui.c.text_clip(Font::new(12),r.x+6.,r.y+5.,r.w-12.,ink,label);
+    if p==Panel::Ai && s.ai.enabled {ui.c.fill_circle(r.right()-4.,r.y+4.,2.,t.accent);}
 }
 
 /// Caption buttons.

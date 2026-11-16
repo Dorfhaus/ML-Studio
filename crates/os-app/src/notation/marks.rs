@@ -107,7 +107,8 @@ pub(super) fn menu(app: &mut App, target: Option<(usize, u32)>) {
                 if i != step {
                     continue;
                 }
-                let sign = ["𝄫", "♭", "", "♯", "𝄪"][(alter + 2) as usize];
+                // Readable in every menu font; engraved notation keeps its music glyphs.
+                let sign = [" double flat", "♭", "", "♯", " double sharp"][(alter + 2) as usize];
                 spelling.push(pick(
                     format!("Spell as {letter}{sign}"),
                     Edit::Letter(i as u8 + 1),

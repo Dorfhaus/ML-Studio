@@ -9,7 +9,7 @@ pub(crate) mod retention;
 
 pub(crate) const SETTINGS_VISIBILITY: &str = "visible_update-preferences";
 
-pub const VERSION: u64 = 2026111601;
+pub const VERSION: u64 = 2026111602;
 #[cfg(windows)]
 pub const FEED: &str = "https://michaellanemusic.de/lemon-studio/updates/stable.json";
 #[cfg(windows)]
@@ -664,9 +664,9 @@ mod tests {
             let cpu=app.hits.iter().find(|h|h.action==Action::CpuPanel).expect("CPU visible");
             let ai=app.hits.iter().find(|h|h.action==Action::Ai).unwrap();
             // The combined audio monitor is taller/wider than the former compact CPU badge.
-            assert!(cpu.rect.x>=0. && cpu.rect.w>0. && cpu.rect.right()<ai.rect.x && cpu.rect.h>0. && cpu.rect.h<=40.);
+            assert!(cpu.rect.x>=0. && cpu.rect.w>0. && cpu.rect.intersect(&ai.rect).is_empty() && cpu.rect.h>0. && cpu.rect.h<=40.);
             let donate=app.hits.iter().find(|h|h.action==Action::Donate).expect("donate button");
-            assert!(hit.rect.w<70.0 && donate.rect.w<70.0 && donate.rect.x>hit.rect.right() && donate.rect.right()<=width as f32);
+            assert!(hit.rect.w<100.0 && (donate.rect.w-84.0*crate::views::band_k(&app.state)).abs()<0.01 && donate.rect.intersect(&hit.rect).is_empty() && donate.rect.right()<=width as f32);
             let minimize=app.hits.iter().find(|h|h.action==Action::Minimize).unwrap();
             let maximize=app.hits.iter().find(|h|h.action==Action::Maximize).unwrap();
             let close=app.hits.iter().find(|h|h.action==Action::Close).unwrap();
@@ -804,6 +804,9 @@ mod tests {
         fs::write(app.join("song.flp"),b"keep my project").unwrap();
         let plugins = app.join("VST3");
         let downloaded = root.join("profile/Plugin Downloads/Installed/octasine");
+        let activation = root.join("profile/Licenses/ML Studio Supporter.mlsupport");
+        fs::create_dir_all(activation.parent().unwrap()).unwrap();
+        fs::write(&activation, b"existing signed supporter activation").unwrap();
         fs::create_dir_all(&plugins).unwrap();
         fs::create_dir_all(&downloaded).unwrap();
         let surge = plugins.join("Surge XT.vst3");
@@ -825,6 +828,7 @@ mod tests {
         assert_eq!(fs::read(app.join("song.flp")).unwrap(),b"keep my project");
         assert_eq!(fs::read(surge).unwrap(), b"existing instrument");
         assert_eq!(fs::read(octasine).unwrap(), b"existing portable instrument");
+        assert_eq!(fs::read(activation).unwrap(), b"existing signed supporter activation", "app updates never replace profile activation");
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,0 +1,10 @@
+// Insert before the existing require/run in the VoicePilot public api.php.
+// Preserve the entire existing wrapper and private VoicePilot configuration.
+if (($_GET['action'] ?? '') === 'kofi-webhook' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+    $supporterEvent = json_decode((string)($_POST['data'] ?? ''), true);
+    $supporterItems = is_array($supporterEvent) ? ($supporterEvent['shop_items'] ?? []) : [];
+    if (is_array($supporterItems) && array_filter($supporterItems, fn($i) => is_array($i) && ($i['direct_link_code'] ?? '') === '833f0d3495')) {
+        require __DIR__ . '/../ml-studio-supporter/Supporter.php';
+        \MLStudioSupporter\routeWebhook();
+    }
+}

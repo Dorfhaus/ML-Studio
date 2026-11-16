@@ -983,6 +983,7 @@ pub enum Drag {
     SettingsWindow { dx: f32, dy: f32 },
     /// The toolbar editor: a panel, a palette tile, the logo or a row carried (spec: ui/toolbar-menu.md §8).
     Bar(crate::toolbar::BarDrag),
+    MenuEntry { id: String, origin: (f32, f32) },
     Hint { origin: Rect, mouse: (f32, f32), resize: bool },
     /// Resize a Playlist / Mixer / Piano roll window (`r0` = its rect when the drag began).
     WinResize { win: Win, edges: u8, m0: (f32, f32), r0: Rect, joined: crate::win_clamp::Layout },
@@ -2129,6 +2130,7 @@ impl App {
                 if let Some(p) = self.pattern_render.take() {
                     return self.pattern_render_done(p, r);
                 }
+                let exported = r.is_ok();
                 self.state.message = Some(match r {
                     Ok((secs, files)) => {
                         if self.export_reveal {
@@ -2141,6 +2143,7 @@ impl App {
                     }
                     Err(e) => format!("Export failed: {e}"),
                 });
+                if exported { crate::donate::prompt(self); }
                 self.invalidate();
             }
             crate::transport::Export::Idle => {}
@@ -2458,6 +2461,18 @@ impl App {
             Reply::Button(_) => None,
         };
         match then {
+            Then::SupporterPrompt => match reply {
+                Reply::Button(Answer::Yes) => if let Err(e)=crate::donate::open() { self.tell(crate::dialog::Kind::Error,"Could not open donation page",vec![(e,false)]); },
+                Reply::Button(Answer::No) => crate::donate::choose(self),
+                _ => {},
+            },
+            Then::SupporterFile => if let Some(path)=file {
+                match crate::donate::import(&path) {
+                    Ok(()) => self.tell(crate::dialog::Kind::Info,"Thank you for supporting ML Studio",vec![("Your lifetime supporter activation is saved. The Donate button and export reminders are now removed. Keep your activation file for reinstalling or moving to another computer.".into(),false)]),
+                    Err(e) => self.tell(crate::dialog::Kind::Error,"Activation could not be completed",vec![(e,false)]),
+                }
+                self.invalidate();
+            },
             Then::SplitPattern(pattern) => {
                 if self.state.pattern.max(1) == pattern {
                     let group = match reply {
@@ -4821,6 +4836,8 @@ impl App {
         crate::visual_scenes::tick(self);
         crate::notation::tick(self);
         crate::plugin_downloads::tick(self);
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        crate::legacy_vst::tick(self);
         crate::starter_pack::tick(self);
         crate::studio_helper::tick(self);
         crate::visualizer::tick(self);
@@ -6056,6 +6073,11 @@ impl App {
             SAct::Help(_) => unreachable!(),
             SAct::MenuLayout(action) => {
                 let at = self.mouse;
+                if let crate::menu_layout::Action::Drag(id) = action {
+                    self.state.settings.menu_editor.drop_target = None;
+                    self.drag = Some(Drag::MenuEntry { id, origin: at });
+                    return;
+                }
                 crate::menu_layout::act(&mut self.state, action, at);
                 self.invalidate();
                 return;
@@ -6264,8 +6286,11 @@ impl App {
             SAct::Button(views::settings::RESET_UNDERRUNS) => { self.transport.reset_underruns(); self.audio_status(); },
             SAct::Button("Manage plugins") => self.open_settings(views::settings::PLUGINS),
             SAct::Button("Manage messages") => return self.messages_menu(),
+            SAct::Button(crate::donate::ACTIVATE) => return crate::donate::choose(self),
             SAct::Button("Find new plugins") => self.start_scan(crate::plugin_db::Mode::Changed),
             SAct::Button("Rescan all") => self.start_scan(crate::plugin_db::Mode::All),
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            SAct::Button(crate::legacy_vst::INSTALL) => crate::legacy_vst::request_install(self),
             SAct::Button("Add folder...") => self.add_plugin_folder(),
             SAct::Button(views::settings::RESET_WORK_TIME) => self.reset_work_time(),
             SAct::Button(views::settings::MANAGE_SHORTCUTS) => return self.open_shortcuts(),
@@ -6638,6 +6663,21 @@ impl App {
                     }
                 }
                 Drag::Bar(_) => self.invalidate(),
+                Drag::MenuEntry { origin, .. } => {
+                    use crate::menu_layout::{Action as M, DropPosition as D};
+                    let target = if (x - origin.0).hypot(y - origin.1) < 4. { None } else {
+                        self.top_hit(x,y).and_then(|hit| {
+                            let Action::Settings(views::settings::SAct::MenuLayout(M::Drag(id))) = &hit.action else { return None; };
+                            let folder = crate::menu_layout::entries(&self.state).0.iter().any(|e| e.id == *id && e.folder);
+                            let fraction = (y - hit.rect.y) / hit.rect.h;
+                            let position = if folder && (0.25..0.75).contains(&fraction) { D::Inside }
+                                else if fraction < 0.5 { D::Before } else { D::After };
+                            Some((id.clone(), position))
+                        })
+                    };
+                    self.state.settings.menu_editor.drop_target = target;
+                    self.invalidate();
+                }
                 Drag::Hint { origin, mouse, resize } => {
                     let (dx, dy) = (x - mouse.0, y - mouse.1);
                     let mut next = origin;
@@ -7149,6 +7189,7 @@ impl App {
         use crate::project_forms::FHit;
         use crate::views::settings::{Plug, SAct};
         match a {
+            Action::Settings(SAct::MenuLayout(crate::menu_layout::Action::Drag(_))) => false,
             Action::RackStrip(crate::rack_mixer::Command::Divider(..)) => false,
             Action::Settings(sa) => matches!(
                 sa,
@@ -7340,6 +7381,14 @@ impl App {
                 }
             }
             return;
+        }
+        // A toolbar workspace shortcut dismisses transient menus without consuming its click.
+        // Modal dialogs above retain their normal input protection.
+        if matches!(action, Some(Action::ToggleWin(_) | Action::ProjectPicker | Action::PickerOpen)) {
+            self.state.playlist.popup = None;
+            self.state.menu_open = None;
+            self.state.menu_sub = None;
+            self.state.lane_menu = false;
         }
         // Menu titles take the press even when another popup already owns the mouse.
         if let Some(Action::Menu(i)) = action {
@@ -7881,6 +7930,7 @@ impl App {
         self.smooth.stop();
         let (x, y) = self.mouse;
         let action = self.top_hit(x, y).map(|h| h.action.clone());
+        if action == Some(Action::Donate) { crate::donate::prompt(self); return; }
         if action == Some(Action::PianoVerticalZoom) {
             self.set_rows(Scroll::PianoY, views::piano::ROW);
             self.damage_piano();
@@ -8382,6 +8432,7 @@ impl App {
             Some(Drag::ZoomBox { x0, y0 }) => self.zoom_to(x0, y0),
             Some(Drag::SongPos { .. }) => self.song_pos_release(),
             Some(Drag::Bar(d)) => self.bar_drop(d),
+            Some(Drag::MenuEntry { id, .. }) => crate::menu_layout::finish_drag(&mut self.state, &id),
             Some(Drag::Hint { .. }) => self.state.bar.save_hint(),
             Some(Drag::PianoSplit { .. }) => crate::piano_split::save(self.state.piano.split),
             Some(Drag::BrowserSplit { .. }) => crate::browser::save_width(self.state.browser_w),
@@ -8756,6 +8807,11 @@ impl App {
     }
 
     pub fn wheel(&mut self, dx: f32, dy: f32, shift: bool, ctrl: bool) {
+        if matches!(self.drag, Some(Drag::MenuEntry { .. })) {
+            // Scrolling changes which row is under the pointer. Require a fresh
+            // pointer target instead of committing an indicator from the old view.
+            self.state.settings.menu_editor.drop_target = None;
+        }
         if let Some(Drag::MixerEffect { track, win, started, .. }) = self.drag {
             use crate::mixer::MHit;
             let delta = dx + dy;
@@ -9250,6 +9306,13 @@ impl App {
             return;
         }
         #[cfg(plugin_windows)]
+        if *key == Key::Named(NamedKey::Escape) && matches!(self.drag, Some(Drag::MenuEntry { .. })) {
+            self.drag = None;
+            self.pressed = None;
+            self.state.settings.menu_editor.drop_target = None;
+            self.invalidate();
+            return;
+        }
         if *key == Key::Named(NamedKey::Escape) && self.plugins.cancel_sampler_track_step() {
             return;
         }
@@ -10316,7 +10379,7 @@ impl App {
             return;
         }
         if a == Action::Donate {
-            if let Err(error) = crate::donate::open() { self.state.message = Some(error); self.invalidate(); }
+            crate::donate::prompt(self);
             return;
         }
         if a == Action::Updates {
@@ -11101,7 +11164,14 @@ impl App {
         let (x, y) = self.mouse;
         let s = &self.state;
         let popup = match *a {
-            Action::ChannelSelect(i) | Action::RackRoll(i) => rk::channel_menu(s, i, x, y),
+            Action::ChannelSelect(i) | Action::RackRoll(i) => {
+                let mut menu = rk::channel_menu(s, i, x, y);
+                if self.plugins.descriptor(i).is_some_and(|desc| desc.is_vst2_x86()) {
+                    let presets = crate::presets::popup(self, i, x, y);
+                    menu.items.push(crate::playlist::PItem::sub("Presets", presets.items));
+                }
+                menu
+            }
             Action::RackArea | Action::RackAdd => rk::empty_menu(s, x, y),
             Action::ChannelEnable(i) | Action::RackSolo(i) => rk::led_menu(s, i, x, y),
             Action::RackMixer(i) => rk::mixer_menu(s, i, x, y),
@@ -11433,6 +11503,9 @@ impl App {
         }
         let s = &mut self.state;
         s.bar.editing = on;
+        if on && s.vintage_2005 {
+            crate::settings_file::set_flag("toolbar_vintage_custom_layout",true);
+        }
         if on {
             s.bar.user = crate::toolbar::user_presets();
         }
@@ -17658,6 +17731,91 @@ mod tests {
     }
 
     #[test]
+    fn release_polish_menu_drag_and_single_click_shortcuts() {
+        use winit::keyboard::{Key,NamedKey};
+        use crate::menu_layout::{self as layout, Action as M, Menu};
+        use crate::views::settings::{MENUS, SAct};
+        use crate::playlist::{self as pl, Cmd};
+        let mut c=Canvas::new(1600,1000,1.).unwrap();
+        let mut app=App::new(None);
+        app.state.project=test_project();
+        app.state.project.channels[0].kind=os_model::ChannelKind::AudioClip;
+        pl::arr_mut(&mut app.state).clips=vec![os_model::Clip::new(0,96,0,os_model::ClipSource::Channel(0))];
+        app.open_settings(MENUS);
+        layout::act(&mut app.state,M::Select(Menu::AudioClip),(0.,0.));
+        layout::act(&mut app.state,M::Reset,(0.,0.));
+        frame(&mut app,&mut c,None);
+        let original=pl::clip_menu(&app.state,0,0.,0.).items;
+        assert_eq!(original[1].cmd,Cmd::ClipRoute(0));
+        let entries=layout::entries(&app.state).0;
+        assert!(entries.iter().any(|e|e.label=="Extract Chords"));
+        let id=|label:&str|entries.iter().find(|e|e.label==label).unwrap().id.clone();
+        let from=hit_rect(&app,&Action::Settings(SAct::MenuLayout(M::Drag(id("Muted")))));
+        let to=hit_rect(&app,&Action::Settings(SAct::MenuLayout(M::Drag(id("Preview")))));
+        app.mouse_move(from.cx(),from.cy());app.mouse_down();
+        app.mouse_move(to.cx(),to.bottom()-2.);app.mouse_up();frame(&mut app,&mut c,None);
+        assert_eq!(pl::clip_menu(&app.state,0,0.,0.).items,original,"dropping after the previous row preserves order");
+        app.mouse_move(from.cx(),from.cy());app.mouse_down();
+        app.mouse_move(to.cx(),to.y+2.);app.mouse_up();frame(&mut app,&mut c,None);
+        let moved=pl::clip_menu(&app.state,0,0.,0.).items;
+        assert!(moved.iter().position(|i|i.cmd==Cmd::ClipMute(0))<moved.iter().position(|i|i.cmd==Cmd::ClipPreview(0)));
+        layout::act(&mut app.state,M::Undo,(0.,0.));
+        assert_eq!(pl::clip_menu(&app.state,0,0.,0.).items,original);
+        frame(&mut app,&mut c,None);
+        app.mouse_move(from.cx(),from.cy());app.mouse_down();app.mouse_move(to.cx(),to.y+2.);
+        app.key(&Key::Named(NamedKey::Escape),false,false);app.mouse_up();
+        assert_eq!(pl::clip_menu(&app.state,0,0.,0.).items,original,"Esc leaves the menu unchanged");
+        frame(&mut app,&mut c,None);
+        let into=hit_rect(&app,&Action::Settings(SAct::MenuLayout(M::Drag(id("Audio processing")))));
+        app.mouse_move(from.cx(),from.cy());app.mouse_down();app.mouse_move(into.cx(),into.cy());app.mouse_up();
+        let moved=pl::clip_menu(&app.state,0,0.,0.).items;
+        assert!(moved.iter().find(|i|i.label=="Audio processing").unwrap().children.iter().any(|i|i.cmd==Cmd::ClipMute(0)));
+        layout::act(&mut app.state,M::Undo,(0.,0.));
+        assert_eq!(pl::clip_menu(&app.state,0,0.,0.).items,original);
+        app.state.settings.open=false;
+        for win in [Win::Mixer,Win::Playlist,Win::ChannelRack,Win::PianoRoll] {
+            for popup in [false,true] {
+                app.state.hide(win);
+                if popup {app.state.playlist.popup=Some(pl::clip_menu(&app.state,0,900.,400.));}
+                else {app.state.menu_open=Some(0);}
+                frame(&mut app,&mut c,None);
+                let r=hit_rect(&app,&Action::ToggleWin(win));
+                click(&mut app,&mut c,r);
+                assert!(app.state.shown(win),"{win:?} opens with one click");
+                assert!(app.state.playlist.popup.is_none() && app.state.menu_open.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn release_polish_toolbar_panels_move_and_survive_restart() {
+        use crate::toolbar::{Panel,BarDrag,Moving,Target,Layout};
+        let mut c=Canvas::new(1920,1080,1.).unwrap();
+        let mut app=App::new(None);
+        let old=Layout::parse("row=menu transport windows; logo=0").unwrap();
+        for panel in [Panel::Cpu,Panel::Ai,Panel::Update,Panel::Feedback] {assert!(old.has(panel));}
+        for vintage in [false,true] {
+            app.state.vintage_2005=vintage;
+            app.set_toolbar_layout(old.clone());
+            app.toolbar_edit(true);
+            let mut l=app.state.bar.layout.clone();l.set_rows(2);
+            for panel in [Panel::Cpu,Panel::Ai,Panel::Update,Panel::Feedback] {
+                let i=l.rows[0].iter().position(|p|*p==panel).unwrap();
+                assert!(crate::toolbar::apply(&mut l,&BarDrag{moving:Moving::Item(0,i),grab:(0.,0.)},Target::Insert{row:1,idx:0}));
+            }
+            app.set_toolbar_layout(l.clone());app.toolbar_edit(false);frame(&mut app,&mut c,None);
+            for action in [Action::Ai,Action::Updates,Action::ReportBug,Action::CpuPanel] {
+                let r=hit_rect(&app,&action);assert!(r.y>=40.,"{action:?} follows its moved panel");
+            }
+            assert_eq!(Layout::load(),l);
+            l.rows[1].retain(|p|*p!=Panel::Feedback);l.save();
+            assert!(!Layout::load().has(Panel::Feedback),"removed panels stay removed after upgrade migration");
+        }
+        Layout::single_row().save();
+        crate::settings_file::set_flag("toolbar_vintage_custom_layout",false);
+    }
+
+    #[test]
     fn menu_layout_editor_reorders_moves_hides_and_restores_live_commands() {
         use crate::menu_layout::{self as layout, Action as M, Menu};
         use crate::playlist as pl;
@@ -17739,6 +17897,33 @@ mod tests {
     }
 
     #[test]
+    fn supporter_toolbar_and_activation_entry_work_in_standard_vintage_and_edit_layouts() {
+        use crate::dialog::{Body,Then};
+        let mut canvas=Canvas::new(1600,1000,1.0).unwrap();
+        let mut app=App::new(None);app.state.dialogs.clear();
+        crate::settings_file::set_flag("visible_donate",false);
+        assert!(crate::workspace_visibility::shown("visible_donate"));
+        for vintage in [false,true] {for editing in [false,true] {
+            app.state.vintage_2005=vintage;app.state.bar.editing=editing;frame(&mut app,&mut canvas,None);
+            let r=hit_rect(&app,&Action::Donate);assert!((r.w-84.0*views::band_k(&app.state)).abs()<0.01);
+            app.mouse=(r.cx(),r.cy());app.mouse_down();
+            assert!(app.state.dialogs.iter().any(|m|matches!(&m.body,Body::Msg(msg) if msg.then==Then::SupporterPrompt)));
+            // The mouse press which would begin a drag opens the same reminder.
+            app.mouse_up();app.state.dialogs.clear();
+        }}
+        app.state.vintage_2005=false;app.state.bar.editing=false;
+        app.state.toolbar.hidden=true;frame(&mut app,&mut canvas,None);assert!(app.hits.iter().any(|h|h.action==Action::Donate));app.state.toolbar.hidden=false;
+        app.open_settings(views::settings::GENERAL);frame(&mut app,&mut canvas,None);
+        app.settings_act(views::settings::SAct::Group("Support ML Studio"));frame(&mut app,&mut canvas,None);
+        let r=hit_rect(&app,&Action::Settings(views::settings::SAct::Button(crate::donate::ACTIVATE)));
+        crate::dialog::fake::live(true);
+        click(&mut app,&mut canvas,r);
+        assert!(matches!(app.state.dialogs.last().map(|m|&m.body),Some(Body::File(_))));
+        crate::dialog::fake::live(false);
+        crate::settings_file::set_flag("visible_donate",true);
+    }
+
+    #[test]
     fn workspace_visibility_search_hide_reopen_and_restore() {
         use crate::views::settings::{OPEN_VISIBILITY, SAct, VISIBILITY};
         use crate::workspace_visibility::{RESET, shown};
@@ -17750,10 +17935,10 @@ mod tests {
         let activate = |app: &mut App, c: &mut Canvas, act: SAct| {
             click(app, c, hit_rect(app, &Action::Settings(act)));
         };
-        let key = "visible_donate";
+        let key = "visible_feedback";
         assert!(shown(key));
         frame(&mut app, &mut c, None);
-        assert!(has(&app, &Action::Donate));
+        assert!(has(&app, &Action::ReportBug));
 
         app.open_settings(views::settings::GENERAL);
         frame(&mut app, &mut c, None);
@@ -17766,23 +17951,23 @@ mod tests {
         activate(&mut app, &mut c, SAct::Group("Toolbar panels"));
         assert!(!has(&app, &Action::Settings(SAct::VisibilityToggle("visible_time"))));
         activate(&mut app, &mut c, SAct::VisibilitySearch);
-        app.key(&Key::Character("donate".into()), false, false);
+        app.key(&Key::Character("Report a Bug".into()), false, false);
         app.key(&Key::Named(NamedKey::Enter), false, false);
         frame(&mut app, &mut c, None);
         assert!(!has(&app, &Action::Settings(SAct::VisibilityToggle("visible_time"))));
         activate(&mut app, &mut c, SAct::VisibilityToggle(key));
         assert!(!shown(key));
-        assert!(!has(&app, &Action::Donate));
+        assert!(!has(&app, &Action::ReportBug));
         assert!(has(&app, &Action::Close));
 
         let mut reopened = App::new(None);
         frame(&mut reopened, &mut c, None);
-        assert!(!has(&reopened, &Action::Donate));
+        assert!(!has(&reopened, &Action::ReportBug));
         reopened.open_settings(VISIBILITY);
         frame(&mut reopened, &mut c, None);
         activate(&mut reopened, &mut c, SAct::Button(RESET));
         assert!(shown(key));
-        assert!(has(&reopened, &Action::Donate));
+        assert!(has(&reopened, &Action::ReportBug));
     }
 
     #[test]
@@ -27152,7 +27337,7 @@ LemonStudioStyle.button-radius=8
         click(&mut app, &mut c, shortcut);
         frame(&mut app, &mut c, None);
         assert_eq!(app.state.settings.advanced_theme.as_ref().unwrap().query.text, editor::MIXER_RECORD_LIGHT);
-        assert_eq!(Surface::TraditionalMixer.appearance(&app.theme.colors).style, Style::Original);
+        assert_eq!(Surface::TraditionalMixer.appearance(&app.theme.colors).style, Style::ConsoleLed);
         assert!(editor::groups("channel rack record light").is_empty());
         let choose = app.hits.iter().find(|h| matches!(h.action,
             Action::Settings(SAct::ThemeEditor(editor::Hit::Choice(_, "REC badge"))))).unwrap().rect;
@@ -27201,6 +27386,9 @@ LemonStudioStyle.button-radius=8
                 })), "The armed REC badge must use the theme's armed color");
                 click(&mut app, &mut c, record);
                 assert!(!app.state.mixer.recording.armed.contains(&1));
+                if let Some(path)=std::env::var_os("ML_POLISH_MIXER_PREVIEW") {
+                    frame(&mut app,&mut c,None);c.pixmap.save_png(path).unwrap();
+                }
             }
         }
     }

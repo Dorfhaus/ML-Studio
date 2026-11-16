@@ -80,8 +80,9 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Tesla audio cleanup / Playlist cleanup action", "visible_tesla-cleanup"),
         ("Tesla Deverb / Playlist Deverb action", tesla::cleanup::DEVERB_VISIBILITY),
         ("Create ARA shortcuts in Mixer", crate::ara::MIXER_LINK_VISIBILITY),
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        ("32-bit VST2 bridge setup", crate::legacy_vst::VISIBILITY),
         ("Update button", "visible_update"),
-        ("Donate button", "visible_donate"),
         ("Report a Bug button", "visible_feedback"),
     ]),
     ("Browser", &[
@@ -244,10 +245,12 @@ pub(crate) fn default_shown(key: &str) -> bool {
 }
 
 pub(crate) fn shown(key: &str) -> bool {
+    if key == "visible_donate" { return !crate::donate::active(); }
     settings_file::flag(key, default_shown(key))
 }
 
 pub(crate) fn toggle(key: &str) {
+    if key == "visible_donate" { return; }
     settings_file::set_flag(key, !shown(key));
 }
 
