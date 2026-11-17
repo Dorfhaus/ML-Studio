@@ -238,7 +238,8 @@ void Frame::drawSingle(int winW, int winH, int fbW, int fbH) {
   ImVec2 size(0, 0);
   if (ImGui::Begin("##suite", nullptr,
                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                       ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+                       ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
     const float width = info.editorWidth > 0 ? info.editorWidth : (info.type == "gl.eq" ? 780.0f : 600.0f);
     int tab = inst_.editorTab();
     const bool envPage = target.isChannel() && insSupported(info.type);

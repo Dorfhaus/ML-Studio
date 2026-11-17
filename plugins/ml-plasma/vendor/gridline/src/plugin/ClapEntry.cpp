@@ -32,6 +32,9 @@
 #ifdef ML_PLASMA_EDITOR_TESTING
 #include "../app/App.h"
 #include "../packs/plasma/plasma.h"
+#include "imgui.h"
+#include "imgui_internal.h"
+namespace gl::packs::plasma::ui { bool popupParameterSlider(const char*, float*, const char*); }
 #endif
 #ifdef GRIDLINE_SUITE
 #include "../core/PluginSuite.h"
@@ -107,6 +110,7 @@ struct Plugin {
   std::unique_ptr<View> view;
   clap_id timer = CLAP_INVALID_ID;
   bool activeNow = false;
+  std::deque<std::string> stateUndo; // main thread only, bounded like host history
   EditQueue edits;                    // parameters changed on the main thread: told to the host from process / flush
   std::atomic<bool> rescan{false};    // too many at once: the host reads every value again (main thread)
   std::atomic<bool> latencyDirty{false};
@@ -174,6 +178,17 @@ int translate(Plugin& pl, const clap_input_events_t* in) {
         e.kind = Event::Midi;
         e.midi[0] = static_cast<uint8_t>(0x80 | (ne->channel >= 0 && ne->channel < 16 ? ne->channel : 0));
         e.midi[1] = static_cast<uint8_t>(ne->key);
+        break;
+      }
+      case CLAP_EVENT_NOTE_EXPRESSION: {
+        if (h->size < sizeof(clap_event_note_expression_t)) continue;
+        const auto* ne = reinterpret_cast<const clap_event_note_expression_t*>(h);
+        if (ne->key < 0 || ne->key > 127 || !std::isfinite(ne->value)) continue;
+        e.midi[1] = static_cast<uint8_t>(ne->key);
+        if (ne->expression_id == CLAP_NOTE_EXPRESSION_TUNING) { e.kind = Event::Tuning; e.value = static_cast<float>(std::clamp(ne->value, -120.0, 120.0)); }
+        else if (ne->expression_id == CLAP_NOTE_EXPRESSION_VOLUME) { e.kind = Event::Volume; e.value = static_cast<float>(std::clamp(ne->value, 0.0, 4.0)); }
+        else if (ne->expression_id == CLAP_NOTE_EXPRESSION_PAN) { e.kind = Event::Pan; e.value = static_cast<float>(std::clamp(ne->value * 2.0 - 1.0, -1.0, 1.0)); }
+        else continue;
         break;
       }
       case CLAP_EVENT_MIDI: {
@@ -362,10 +377,29 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* s) {
   }
   Plugin& pl = *self(p);
   const bool ok = pl.inst->loadState(data);
+  if (ok) pl.stateUndo.clear();
   if (ok && pl.hostParams) pl.hostParams->rescan(pl.host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
   return ok;
 }
 const clap_plugin_state_t kState = {stateSave, stateLoad};
+
+// Private, versioned ML host extension. Payload: previous plugin-state keys as JSON.
+// The host opts in; other DAWs keep the ordinary parameter/dirty notifications.
+struct StateUndoExtension { bool (*take)(const clap_plugin_t*, const clap_ostream_t*); };
+bool takeStateUndo(const clap_plugin_t* p, const clap_ostream_t* stream) {
+  auto& queue = self(p)->stateUndo;
+  if (queue.empty()) return false;
+  const auto& data = queue.front();
+  size_t done = 0;
+  while (done < data.size()) {
+    const auto written = stream->write(stream, data.data() + done, data.size() - done);
+    if (written <= 0) return false;
+    done += static_cast<size_t>(written);
+  }
+  queue.pop_front();
+  return true;
+}
+const StateUndoExtension kStateUndo = {takeStateUndo};
 
 // ---------------------------------------------------------------- latency, tail, render
 
@@ -472,6 +506,9 @@ bool guiSetSize(const clap_plugin_t* p, uint32_t w, uint32_t h) {
   Plugin& pl = *self(p);
   if (!pl.view) return false;
   pl.view->setSize(static_cast<int>(w), static_cast<int>(h));  // (the view keeps its minimum)
+  int actualW = 0, actualH = 0;
+  pl.view->size(actualW, actualH);
+  pl.inst->rememberViewSize(actualW, actualH);
   return true;
 }
 bool guiSetParent(const clap_plugin_t* p, const clap_window_t* window) {
@@ -625,6 +662,20 @@ const void* pluginExtension(const clap_plugin_t* p, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_NOTE_PORTS)) return &kNotePorts;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &kParams;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &kState;
+  if (!std::strcmp(id, "org.ml-studio.state-undo/1") && pl.type == "gl.plasma") {
+    if (!pl.inst->onStateUndo) pl.inst->onStateUndo = [p](const std::string& patch) {
+      auto& queue = self(p)->stateUndo;
+      constexpr size_t budget = 128 * 1024 * 1024;
+      if (patch.size() > budget) return;
+      size_t size = patch.size();
+      for (const auto& item : queue) size += item.size();
+      while (!queue.empty() && (queue.size() >= 128 || size > budget)) {
+        size -= queue.front().size(); queue.pop_front();
+      }
+      queue.push_back(patch);
+    };
+    return &kStateUndo;
+  }
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &kLatency;
   if (!std::strcmp(id, CLAP_EXT_TAIL) && !pl.type.empty() && pl.variant == Variant::Effect) return &kTail;
   if (!std::strcmp(id, CLAP_EXT_RENDER)) return &kRender;
@@ -746,6 +797,43 @@ extern "C" CLAP_EXPORT bool ml_plasma_editor_test_edit(int command) {
         c.plugin.params[static_cast<size_t>(k)] = static_cast<float>(d.fromNormalized(normalized < 0.5 ? 0.8 : 0.2));
       }
     });
+  } else if (command == 6) {
+    using namespace gl::packs::plasma;
+    for (int r : {RtF1, RtF2}) for (int send : {R_Bus1, R_Bus2}) {
+      const int k = routeP(r, send);
+      const auto pid = gl::channelPluginParam(owner, k);
+      changed = app.doc.setParam(pid, 0.35, false) || changed;
+      const auto* c = app.doc.song().channel(owner);
+      if (!c || std::fabs(c->plugin.params[k] - 0.35) > 1e-5) return false;
+    }
+  } else if (command == 8) {
+    ImGuiContext* previous = ImGui::GetCurrentContext();
+    ImGuiContext* context = ImGui::CreateContext();
+    auto& io = ImGui::GetIO(); io.IniFilename = nullptr; io.DisplaySize = ImVec2(400,200); io.DeltaTime = 1.f/60.f;
+    io.Fonts->AddFontDefault(); io.Fonts->Build();
+    float value = 0;
+    for (int frame = 0; frame < 3; ++frame) {
+      ImGui::NewFrame(); ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(400,200));
+      ImGui::Begin("slider fixture", nullptr, ImGuiWindowFlags_NoTitleBar);
+      ImGui::SetCursorScreenPos(ImVec2(20,40)); ImGui::SetNextItemWidth(200);
+      const ImGuiID id = ImGui::GetID("Send A");
+      ImGui::SetActiveID(id, ImGui::GetCurrentWindow());
+      context->ActiveIdSource = ImGuiInputSource_Mouse; context->ActiveIdIsJustActivated = true;
+      io.MouseDown[0] = true; io.MousePos = ImVec2(90,50);
+      gl::packs::plasma::ui::popupParameterSlider("Send A", &value, "0%");
+      ImGui::End(); ImGui::Render();
+    }
+    ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous);
+    return value > 0.1f && value < 0.9f;
+  } else if (command == 7) {
+    inst.setEditorContent(1000, 700);
+    inst.rememberViewSize(1500, 1050);
+    const auto saved = inst.saveState();
+    inst.rememberViewSize(500, 350);
+    if (!inst.loadState(saved)) return false;
+    int w = 0, h = 0;
+    inst.preferredViewSize(w, h);
+    return w == 1500 && h == 1050 && std::fabs(inst.editorZoom() - 1.5f) < 1e-5;
   } else if (command == 3) changed = app.doc.undo();
   else if (command == 4) changed = app.doc.redo();
   else if (command != 5) return false;

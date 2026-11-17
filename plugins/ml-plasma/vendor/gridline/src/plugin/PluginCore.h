@@ -52,7 +52,7 @@ inline constexpr int kExtraOutputs = 15;
 enum class MidiMode { Selected = 0, PerChannel = 1 };
 
 struct Event {
-  enum Kind : uint8_t { Midi, Macro } kind = Midi;
+  enum Kind : uint8_t { Midi, Macro, Tuning, Volume, Pan } kind = Midi;
   int offset = 0;  // frame in the block
   uint8_t midi[3] = {0, 0, 0};
   int macro = 0;    // Macro: host parameter index (macro, or the plugin's parameter)
@@ -135,6 +135,8 @@ class Instance {
   std::function<void()> onMacrosChanged;
   // Serialized editor edits, including assets with no parameter change (main thread).
   std::function<void()> onStateEdited;
+  // ML host history, once per completed editor transaction (never host automation).
+  std::function<void(const std::string&)> onStateUndo;
   // A macro's value changed here (linking takes the parameter's value): the
   // host is told (main thread).
   std::function<void(int macro, double normalized)> onMacroEdited;
@@ -196,6 +198,7 @@ class Instance {
   void editorContent(int& w, int& h) const;
   float editorZoom() const { return zoom_; }
   void setEditorZoom(float z);
+  void rememberViewSize(int w, int h);
   int editorTab() const { return editorTab_; }
   void setEditorTab(int t) { editorTab_ = t; }
   // The channel (instrument) or mixer track (effect) holding the plugin.
@@ -245,8 +248,10 @@ class Instance {
   std::vector<double> synced_;     // value the project and the host agreed on (normalized)
   std::vector<char> gesture_;      // gesture open for the host
   uint64_t syncedRevision_ = ~0ull;
+  std::unique_ptr<PluginState> undoSynced_, undoBefore_;
   bool uiGesture_ = false;
   int editorW_ = 0, editorH_ = 0;
+  int viewW_ = 0, viewH_ = 0;
   float zoom_ = 1.0f;
   int editorTab_ = 0;
   // K-110: files the loaded state carried inside it (embedded again on save; core/SuiteState.h).

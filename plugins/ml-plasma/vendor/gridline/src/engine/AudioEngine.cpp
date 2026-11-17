@@ -513,6 +513,22 @@ void AudioEngine::midiEvent(uint8_t status, uint8_t d1, uint8_t d2) {
   if ((status & 0xF0) == 0x90 && d2 > 0) activity_.fetch_add(1, std::memory_order_relaxed);
 }
 
+void AudioEngine::midiExpression(uint8_t key, uint8_t kind, float value) {
+  if (key > 127 || !std::isfinite(value)) return;
+  const size_t h = mHead_.load(std::memory_order_relaxed);
+  if (h - mTail_.load(std::memory_order_acquire) >= kMidiQueue) return;
+  mqueue_[h % kMidiQueue] = {0xF5, key, kind, value};
+  mHead_.store(h + 1, std::memory_order_release);
+}
+
+void AudioEngine::midiTuning(uint8_t key, float semitones) {
+  if (key > 127 || !std::isfinite(semitones)) return;
+  size_t h = mHead_.load(std::memory_order_relaxed);
+  if (h - mTail_.load(std::memory_order_acquire) >= kMidiQueue) return;
+  mqueue_[h % kMidiQueue] = {0xF4, key, 0, semitones};
+  mHead_.store(h + 1, std::memory_order_release);
+}
+
 void AudioEngine::drainMidi(const Program* p) {
   size_t t = mTail_.load(std::memory_order_relaxed), h = mHead_.load(std::memory_order_acquire);
   constexpr uint32_t kMidiBit = 0x40000000u;
@@ -551,6 +567,15 @@ void AudioEngine::drainMidi(const Program* p) {
     int kind = m.s & 0xF0;
     int mch = m.s & 0x0F;
     int pitch = m.a & 0x7F;
+    if (m.s == 0xF5) {
+      if (const ProgChannel* c = chan(midiNoteCh_[pitch]); c && c->rt->gen) c->rt->gen->expression(kMidiBit | static_cast<uint32_t>(pitch), m.b, m.tuning, 0);
+      continue;
+    }
+    if (m.s == 0xF4) {
+      if (const ProgChannel* c = chan(midiNoteCh_[pitch]); c && c->rt->gen && c->rt->gen->supportsGlide())
+        c->rt->gen->glide(kMidiBit | static_cast<uint32_t>(pitch), pitch + m.tuning + c->pitchOffset, 0, 0);
+      continue;
+    }
     if (kind == 0x90 || kind == 0x80) {  // J-31: snap incoming notes to the scale
       const uint32_t sn = midiSnap_.load(std::memory_order_relaxed);
       if (sn & 0xFFF) pitch = snapToScaleMask(pitch, static_cast<int>(sn >> 12), static_cast<uint16_t>(sn & 0xFFF));

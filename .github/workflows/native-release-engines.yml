@@ -1,7 +1,7 @@
 name: Native Linux release engines
 on:
   push:
-    branches: [native-release-engines-20261111]
+    branches: [native-release-engines-20261117]
 permissions:
   contents: read
 jobs:
@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [master, plasma]
+        engine: [plasma]
     steps:
       - uses: actions/checkout@v4
       - name: Prepare verified offline native build dependencies
