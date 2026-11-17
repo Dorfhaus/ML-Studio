@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn assigned_bounce_template_routes() {
         let (mut app,dir)=fixture("assigned");
-        let bytes=include_bytes!("../assets/templates/Lemon Starter.flp");
+        let bytes=include_bytes!("../assets/templates/ML Mix Template.flp");
         app.state.project.mixer=os_flp::project::load(&os_flp::FlpFile::parse(bytes).unwrap()).unwrap().mixer;
         for route in [0,8,21,32] {
             app.state.project.channels[0].mixer_track=route;

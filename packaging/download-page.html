@@ -129,10 +129,14 @@
     <section class="source" aria-labelledby="source-title"><h2 id="source-title">Source code</h2><p>Browse the ML Studio code, build instructions, and licence notices.</p><div id="source"><a class="button secondary" href="https://michaellanemusic.de/ml-studio/updates/2026111101/Lemon%20Studio%20Source.zip">Download matching source</a></div><p><a href="https://github.com/Dorfhaus/ML-Studio/tree/michael-lane">Browse the edition source on GitHub ↗</a></p></section>
     <!-- CHANGELOG START -->
 <section class="source" id="change-log" aria-labelledby="change-log-title"><h2 id="change-log-title">Change Log</h2>
-<p>The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.</p>
+<p>The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Upstream development predates this edition.</p>
 <label for="change-search">Search changes</label><input id="change-search" type="search" placeholder="Try Chop, mixer or recording">
 <p id="change-empty" hidden>No changes match your search.</p>
 <details class="change-entry" open><summary>2026-11-17</summary><ul>
+<li>The 15 new stock effects now appear in their factory categories. On upgrade, untouched stock links move out of Unsorted. Custom folders, renamed links and removed entries are preserved.</li>
+<li>ML Mix Template is the new name of the factory starter in File &gt; New, startup and the template picker. Existing factory selections switch over automatically, and edited templates keep their settings.</li>
+<li>Added an offline ADAM Audio H200 headphone correction profile by oratory1990 via OPRA. Search H200 from the Master headphone icon. Correction affects monitoring only.</li>
+<li>Updated the User Guide and cleaned up ML Studio branding across the app documents and packages. Installers use ML Mix Template and ML Studio Source filenames where included. Existing signed updaters remain compatible.</li>
 <li>ML Patch brings visual effect routing to one Mixer slot. Connect stock or installed effects in series or parallel, route sidechains, assign eight automatable controls, and save the whole patch as a preset. Parallel paths stay aligned when you bypass a node. This release supports stereo effects.</li>
 <li>Added 15 more stock effects: ML Phase, De-Esser, Meter, Pitch Shift, Convolver, Vocoder, Reference, Split, Waveshaper, Tuner, Frequency Shift, Multiband Delay, Time Shaper, Amp and Vocal Tune. ML Amp loads your own NAM models and cabinet impulse responses. ML Vocal Tune uses the existing Mixer tuning engine.</li>
 <li>Added REX loop import and colored slide-note editing and playback for supported instruments. Improved project recall for replaced instruments and queued sampler changes.</li>
@@ -515,7 +519,7 @@
 <li>Added manual audio warp markers with project persistence, undo and rendering while preserving the source and pitch.</li>
 <li>Improved Parametric EQ 2 HQ mode and parameter smoothing; preserved rejected imported plugin state for recovery without claiming universal FLP plugin-setting compatibility.</li>
 <li>Added the Lemon Wave wavetable instrument foundation and factory presets.</li>
-<li>Identified this edition consistently as Michael Lane Edition and linked its public source fork while preserving original Lemon Studio and dependency credits.</li>
+<li>Identified this edition consistently as Michael Lane Edition and linked its public source fork while preserving upstream and dependency credits.</li>
 <li>Added the shared website and in-app Change Log and improved narrow community-tab labels.</li>
 <li>Known issues remain: Auto-Tune ARA compatibility and Melodyne transport behavior. Linux packages are compiled; Linux audio/runtime testing has not been performed.</li>
 <li>Added Lemon Chop, a separate slicing instrument with cue pads, automatic slicing, editable cue regions, pad names/favorites, reverse, pitch/stretch controls and undo/redo.</li>
@@ -617,7 +621,7 @@
 <li>Improved mixer dragging, established native public defaults and prepared the Windows installer and Mac source handoff.</li>
 </ul></details>
 <details class="change-entry"><summary>2026-10-28</summary><ul>
-<li>Established this customized edition from the existing Lemon Studio project; the original project predates this changelog.</li>
+<li>Established this customized edition from the upstream project; the original project predates this changelog.</li>
 <li>Added a native starter-template workflow, template names for new sessions and mixer-first startup; repaired Windows settings-folder handling and installed factory-template support.</li>
 <li>Simplified the toolbar and Playlist editing controls; moved the mixer plugin inspector to the left and improved plugin categories and scrolling.</li>
 <li>Added Samples and Favorites browsing with persistent favorites and sample preview/drag support.</li>
@@ -645,7 +649,7 @@
 document.getElementById("change-search").addEventListener("input",function(){const q=this.value.trim().toLowerCase();let any=false;document.querySelectorAll(".change-entry").forEach(entry=>{const title=entry.querySelector("summary").textContent.toLowerCase();let matched=false;entry.querySelectorAll("li").forEach(li=>{li.hidden=!!q&&!title.includes(q)&&!li.textContent.toLowerCase().includes(q);if(!li.hidden)matched=true;});entry.hidden=!matched;if(q&&matched)entry.open=true;if(matched)any=true;});document.getElementById("change-empty").hidden=any;});
 </script>
 <!-- CHANGELOG END -->
-    <footer><p>Maintained by Michael Lane. Based on <a href="https://github.com/ItsAlphaNeon/Lemon-Studio">Lemon Studio by ItsAlphaNeon and contributors</a>.</p><div class="footer-links"><a href="https://michaellanemusic.de/lemon-studio/features/feedback.html">Report a bug or send feedback</a><a href="https://paypal.me/michaellanemusic">Support development</a></div></footer>
+    <footer><p>Maintained by Michael Lane. Based on <a href="https://github.com/ItsAlphaNeon/Lemon-Studio">the upstream project by ItsAlphaNeon and contributors</a>.</p><div class="footer-links"><a href="https://michaellanemusic.de/lemon-studio/features/feedback.html">Report a bug or send feedback</a><a href="https://paypal.me/michaellanemusic">Support development</a></div></footer>
   </main>
   <script>
     const releaseBase = 'https://michaellanemusic.de/ml-studio/';

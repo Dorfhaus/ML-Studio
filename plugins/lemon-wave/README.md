@@ -26,7 +26,7 @@ The historical stage notes below describe earlier checkpoints. Current runtime e
 
 # Lemon Wave
 
-An original wavetable instrument for Lemon Studio, developed in stages at Michael's request. The first stage is a Windows CLAP/VST3 instrument, not a complete Serum clone. No Serum code, factory tables, presets or artwork are included.
+An original wavetable instrument for ML Studio, developed in stages at Michael's request. The first stage is a Windows CLAP/VST3 instrument, not a complete Serum clone. No Serum code, factory tables, presets or artwork are included.
 
 ## Stage 1
 
@@ -34,7 +34,7 @@ Two oscillators, each with four analytic wavetable families (five interpolated f
 
 The engine precomputes harmonic-limited table levels outside audio processing. It uses interpolation and 10 ms continuous-control smoothing. Phase bend and nonlinear drive/output can still introduce aliasing; oversampling and audio-reference comparisons are future work. LFO tempo sync means tempo-relative rate with note retrigger, not host-song phase locking. Fixed voice stealing can produce a transient at the polyphony limit. Delay-time changes can pitch the tail. These are explicit first-stage limitations.
 
-The editor uses Lemon Studio's existing parameter gestures, automation hooks and preset wrapper. Factory `.ospreset` files select the CLAP identity. The VST3 build can save its own host presets, but does not load CLAP preset headers directly.
+The editor uses ML Studio's existing parameter gestures, automation hooks and preset wrapper. Factory `.ospreset` files select the CLAP identity. The VST3 build can save its own host presets, but does not load CLAP preset headers directly.
 
 ## Stage 2a — WAV import and embedded tables
 
@@ -46,7 +46,7 @@ Imported frames are Fourier-resampled to 1024 samples, DC/Nyquist bins removed, 
 
 Import/state recall is a discrete sound change: it may pause briefly while the host restores and reinitializes the instrument, and resets held notes/effect tails. Import between notes. Normal rendering does no file reads or FFT construction; table snapshots use a nonblocking read, and retired tables remain owned outside rendering. Bad embedded data falls back to built-in tables and reports an error in the editor. Oversampling/warp aliasing, hand drawing and spectral editing remain future work.
 
-Focused tests cover supported WAV formats/cycle sizes, truncated/invalid input, Fourier downsampling, frame interpolation, harmonic rejection, exact audio recall after deleting the source WAV, legacy state clearing, retired asset ownership, and offscreen import controls. `verify_host` additionally verifies embedded table audio recall in both actual Lemon Studio host formats. Live file-dialog/editor interaction and listening remain the user's check.
+Focused tests cover supported WAV formats/cycle sizes, truncated/invalid input, Fourier downsampling, frame interpolation, harmonic rejection, exact audio recall after deleting the source WAV, legacy state clearing, retired asset ownership, and offscreen import controls. `verify_host` additionally verifies embedded table audio recall in both actual ML Studio host formats. Live file-dialog/editor interaction and listening remain the user's check.
 
 ## Build and verify
 
@@ -56,7 +56,7 @@ Focused tests cover supported WAV formats/cycle sizes, truncated/invalid input, 
 
 Package `lemon_wave.dll` as `Lemon Wave.clap` and as `Lemon Wave.vst3/Contents/x86_64-win/Lemon Wave.vst3` on Windows. `tools/bundle-plugins` also knows the module.
 
-`cargo run --locked -p lemon-wave --example verify_host -- BUNDLE_DIRECTORY` tests both actual Lemon Studio hosting layers without opening a GUI or audio device. `render_presets` takes bundle, preset and output directories and validates/renders all patches offline. `LEMON_WAVE_PREVIEW` selects an offscreen test image directory.
+`cargo run --locked -p lemon-wave --example verify_host -- BUNDLE_DIRECTORY` tests both actual ML Studio hosting layers without opening a GUI or audio device. `render_presets` takes bundle, preset and output directories and validates/renders all patches offline. `LEMON_WAVE_PREVIEW` selects an offscreen test image directory.
 
 ## Next stages (not implemented)
 

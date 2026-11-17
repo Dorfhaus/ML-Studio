@@ -51,7 +51,7 @@ pub(crate) fn remove_owned(root: &Path, parent: &Path, allowed: &[String]) -> Re
 }
 
 fn backups(parent: &Path, current: &Path, installed: u64, mac: bool) -> Result<usize> {
-    let allowed: Vec<String> = if mac { MAC_FILES.to_vec() } else { vec![EXE,"Lemon Studio Source.zip","THIRD-PARTY-NOTICES.txt","LICENSE"] }.into_iter().map(str::to_owned).collect();
+    let allowed: Vec<String> = if mac { MAC_FILES.to_vec() } else { vec![EXE,SOURCE_PAYLOAD,SOURCE_ARCHIVE,"THIRD-PARTY-NOTICES.txt","LICENSE"] }.into_iter().map(str::to_owned).collect();
     let mut found = Vec::new();
     for e in fs::read_dir(parent)? {
         let e = e?; let p = e.path();
@@ -114,6 +114,14 @@ pub(super) fn run(target: &Path, installed: u64, protected: Option<&Path>) -> Re
     let mac=cfg!(target_os="macos");
     let current=if mac {target.parent().and_then(Path::parent).and_then(Path::parent).ok_or("No app bundle")?} else {target};
     let parent=current.parent().ok_or("No installation folder")?;
+    // An older updater writes the legacy filename before launching this build.
+    if !mac && current.file_name().and_then(|name| name.to_str()) == Some(EXE) {
+        let old = parent.join(SOURCE_PAYLOAD);
+        let new = parent.join(SOURCE_ARCHIVE);
+        if plain(&old) && old.is_file() && fs::hard_link(&old, &new).is_ok() {
+            let _ = fs::remove_file(old);
+        }
+    }
     let mut n=backups(parent,current,installed,mac)?;
     if let Ok(cache)=cache() { n+=downloads(&cache,installed,protected,&public_key()?)?; }
     Ok(n)

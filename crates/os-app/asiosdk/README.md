@@ -2,7 +2,7 @@
 
 <img alt="ASIO Compatible logo" src="logo/ASIO-compatible-logo-Steinberg-TM-BW.png" width="96">
 
-The files an ASIO host needs from Steinberg's ASIO SDK, which asio-sys compiles into Lemon Studio's Windows build
+The files an ASIO host needs from Steinberg's ASIO SDK, which asio-sys compiles into ML Studio's Windows build
 (ASIO output, `src/device/asio.rs`). `.cargo/config.toml` points asio-sys here (`CPAL_ASIO_DIR`), so the build does
 not download the SDK.
 

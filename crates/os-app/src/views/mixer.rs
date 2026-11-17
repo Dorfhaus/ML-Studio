@@ -2077,7 +2077,7 @@ fn knobs_switch(ui:&mut Ui,s:&State,n:u16,r:Rect){
 fn headphones_controls(ui:&mut Ui,s:&State,r:Rect,compact:bool){
  let on=s.headphones.on;
  let icon=Rect::new(r.x, r.y,if compact{19.}else{38.},if compact{24.}else{34.});
- let hint=if s.headphones.name.is_empty(){"Choose headphones — searchable AutoEq correction for monitoring only".into()}else{format!("{} | {} | Click to choose headphones. Monitoring only; never exported.",s.headphones.name,if on{"ON"}else{"OFF"})};
+ let hint=if s.headphones.name.is_empty(){"Choose headphones — searchable correction profiles for monitoring only".into()}else{format!("{} | {} | Click to choose headphones. Monitoring only; never exported.",s.headphones.name,if on{"ON"}else{"OFF"})};
  let hover=ui.hit(icon,Action::Mix(MHit::Headphones),hint);
     if !(mx::view(s)==mx::WIDE) {
  ui.c.fill_rrect(icon,4.,if hover{ui.t.button_hi}else{ui.t.s(0x263237)});

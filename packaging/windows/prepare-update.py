@@ -53,6 +53,8 @@ site = out/'lemon-studio'
 release = site/'updates'/str(version)
 release.mkdir(parents=True,exist_ok=True)
 subprocess.run([sys.executable,str(root/'packaging/export-source.py'),str(release/'Lemon Studio Source.zip'),'--public'],check=True)
+# The signed update still uses the filename expected by previously installed builds.
+shutil.copy2(release/'Lemon Studio Source.zip', release/'ML Studio Source.zip')
 for name in ['LICENSE','THIRD-PARTY-NOTICES.txt']:shutil.copy2(root/name,release/name)
 shutil.copy2(exe,release/'lemonstudio.exe')
 files=[]

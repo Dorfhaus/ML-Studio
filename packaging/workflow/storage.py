@@ -96,7 +96,7 @@ def release_active(folder):
 def old_mac_package_stages(cfg):
     # These directories are disposable inputs to hdiutil. The completed DMGs live in release_roots.
     names = {'ML Studio.app', 'Lemon Studio.app', 'Applications', 'LICENSE',
-             'THIRD-PARTY-NOTICES.txt', 'Lemon Studio Source.zip', 'READ ME.txt'}
+             'THIRD-PARTY-NOTICES.txt', 'Lemon Studio Source.zip', 'ML Studio Source.zip', 'READ ME.txt'}
     cutoff = time.time() - 24 * 60 * 60
     for name in cfg.get('cache_roots', []):
         target = Path(name)

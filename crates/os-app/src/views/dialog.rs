@@ -907,7 +907,7 @@ fn headphones_box(ui:&mut Ui,s:&State,m:&Modal,f:&crate::headphones::Form){
  ui.c.text_clip(Font::new(11),r.x+18.,r.y+62.,r.w-36.,dim,"Monitor only — never applied to exports, stems or bounced tracks.");
  let search=Rect::new(r.x+18.,r.y+86.,r.w-36.,29.);
  field(ui,search,&f.search,true,DHit::HeadphoneSearch,"Search model, brand, impedance or variant. Enter loads the highlighted profile.");
- if f.search.text.is_empty(){ui.c.text_clip(Font::new(12),search.x+8.,search.y+7.,search.w-16.,dim,"Search 6,033 headphone models...");}
+ if f.search.text.is_empty(){ui.c.text_clip(Font::new(12),search.x+8.,search.y+7.,search.w-16.,dim,"Search headphone models...");}
  let row_h=((r.h-245.)/10.).clamp(15.,26.);
  let list=Rect::new(r.x+18.,r.y+126.,r.w-36.,row_h*10.);
  ui.c.fill_rrect(list,5.,ui.t.s(0x151c20));
@@ -915,7 +915,8 @@ fn headphones_box(ui:&mut Ui,s:&State,m:&Modal,f:&crate::headphones::Form){
  for (n,&i) in f.results.iter().enumerate().skip(f.scroll).take(10){
   let row=Rect::new(list.x+3.,list.y+(n-f.scroll) as f32*row_h,list.w-6.,row_h);
   let (name,path)=cat[i];let source=path.split('/').next().unwrap_or("AutoEq").replace("%20"," ");
-  let hover=ui.hit(row,Action::Dlg(DHit::Headphone(i)),format!("{name} | Measurement: {source} | Click to download and enable. Match your exact headphone variant."));
+  let load_hint=if crate::headphones::is_bundled(path){"Available offline. Click to enable."}else{"Click to download and enable."};
+  let hover=ui.hit(row,Action::Dlg(DHit::Headphone(i)),format!("{name} | Measurement: {source} | {load_hint} Match your exact headphone variant."));
   if hover || n==f.selected {ui.c.fill_rrect(row,3.,if hover{ui.t.button_hi}else{ui.t.s(0x263b40)});}
   ui.c.text_clip(Font::new(12),row.x+8.,row.y+5.,row.w-145.,if s.headphones.name==name{ui.t.accent}else{ink},name);
   ui.c.text_clip(Font::new(10),row.right()-128.,row.y+6.,120.,dim,&source);
@@ -928,11 +929,11 @@ fn headphones_box(ui:&mut Ui,s:&State,m:&Modal,f:&crate::headphones::Form){
  let hover=hit(ui,b,DHit::HeadphoneToggle,"Enable / bypass the selected headphone correction");
  ui.c.fill_rrect(b,4.,if on{ui.t.s(0x416c52)}else if hover{ui.t.button_hi}else{ui.t.s(0x303b40)});ui.c.text_center(Font::new(11).bold(),b,ink,if on{"ON"}else{"OFF"});
  ui.c.text_clip(Font::new(12),r.x+106.,y+42.,r.w-124.,ink,if s.headphones.name.is_empty(){"No headphones selected"}else{&s.headphones.name});
- let status=if s.headphones.status.is_empty(){"Profiles download once, then work offline. AutoEq / measured-model correction."}else{&s.headphones.status};
+ let status=if s.headphones.status.is_empty(){"Downloaded and bundled profiles work offline."}else{&s.headphones.status};
  let sr=Rect::new(r.x+18.,y+69.,r.w-36.,20.);ui.hit(sr,Action::Swallow,status.to_string());
  ui.c.text_clip(Font::new(10),sr.x,sr.y,sr.w,dim,status);
- ui.c.text_clip(Font::new(10),r.x+18.,r.bottom()-20.,r.w-98.,dim,"AutoEq targets neutral listening balance; fit and individual headphones vary.");
- let cr=Rect::new(r.right()-78.,r.bottom()-24.,60.,18.);hit(ui,cr,DHit::HeadphoneCredits,"AutoEq source and license");ui.c.text_center(Font::new(10),cr,ui.t.accent,"Credits");
+ ui.c.text_clip(Font::new(10),r.x+18.,r.bottom()-20.,r.w-98.,dim,"Correction depends on fit and individual headphones.");
+ let cr=Rect::new(r.right()-78.,r.bottom()-24.,60.,18.);hit(ui,cr,DHit::HeadphoneCredits,"Headphone profile sources and licenses");ui.c.text_center(Font::new(10),cr,ui.t.accent,"Credits");
 }
 
 

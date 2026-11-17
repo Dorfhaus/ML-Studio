@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='mac-package-', dir=app.parent) as scrat
     (stage/'Applications').symlink_to('/Applications')
     for name in ('LICENSE', 'THIRD-PARTY-NOTICES.txt'):
         shutil.copy2(root/name, stage/name)
-    shutil.copy2(source, stage/'Lemon Studio Source.zip')
+    shutil.copy2(source, stage/'ML Studio Source.zip')
     (stage/'READ ME.txt').write_text(f'ML Studio - Michael Lane edition\nMac architecture: {arch}\nDrag the app to Applications. This community build is ad-hoc signed, not notarized.\nMatching editable source and notices are included. Existing projects and settings are preserved.\n')
     subprocess.run(['hdiutil','create','-volname','ML Studio','-srcfolder',str(stage),'-format','UDZO',str(dmg)], check=True)
 subprocess.run(['hdiutil','verify',str(dmg)], check=True)

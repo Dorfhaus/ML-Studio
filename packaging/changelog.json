@@ -1,7 +1,17 @@
 {
   "title": "Change Log",
-  "intro": "The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.",
+  "intro": "The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Upstream development predates this edition.",
   "sections": [
+    {
+      "date": "2026-11-17",
+      "title": "Stock effect folders, ML Mix Template and H200 monitoring \u00b7 public build 2026111702",
+      "changes": [
+        "The 15 new stock effects now appear in their factory categories. On upgrade, untouched stock links move out of Unsorted. Custom folders, renamed links and removed entries are preserved.",
+        "ML Mix Template is the new name of the factory starter in File > New, startup and the template picker. Existing factory selections switch over automatically, and edited templates keep their settings.",
+        "Added an offline ADAM Audio H200 headphone correction profile by oratory1990 via OPRA. Search H200 from the Master headphone icon. Correction affects monitoring only.",
+        "Updated the User Guide and cleaned up ML Studio branding across the app documents and packages. Installers use ML Mix Template and ML Studio Source filenames where included. Existing signed updaters remain compatible."
+      ]
+    },
     {
       "date": "2026-11-17",
       "title": "ML Patch, new stock effects and workflow fixes \u00b7 public build 2026111701",
@@ -634,7 +644,7 @@
         "Added manual audio warp markers with project persistence, undo and rendering while preserving the source and pitch.",
         "Improved Parametric EQ 2 HQ mode and parameter smoothing; preserved rejected imported plugin state for recovery without claiming universal FLP plugin-setting compatibility.",
         "Added the Lemon Wave wavetable instrument foundation and factory presets.",
-        "Identified this edition consistently as Michael Lane Edition and linked its public source fork while preserving original Lemon Studio and dependency credits.",
+        "Identified this edition consistently as Michael Lane Edition and linked its public source fork while preserving upstream and dependency credits.",
         "Added the shared website and in-app Change Log and improved narrow community-tab labels.",
         "Known issues remain: Auto-Tune ARA compatibility and Melodyne transport behavior. Linux packages are compiled; Linux audio/runtime testing has not been performed."
       ]
@@ -768,7 +778,7 @@
       "date": "2026-10-28",
       "title": "Michael Lane edition begins",
       "changes": [
-        "Established this customized edition from the existing Lemon Studio project; the original project predates this changelog.",
+        "Established this customized edition from the upstream project; the original project predates this changelog.",
         "Added a native starter-template workflow, template names for new sessions and mixer-first startup; repaired Windows settings-folder handling and installed factory-template support.",
         "Simplified the toolbar and Playlist editing controls; moved the mixer plugin inspector to the left and improved plugin categories and scrolling.",
         "Added Samples and Favorites browsing with persistent favorites and sample preview/drag support.",

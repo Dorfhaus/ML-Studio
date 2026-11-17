@@ -31,4 +31,4 @@ Work on copies when testing project interchange. Platform availability and testi
 
 ## Credits and license
 
-ML Studio is based on [Lemon Studio by ItsAlphaNeon and contributors](https://github.com/ItsAlphaNeon/Lemon-Studio). Original attribution and source history are preserved. See the [license](LICENSE) and [third-party notices](THIRD-PARTY-NOTICES.txt) for component terms.
+ML Studio is based on [the upstream project by ItsAlphaNeon and contributors](https://github.com/ItsAlphaNeon/Lemon-Studio). Original attribution and source history are preserved. See the [license](LICENSE) and [third-party notices](THIRD-PARTY-NOTICES.txt) for component terms.

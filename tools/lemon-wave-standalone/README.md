@@ -1,6 +1,6 @@
 # Lemon Wave standalone (Windows)
 
-Connect and switch on the MIDI keyboard before opening **Lemon Wave.exe**. This runs Wave directly, without Lemon Studio, a plugin scan, or an on-screen keyboard. The synth, modulation and Table Edit pages are the same shared implementation as the plugin. Wavetables and included recordings remain inside the instrument window. Close Wave normally when finished.
+Connect and switch on the MIDI keyboard before opening **Lemon Wave.exe**. This runs Wave directly, without ML Studio, a plugin scan, or an on-screen keyboard. The synth, modulation and Table Edit pages are the same shared implementation as the plugin. Wavetables and included recordings remain inside the instrument window. Close Wave normally when finished.
 
 The Desktop copy is configured for **LPK25**, using the Windows default audio output, 48 kHz and a 256-sample processing period. Live latency also depends on Windows/device buffering. Notes, velocity, sustain pedal and pitch bend use the existing synth MIDI path. Connect devices before launch; restart Wave after changing devices. Close another program if it has exclusive use of the MIDI keyboard or output.
 

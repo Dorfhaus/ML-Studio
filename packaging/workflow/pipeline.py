@@ -202,7 +202,7 @@ def artifacts(plans,platforms=PLATFORMS):
         for rel in (manifest['url'],manifest['source']):
             f,h=index[rel]
             if any(a['path']==rel for a in assets):continue
-            dest = f'ML-Studio-Source-{r.version()}.zip' if f.name == 'Lemon Studio Source.zip' else f.name
+            dest = f'ML-Studio-Source-{r.version()}.zip' if f.name in ('ML Studio Source.zip','Lemon Studio Source.zip') else f.name
             if dest.startswith('Lemon-Studio-'):
                 dest = 'ML-Studio-' + dest.removeprefix('Lemon-Studio-')
             assets.append(dict(name=dest,url=r.BASE+urllib.parse.quote(rel),sha256=h,path=rel,local=str(f)))
@@ -290,7 +290,9 @@ def github_stage(plan_path,plans,out,attempt,force=False):
         manifest=json.loads(index['platforms/mac-arm64.json'][0].read_text())
         source=index[manifest['source']][0]
     else:
-        index,_=artifacts(plans);source=index['updates/'+str(r.version())+'/Lemon Studio Source.zip'][0]
+        index,_=artifacts(plans)
+        manifest=json.loads(index['platforms/windows.json'][0].read_text())
+        source=index[manifest['source']][0]
     expected=set()
     with zipfile.ZipFile(source) as z:
         for entry in z.infolist():

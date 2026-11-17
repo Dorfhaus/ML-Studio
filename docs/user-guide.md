@@ -102,7 +102,7 @@ Use Detach at the top of the guide to open a resizable native window. Drag its t
 Keywords: download install Windows macOS Apple silicon Intel Linux update .lmn first launch
 Get the installer or archive for your operating system and processor from the official ML Studio downloads page, https://michaellanemusic.de/ml-studio/. Windows uses the installer. On macOS, choose Apple silicon or Intel, then place the application in a writable Applications folder. On Linux x86-64, extract the full archive into a writable folder and launch ML Studio from it.
 1. Start ML Studio and open Options > Audio settings. Pick your interface or built-in output.
-2. Use File > New from template to choose a starting workspace. Lemon Starter is the supplied starting template.
+2. Use File > New from template to choose a starting workspace. **ML Mix Template** is the supplied starting template.
 3. Use Help > About to identify your build. Help > Change Log lists the installed release history. When a signed update is available, the update control downloads it and offers a restart.
 Related: Make your first song | Set up an audio device | Report a problem and check for updates
 
@@ -723,9 +723,9 @@ Use a compressor to reduce level changes, a gate to control quiet sections, and 
 Use drive and saturation for harmonics, Transient Processor to shape attack and sustain, and chorus or stereo effects to adjust width. Put reverb or delay on a send when several tracks should share it.
 
 ### Correct headphone monitoring
-Keywords: headphones phones autoeq monitor correction profile
+Keywords: headphones phones autoeq monitor correction profile ADAM Audio H200 OPRA
 Guide: phones
-Click the Master strip's headphone icon, search for the exact model, and choose the matching profile. Match the impedance, pads or ANC setting if the catalog lists variants. Selecting a model downloads and activates its parametric correction. If the download fails, the previous correction stays active. The downloaded profile works offline.
+Click the Master strip's headphone icon, search for the exact model, and choose the matching profile. Match the impedance, pads or ANC setting if the catalog lists variants. Most models download once, then work offline. A failed download leaves the previous correction active. The bundled **ADAM Audio H200** profile by oratory1990 via OPRA works offline on first use. See **Credits** in the selector for sources and licenses.
 Use the **PHONES** switch to compare or bypass correction. Its initial state is off. This is a listening preference saved per profile and applied at ML Studio's device output. It includes live instruments and Browser previews, works independently of Master bypass, and is excluded from audio exports, freeze, bounce and Mixer recording. Use PHONES to bypass while listening through speakers.
 Related: Read signal levels, latency and plugin load | Export mixer stems and choose what gets processed
 
@@ -1781,6 +1781,7 @@ Related: Undo and redo | General input and Undo
 Keywords: Add generator instrument effects Sampler Layer audio clip automation clip More plugins picker category vendor
 Use the instrument entries to add a Channel Rack generator. Sampler creates a sample-playing channel. Audio clip and Automation clip create their respective sources. Layer is a channel for layered instrument triggering. Pattern opens a new pattern workflow.
 Use Effect to select an effect for the Mixer. Choose the destination insert first. Plugin picker or More plugins opens a broader choice of installed instruments or effects. Use Categories, Simple or By vendor to change how plugin lists are grouped. Installed names and favorites depend on your plugin database.
+In Categories view, new stock effects appear in folders by purpose, such as **Dynamics**, **Pitch and Tuning**, and **Metering and Reference**. The plugin database keeps your custom folders and moved links.
 Refresh plugin list performs the fast discovery path. Manage plugins opens scanning, paths and plugin filters. Use the regular plugin scanner after installing a plugin that does not appear in the picker.
 <!-- menu-reference Add -->
 Related: Add, replace and route an instrument | Find installed plugins | Insert effects, wet/dry mix and plugin bypass
@@ -2041,7 +2042,7 @@ Related: Freeze or bounce a track | Commit insert and bus processing to audio | 
 
 ### Know what headphone correction changes
 Keywords: headphones phones AutoEq monitor export bounce recording master bypass offline cache
-Click the Master headphone icon, search for the exact headphone model/variant, and select it to download and activate its correction. The PHONES rocker toggles correction. Choose the correct impedance, pads and ANC variant where listed. A failed download leaves the previous correction in place; the chosen profile is cached for offline use.
+Click the Master headphone icon, search for the exact headphone model or variant, and select it to activate correction. The PHONES rocker toggles correction. Choose the correct impedance, pads and ANC variant where listed. Bundled profiles work offline from first use. Downloaded profiles are cached, and a failed download leaves the previous correction in place.
 Correction affects ML Studio's physical output, including playback, live notes and previews. It is not printed into exports, freeze/bounce files or Mixer recordings. It is separate from master effects, All FX, STRIP bypass and the miniature EQ. Bypass it for speakers or when another correction system is already active.
 The model and on/off choice are preferences for the active profile, not per-project mix processing. A catalog match is a measured-model correction, not an individual calibration of your particular headphones or ears.
 Related: Correct headphone monitoring | Export a finished song, stems or MIDI

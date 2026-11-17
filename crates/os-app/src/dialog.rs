@@ -648,7 +648,10 @@ impl App {
             }
             DHit::RouteSearch=>{if let Body::RoutePicker(f)=&mut m.body {f.search.select_all();}}
             DHit::RoutePage(next)=>{if let Body::RoutePicker(f)=&mut m.body {f.scroll(if next {4}else{-4});}}
-            DHit::HeadphoneCredits => self.tell(Kind::Info,"AutoEq credits",spans(&[include_str!("../assets/headphones/AutoEq-LICENSE.txt")])),
+            DHit::HeadphoneCredits => self.tell(Kind::Info,"Headphone profile credits",spans(&[
+                "ADAM Audio H200: Harman Target by oratory1990 via OPRA, an open headphone EQ database.\nhttps://github.com/opra-project/OPRA\nCC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/\nML Studio converted the filter format and adjusted the preamp for monitoring headroom.\n\n",
+                include_str!("../assets/headphones/AutoEq-LICENSE.txt"),
+            ])),
             DHit::Headphone(i) => crate::headphones::select(self,i),
             DHit::HeadphoneToggle => crate::headphones::toggle(self),
             DHit::HeadphoneSearch => {if let Body::Headphones(f)=&mut m.body {f.search.select_all();}},

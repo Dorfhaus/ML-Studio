@@ -79,14 +79,14 @@ def windows(config,out,log):
     binary=Path(env['CARGO_TARGET_DIR'])/'release/lemonstudio.exe'
     command(log,r.sys.executable,r.ROOT/'packaging/windows/prepare-update.py','--output',out,'--binary',binary,env=env)
     site=out/'lemon-studio';v=str(r.version());payload=out/'payload';payload.mkdir()
-    for name in ('lemonstudio.exe','Lemon Studio Source.zip','LICENSE','THIRD-PARTY-NOTICES.txt'):shutil.copy2(site/'updates'/v/name,payload/name)
-    shutil.copytree(cfg['runtime'],payload/'runtime');shutil.copy2(r.ROOT/'crates/os-app/assets/templates/Lemon Starter.flp',payload/'Lemon Starter.lmn')
+    for name in ('lemonstudio.exe','ML Studio Source.zip','LICENSE','THIRD-PARTY-NOTICES.txt'):shutil.copy2(site/'updates'/v/name,payload/name)
+    shutil.copytree(cfg['runtime'],payload/'runtime');shutil.copy2(r.ROOT/'crates/os-app/assets/templates/ML Mix Template.flp',payload/'ML Mix Template.lmn')
     (payload/'READ ME.txt').write_text('ML Studio — Michael Lane Edition\n'+r.BASE,encoding='utf-8')
     label=f'{v[:4]}.{v[4:6]}.{v[6:8]}.{int(v[8:])}'
     installer=site/'downloads'/v/f'ML-Studio-Windows-Setup-{label}.exe';installer.parent.mkdir(parents=True)
     command(log,cfg['nsis'],f'/DPAYLOAD={payload}',f'/DOUTPUT={installer}',r.ROOT/'packaging/windows/LemonStudio.nsi',env=env)
     (site/'platforms').mkdir(exist_ok=True)
-    atomic_json(site/'platforms/windows.json',dict(version=r.version(),label='Windows',url=installer.relative_to(site).as_posix(),source=f'updates/{v}/Lemon Studio Source.zip',sha256=digest(installer)))
+    atomic_json(site/'platforms/windows.json',dict(version=r.version(),label='Windows',url=installer.relative_to(site).as_posix(),source=f'updates/{v}/ML Studio Source.zip',sha256=digest(installer)))
     return r.write_plan(site,out,'windows-linux')
 
 
@@ -113,7 +113,8 @@ def linux_package(config,binary,win_plan,out,log):
             info=t.gettarinfo(str(src),'ML Studio/'+name);info.mode=mode;info.uid=info.gid=0;info.uname=info.gname=''
             with src.open('rb') as f:t.addfile(info,f)
     (site/'platforms').mkdir()
-    atomic_json(site/'platforms/linux.json',dict(version=r.version(),label='Linux',url=archive.relative_to(site).as_posix(),source=f'updates/{v}/Lemon Studio Source.zip',sha256=digest(archive)))
+    # The combined Windows plan already provides the branded source download.
+    atomic_json(site/'platforms/linux.json',dict(version=r.version(),label='Linux',url=archive.relative_to(site).as_posix(),source=f'updates/{v}/ML Studio Source.zip',sha256=digest(archive)))
     command(log,r.sys.executable,r.ROOT/'packaging/prepare-unix-update.py','--platform','linux-x64','--site',site,'--app',binary,env=env)
     return r.write_plan(site,out,'windows-linux')
 

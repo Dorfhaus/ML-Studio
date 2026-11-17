@@ -16,7 +16,7 @@ if (root / '.git').exists():
     names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=root).decode().split('\0')
 else:
     names = [p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()]
-names = set(names) | {'crates/os-app/assets/startup.wav', 'crates/os-app/assets/templates/Lemon Starter.flp'}
+names = set(names) | {'crates/os-app/assets/startup.wav', 'crates/os-app/assets/templates/ML Mix Template.flp'}
 out.parent.mkdir(parents=True, exist_ok=True)
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
     for name in sorted(names):

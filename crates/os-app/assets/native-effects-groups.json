@@ -1,5 +1,6 @@
 {
   "Dynamics": [
+    "ML De-Esser",
     "ML Limiter",
     "ML Soft Clipper",
     "ML Transient Processor",
@@ -7,22 +8,30 @@
   ],
   "EQ and Filters": [
     "ML EQ",
-    "ML Pulp Filter"
+    "ML Pulp Filter",
+    "ML Split"
   ],
   "Reverb and Delay": [
     "ML Reverb",
     "ML Delay",
-    "ML Hall"
+    "ML Hall",
+    "ML Convolver",
+    "ML Multiband Delay"
   ],
   "Modulation": [
-    "ML Chorus"
+    "ML Chorus",
+    "ML Time Shaper",
+    "ML Vocoder"
   ],
   "Distortion": [
     "ML Fast Distortion",
-    "ML Tape"
+    "ML Tape",
+    "ML Amp",
+    "ML Waveshaper"
   ],
   "Stereo and Utility": [
     "ML Patch",
+    "ML Phase",
     "ML Balance",
     "ML Stereo Enhancer",
     "ML Stereo Shaper",
@@ -30,6 +39,16 @@
   ],
   "Audio Editing": [
     "ML Tesla"
+  ],
+  "Pitch and Tuning": [
+    "ML Pitch Shift",
+    "ML Frequency Shift",
+    "ML Vocal Tune",
+    "ML Tuner"
+  ],
+  "Metering and Reference": [
+    "ML Meter",
+    "ML Reference"
   ],
   "Mastering": [
     "ML Master Assistant"

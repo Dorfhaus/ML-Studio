@@ -1,3 +1,11 @@
+Headphone monitoring — ADAM Audio H200
+====================================
+Harman Target preset by oratory1990, via OPRA (Open Profiles for Revealing Audio).
+https://github.com/opra-project/OPRA
+Source and changes are recorded in crates/os-app/assets/headphones/adam-audio-h200.txt.
+The preset data is distributed under CC BY-SA 4.0.
+https://creativecommons.org/licenses/by-sa/4.0/
+
 Score Editor — Verovio and resvg
 =========================
 The optional engraving bundle runs Verovio 6.3.0 as a separate process.
@@ -763,7 +771,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-Lemon Studio: third-party notices
+ML Studio: third-party notices
 ==========================
 
 Lemon Studio is Copyright (C) 2026 ItsAlphaNeon and the Lemon Studio
@@ -772,7 +780,7 @@ contributors. It is free software under the GNU General Public License, version
 
 It includes, or is built from, the third-party works below, which keep their
 authors' copyright and licences. Their licences ask for these notices to go
-with every copy, in source or binary form: a copy of Lemon Studio, its plugins
+with every copy, in source or binary form: a copy of ML Studio, its plugins
 or its tools carries this file next to LICENSE.
 
 Sections 1 to 11 are written by hand. Section 12, the Rust crates in
@@ -957,7 +965,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 FST 0.177 by IOhannes m zmölnig (https://git.iem.at/zmoelnig/FST): the parts of
 the VST 2 interface that vst2sdk leaves out, in crates/os-vst2/src/abi.rs. It
 is licensed under the GNU General Public License, version 3 or later, like
-Lemon Studio; the licence is in LICENSE.
+ML Studio; the licence is in LICENSE.
 
 -------------------------------------------------------------------------------
 5. vst3-sys (GNU GPL, version 3 or later) and its com crate (MIT)
@@ -966,8 +974,8 @@ Lemon Studio; the licence is in LICENSE.
 vst3-sys by Mike Hilgendorf, Mirko Covizzi and contributors
 (https://github.com/RustAudio/vst3-sys, built from the fork
 https://github.com/robbert-vdh/vst3-sys), the VST 3 interface bindings used to
-host plugins and by Lemon Studio's own plugins. It is licensed under the GNU
-General Public License, version 3 or later, like Lemon Studio; the licence is
+host plugins and by ML Studio's own plugins. It is licensed under the GNU
+General Public License, version 3 or later, like ML Studio; the licence is
 in LICENSE.
 
 Its vst3-com crate is licensed under the MIT License:
@@ -999,7 +1007,7 @@ SOFTWARE
 -------------------------------------------------------------------------------
 
 NIH-plug by Robbert van der Helm (https://github.com/robbert-vdh/nih-plug), the
-plugin framework Lemon Studio's own plugins (Lemon Sampler, Lemon Trio, Lemon
+plugin framework ML Studio's own plugins (Lemon Sampler, Lemon Trio, Lemon
 Parametric EQ) are built with. Its licence:
 
 ISC License
@@ -1099,15 +1107,15 @@ files kept and left out). The files are unchanged.
 (c) 2025, Steinberg Media Technologies GmbH, All Rights Reserved
 
 The SDK is licensed under the Steinberg ASIO License or, as its alternative,
-under the GNU General Public License, version 3; Lemon Studio uses it under
+under the GNU General Public License, version 3; ML Studio uses it under
 the GNU General Public License, version 3, whose text is in LICENSE. Its licence
 file is kept as crates/os-app/asiosdk/LICENSE.txt. As the SDK is under version 3
-only, a Windows build of Lemon Studio that includes it is distributed under the
+only, a Windows build of ML Studio that includes it is distributed under the
 GNU General Public License, version 3.
 
 The ASIO Compatible Logo in crates/os-app/asiosdk/logo comes unchanged from
 the SDK's "Steinberg ASIO Logo Artwork" folder. It is Steinberg's trademark
-artwork, not covered by the GPL. Lemon Studio shows it, as the Steinberg ASIO
+artwork, not covered by the GPL. ML Studio shows it, as the Steinberg ASIO
 Usage Guidelines in the SDK ask, in Settings > Audio and Settings > About of the
 Windows program and in its documentation.
 
@@ -1131,7 +1139,7 @@ whose text is in section 1.
 11. LAME (GNU LGPL, version 2 or later)
 -------------------------------------------------------------------------------
 
-LAME 3.100 (https://lame.sourceforge.io), the MP3 encoder of Lemon Studio's MP3
+LAME 3.100 (https://lame.sourceforge.io), the MP3 encoder of ML Studio's MP3
 export, compiled into the program by the mp3lame-sys crate (section 12) from
 its unchanged source. LAME was originally developed by Mike Cheng, later by
 Mark Taylor, and is maintained by The LAME Project; the files built name as
@@ -1144,7 +1152,7 @@ LAME is free software; you can redistribute it and/or modify it under the
 terms of the GNU Library General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your option) any
 later version. Its source, as built, is in the mp3lame-sys 0.1.11 crate on
-crates.io (lame-3.100), and the complete source of Lemon Studio is available
+crates.io (lame-3.100), and the complete source of ML Studio is available
 under the GNU General Public License. The licence, as in LAME's COPYING:
 
 		  GNU LIBRARY GENERAL PUBLIC LICENSE
@@ -1637,9 +1645,9 @@ This section is generated: `cargo run -p notices` writes it with cargo-about
 (https://github.com/EmbarkStudios/cargo-about) from the crates' own licence
 files, as set in tools/notices/about.toml.
 
-The Rust crates that Lemon Studio, its plugins and its tools are built with, on
+The Rust crates that ML Studio, its plugins and its tools are built with, on
 Windows, macOS and Linux, each with the licence it declares. Where a crate
-offers a choice, the text below is of the licence Lemon Studio takes it under.
+offers a choice, the text below is of the licence ML Studio takes it under.
 Crates that only run while building (build scripts and their libraries) are
 listed too.
 
@@ -16614,7 +16622,7 @@ Copyright (c) 2012-2025, Celemony Software GmbH, All Rights Reserved.
 Developed in cooperation with PreSonus Software Ltd.
 Licensed under the Apache License, Version 2.0. The complete license and
 unmodified interface header are retained in crates/os-vst3/vendor/ara.
-ARA-compatible editors are separate products and are not distributed with Lemon Studio.
+ARA-compatible editors are separate products and are not distributed with ML Studio.
 
 
 Lemon Master Assistant
@@ -16715,7 +16723,7 @@ Lemon native bridge: GPL-3.0-or-later, matching source distributed alongside the
 Vintage FL Studio artwork and cursor resources
 --------------------------------------------
 Original artwork: Image-Line / respective rights holders. Included with
-redistribution permission confirmed by the Lemon Studio publisher. See
+redistribution permission confirmed by the ML Studio publisher. See
 crates/os-app/assets/vintage-2005/README.txt and manifest.json in the source.
 
 Windows x64 Visualizer export

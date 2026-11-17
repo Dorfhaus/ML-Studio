@@ -80,7 +80,7 @@ def main():
                     child.terminate();child.wait(timeout=10);break
             elif time.monotonic()-started>90.:
                 child.terminate();child.wait(timeout=10)
-                message('Wave could not finish opening. Its background process has been closed so it will not keep your MIDI keyboard occupied. If Lemon Studio is using LPK25, release that input before opening standalone Wave.')
+                message('Wave could not finish opening. Its background process has been closed so it will not keep your MIDI keyboard occupied. If ML Studio is using LPK25, release that input before opening standalone Wave.')
                 break
             time.sleep(.2)
     finally:

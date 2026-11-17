@@ -27,25 +27,55 @@ const TEMPLATE_KEY: &str = "default_template";
 const LAST_KEY: &str = "last_project";
 const FACTORY_CATEGORY: &str = "ML Studio";
 const LEGACY_FACTORY_CATEGORY: &str = "Lemon Studio";
+const FACTORY_NAME: &str = "ML Mix Template";
+const FACTORY_BYTES: &[u8] = include_bytes!("../assets/templates/ML Mix Template.flp");
+
+fn legacy_starter(cat: &str, name: &str) -> bool {
+    matches!(cat, FACTORY_CATEGORY | LEGACY_FACTORY_CATEGORY)
+        && matches!(name, "Lemon Starter" | "Learning Starter")
+}
+
+fn factory_contents(path: &Path) -> bool {
+    path.metadata().is_ok_and(|m| m.len() == FACTORY_BYTES.len() as u64)
+        && std::fs::read(path).is_ok_and(|bytes| bytes == FACTORY_BYTES)
+}
+
+fn legacy_factory_contents(path: &Path) -> bool {
+    use sha2::{Digest, Sha256};
+    const ORIGINAL_SIZE: u64 = 110108;
+    const ORIGINAL_SHA256: &str = "f995e02794b9ff84237f1b296e72e255a41e9091e9bdc56db7164538a42db3f6";
+    factory_contents(path)
+        || (path.metadata().is_ok_and(|m| m.len() == ORIGINAL_SIZE)
+            && std::fs::read(path)
+                .is_ok_and(|bytes| format!("{:x}", Sha256::digest(bytes)) == ORIGINAL_SHA256))
+}
 
 /// Install this custom build's factory template into the native user library once.
 /// Existing templates and explicit user choices, including Empty, are preserved.
 pub(crate) fn install_factory_template() -> std::io::Result<()> {
     let Some(root) = root() else { return Ok(()) };
-    let path=file_in(&root,FACTORY_CATEGORY,"Lemon Starter");
-    let legacy=file_in(&root,LEGACY_FACTORY_CATEGORY,"Lemon Starter");
-    if !path.exists() && !legacy.is_file() {
+    let path = file_in(&root, FACTORY_CATEGORY, FACTORY_NAME);
+    if !path.exists() {
         std::fs::create_dir_all(path.parent().unwrap())?;
         use std::io::Write;
         match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut f)=>f.write_all(include_bytes!("../assets/templates/Lemon Starter.flp"))?,
+            Ok(mut f)=>f.write_all(FACTORY_BYTES)?,
             Err(e) if e.kind()==std::io::ErrorKind::AlreadyExists=>{},
             Err(e)=>return Err(e),
         }
     }
-    if prefs::text(TEMPLATE_KEY).is_none() {
-        let category = if legacy.is_file() && !path.is_file() { LEGACY_FACTORY_CATEGORY } else { FACTORY_CATEGORY };
-        prefs::set_text(TEMPLATE_KEY, &format!("{category}/Lemon Starter"));
+    let factory_pick = format!("{FACTORY_CATEGORY}/{FACTORY_NAME}");
+    if let Some(pick) = prefs::text(TEMPLATE_KEY) {
+        if let Some((cat, name)) = pick.split_once('/') {
+            if legacy_starter(cat, name) && factory_contents(&path) {
+                let old = file_in(&root, cat, name);
+                if !old.exists() || legacy_factory_contents(&old) {
+                    prefs::set_text(TEMPLATE_KEY, &factory_pick);
+                }
+            }
+        }
+    } else {
+        prefs::set_text(TEMPLATE_KEY, &factory_pick);
         crate::settings_file::write("startup_show_mixer", "1");
     }
     Ok(())
@@ -96,10 +126,19 @@ fn folders(dir: &Path) -> Vec<String> {
 /// The templates in `root`: its category folders with the template folders that hold their `<name>.flp`. Categories
 /// without one are left out.
 pub fn scan(root: &Path) -> Vec<Category> {
+    let has_factory = factory_contents(&file_in(root, FACTORY_CATEGORY, FACTORY_NAME));
     folders(root)
         .into_iter()
         .filter_map(|cat| {
-            let templates: Vec<String> = folders(&root.join(&cat)).into_iter().filter(|t| file_in(root, &cat, t).is_file()).collect();
+            let templates: Vec<String> = folders(&root.join(&cat))
+                .into_iter()
+                .filter(|name| {
+                    let file = file_in(root, &cat, name);
+                    // Keep compatibility copies on disk without listing the same factory mix twice.
+                    file.is_file()
+                        && !(has_factory && legacy_starter(&cat, name) && legacy_factory_contents(&file))
+                })
+                .collect();
             (!templates.is_empty()).then_some(Category { name: cat, templates })
         })
         .collect()
@@ -199,7 +238,12 @@ impl App {
         let s = &mut self.state;
         s.path = None;
         // Apply the factory mix defaults only to the original starter, never to a saved user mix.
-        if path.file_stem().is_some_and(|n| n=="Lemon Starter") && std::fs::read(&path).is_ok_and(|b|b==include_bytes!("../assets/templates/Lemon Starter.flp").as_slice()) {
+        let factory_mix = match path.file_stem().and_then(|name| name.to_str()) {
+            Some(FACTORY_NAME) => factory_contents(&path),
+            Some("Lemon Starter" | "Learning Starter") => legacy_factory_contents(&path),
+            _ => false,
+        };
+        if factory_mix {
             for m in &mut s.project.mixer { m.slots_enabled = m.is_fx_return(); }
         }
         crate::project_info::created(s);
@@ -256,7 +300,7 @@ mod tests {
         let path=file_in(&dir,"Michael Lane","TECHNO MAIN");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let source=std::env::var_os("LEMON_UNITY_TEMPLATE").map(PathBuf::from);
-        let bytes=source.map(|p|std::fs::read(p).unwrap()).unwrap_or_else(||include_bytes!("../assets/templates/Lemon Starter.flp").to_vec());
+        let bytes=source.map(|p|std::fs::read(p).unwrap()).unwrap_or_else(||include_bytes!("../assets/templates/ML Mix Template.flp").to_vec());
         let mut file=os_flp::FlpFile::parse(&bytes).unwrap();
         let mut project=os_flp::project::load(&file).unwrap();
         for m in &mut project.mixer { m.volume=Some(0.5); m.slots_enabled=m.index==0 || m.is_fx_return(); }
@@ -298,11 +342,28 @@ mod tests {
         install_factory_template().unwrap();
         let mut app = App::new(None);
         app.startup_project();
-        assert_eq!(app.title(), "[Lemon Starter]");
+        assert_eq!(app.title(), "[ML Mix Template]");
         assert_eq!(app.state.tempo, 120.0);
         assert_eq!(app.state.project.mixer.len(), 127);
         assert!(app.state.shown(crate::app::Win::Mixer));
         let path = file().unwrap();
+        let legacy = file_in(&dir, LEGACY_FACTORY_CATEGORY, "Lemon Starter");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, FACTORY_BYTES).unwrap();
+        prefs::set_text(TEMPLATE_KEY, "Lemon Studio/Lemon Starter");
+        install_factory_template().unwrap();
+        assert_eq!(file().unwrap(), path);
+        assert_eq!(scan(&dir), vec![Category {
+            name: FACTORY_CATEGORY.into(),
+            templates: vec![FACTORY_NAME.into()],
+        }]);
+        assert!(legacy.is_file(), "older builds can still load their original path");
+
+        std::fs::write(&legacy, b"user edited legacy template").unwrap();
+        prefs::set_text(TEMPLATE_KEY, "Lemon Studio/Lemon Starter");
+        install_factory_template().unwrap();
+        assert_eq!(file().unwrap(), legacy);
+
         std::fs::write(&path, b"user edited template").unwrap();
         prefs::set_text(TEMPLATE_KEY, EMPTY);
         install_factory_template().unwrap();
@@ -678,7 +739,7 @@ mod public_tests {
     }
     #[test]
     fn public_template_native_sends() {
-        let bytes=include_bytes!("../assets/templates/Lemon Starter.flp");
+        let bytes=include_bytes!("../assets/templates/ML Mix Template.flp");
         let p=os_flp::project::load(&os_flp::FlpFile::parse(bytes).unwrap()).unwrap();
         assert!(p.channels.iter().all(|c|c.sample_path.is_none()&&c.plugin.is_none()));
         assert!(p.arrangements.iter().all(|a|a.clips.is_empty()));

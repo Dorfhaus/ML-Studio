@@ -9,7 +9,7 @@ PRIVATE = Path.home()/'.lemon-studio-release'
 CONFIG = PRIVATE/'workflow.json'
 BASE = 'https://michaellanemusic.de/lemon-studio/'
 DOWNLOAD_PAGE = 'https://michaellanemusic.de/ml-studio/'
-SERVICE = 'Lemon Studio publishing'
+SERVICE = 'Lemon Studio publishing'  # Existing credential-store entry.
 LINUX_LAUNCHER_FILES = [(ROOT/'crates/os-app/assets'/name, name, 0o644)
                         for name in ('lemonstudio.desktop', 'lemonstudio.png')]
 
@@ -330,9 +330,9 @@ def build_windows(out,cfg):
     env.pop('LEMON_VISUALIZER_WORKER')
     env.pop('LEMON_VISUALIZER_SOURCE')
     site=out/'lemon-studio';v=str(version());payload=out/'payload';payload.mkdir()
-    for name in ('lemonstudio.exe','Lemon Studio Source.zip','LICENSE','THIRD-PARTY-NOTICES.txt'):shutil.copy2(site/'updates'/v/name,payload/name)
+    for name in ('lemonstudio.exe','ML Studio Source.zip','LICENSE','THIRD-PARTY-NOTICES.txt'):shutil.copy2(site/'updates'/v/name,payload/name)
     shutil.copytree(cfg['runtime'],payload/'runtime')
-    shutil.copy2(ROOT/'crates/os-app/assets/templates/Lemon Starter.flp',payload/'Lemon Starter.lmn')
+    shutil.copy2(ROOT/'crates/os-app/assets/templates/ML Mix Template.flp',payload/'ML Mix Template.lmn')
     (payload/'READ ME.txt').write_text('ML Studio - Michael Lane edition\nDownloads and matching editable source: '+BASE+'\n')
     label=f'{v[:4]}.{v[4:6]}.{v[6:8]}.{int(v[8:])}'
     installer=site/'downloads'/v/f'ML-Studio-Windows-Setup-{label}.exe';installer.parent.mkdir(parents=True)
@@ -353,7 +353,7 @@ def build_windows(out,cfg):
             with src.open('rb') as f:t.addfile(info,f)
     (site/'platforms').mkdir(exist_ok=True)
     for scope,label,p in [('windows','Windows',installer),('linux','Linux',linux)]:
-        (site/'platforms'/f'{scope}.json').write_text(json.dumps(dict(version=version(),label=label,url=p.relative_to(site).as_posix(),source=f'updates/{v}/Lemon Studio Source.zip',sha256=digest(p))))
+        (site/'platforms'/f'{scope}.json').write_text(json.dumps(dict(version=version(),label=label,url=p.relative_to(site).as_posix(),source=f'updates/{v}/ML Studio Source.zip',sha256=digest(p))))
     run(sys.executable,ROOT/'packaging/prepare-unix-update.py','--platform','linux-x64','--site',site,'--app',ROOT/'target/x86_64-unknown-linux-gnu/release/lemonstudio')
     return write_plan(site,out,'windows-linux')
 

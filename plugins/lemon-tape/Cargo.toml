@@ -1,6 +1,6 @@
 [package]
 name = "lemon-tape"
-description = "Lemon Tape: Lemon Studio's fast distortion as a VST3 / CLAP plugin"
+description = "Lemon Tape: ML Studio's fast distortion as a VST3 / CLAP plugin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

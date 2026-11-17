@@ -17391,7 +17391,7 @@ mod tests {
         use crate::mixer::{self as mx, MHit};
         let mut app = App::new(None);
         app.set_design(Design::Lemon, false);
-        app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
+        app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
         app.state.z = vec![Win::Mixer];
         app.state.show_browser = false;
         app.state.startup_layout_pending = false;
@@ -17440,7 +17440,7 @@ mod tests {
         ] {
             let mut app = App::new(None);
             app.set_design(Design::Lemon, false);
-            app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
+            app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
             app.state.z = vec![Win::Mixer];
             app.state.show_browser = false;
             app.state.startup_layout_pending = false;
@@ -17519,7 +17519,7 @@ mod tests {
         ] {
             let mut app = App::new(None);
             set_slider(&SMOOTHING, 128);
-            app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
+            app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
             app.state.z = vec![Win::Mixer];
             app.state.show_browser = false;
             app.state.vintage_2005 = vintage;
@@ -17560,7 +17560,7 @@ mod tests {
     fn mixer_scroll_drag_glides_to_the_pointer_and_settles_after_release() {
         use crate::prefs::{set_slider, SMOOTHING};
         let mut app = App::new(None);
-        app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
+        app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
         app.state.z = vec![Win::Mixer];
         app.state.show_browser = false;
         let mut canvas = Canvas::new(1280, 800, 1.0).unwrap();
@@ -17616,7 +17616,7 @@ mod tests {
     #[test]
     fn mixer_scroll_footer_catches_clicks_without_selecting_channels() {
         let mut app=App::new(None);
-        app.state.project=os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
+        app.state.project=os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
         app.state.z=vec![Win::Mixer];app.state.show_browser=false;
         let mut c=Canvas::new(1280,800,1.0).unwrap();
         for vintage in [false,true] {
@@ -17716,7 +17716,7 @@ mod tests {
     fn mixer_view_switch_preserves_audio_and_compact_controls() {
         use crate::mixer::{self as mx,MHit};
         let mut app=App::new(None);
-        app.state.project=os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap()).unwrap();
+        app.state.project=os_flp::project::load(&os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
         app.state.z=vec![Win::Mixer];app.state.show_browser=false;
         app.state.selected_mixer=2;
         app.state.mixer_scroll=3.0*views::mixer::STRIP_W;
@@ -19564,7 +19564,7 @@ LemonStudioStyle.button-radius=8
     #[test]
     fn mixer_section_jump_buttons() {
         use crate::mixer::{MHit, Section};
-        let mut cases=vec![(include_bytes!("../assets/templates/Lemon Starter.flp").to_vec(),32,42)];
+        let mut cases=vec![(include_bytes!("../assets/templates/ML Mix Template.flp").to_vec(),32,42)];
         if let Ok(root)=std::env::var("LEMON_PRIVATE_TEMPLATES") {
             for (name,vox,fx) in [("TECHNO MAIN",32,42),("TRANSFER MAIN",31,41)] {
                 if let Ok(data)=std::fs::read(std::path::Path::new(&root).join(name).join(format!("{name}.flp"))) {cases.push((data,vox,fx));}
@@ -20698,7 +20698,7 @@ LemonStudioStyle.button-radius=8
         use winit::keyboard::Key;
 
         let mut app = App::new(None);
-        let mut file = os_flp::FlpFile::parse(include_bytes!("../assets/templates/Lemon Starter.flp")).unwrap();
+        let mut file = os_flp::FlpFile::parse(include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap();
         app.state.project = os_flp::project::load(&file).unwrap();
         app.state.z = vec![Win::Mixer];
         app.state.startup_layout_pending = false;

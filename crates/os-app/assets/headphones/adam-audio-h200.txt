@@ -1,0 +1,17 @@
+# ADAM Audio H200 — Harman Target by oratory1990, via OPRA.
+# OPRA is an open database of measured headphone EQ profiles: https://github.com/opra-project/OPRA
+# Source: https://raw.githubusercontent.com/opra-project/OPRA/0b88ecd4e2bef7cf69fd5d50f1d06fb586c10865/database/vendors/adam/products/h200/eq/oratory1990_harman_target/info.json
+# SPDX-License-Identifier: CC-BY-SA-4.0
+# License: https://creativecommons.org/licenses/by-sa/4.0/
+# Converted to parametric EQ text. Filter values are unchanged.
+# Preamp reduced from -2 to -6 dB to accommodate the full response of the filters.
+Preamp: -6.0 dB
+Filter 1: ON PK Fc 48 Hz Gain -11.9 dB Q 0.30
+Filter 2: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.71
+Filter 3: ON PK Fc 158 Hz Gain 5.8 dB Q 1.10
+Filter 4: ON PK Fc 700 Hz Gain 1.2 dB Q 1.00
+Filter 5: ON PK Fc 1520 Hz Gain 3.0 dB Q 2.00
+Filter 6: ON PK Fc 2840 Hz Gain -7.4 dB Q 1.20
+Filter 7: ON PK Fc 5000 Hz Gain 5.3 dB Q 1.40
+Filter 8: ON PK Fc 6800 Hz Gain -7.0 dB Q 3.00
+Filter 9: ON HSC Fc 10000 Hz Gain 2.0 dB Q 0.71
