@@ -1,7 +1,7 @@
 name: Native Linux release engines
 on:
   push:
-    branches: [native-release-engines-20261117]
+    branches: [native-release-engines-20261117b]
 permissions:
   contents: read
 jobs:

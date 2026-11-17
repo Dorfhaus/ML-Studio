@@ -264,7 +264,10 @@ void Frame::drawSingle(int winW, int winH, int fbW, int fbH) {
     // which is the view at the current zoom, so a larger editor would never be
     // measured (and would be cut off instead of zoomed to fit).
     const ImGuiWindow* win = ImGui::GetCurrentWindow();
-    size = ImVec2(win->ContentSizeIdeal.x + win->WindowPadding.x * 2, win->ContentSizeIdeal.y + win->WindowPadding.y * 2);
+    // ImGui measures the previous frame at Begin. A new window has only
+    // padding on its first frame, which must never become a saved zoom/size.
+    if (win->ContentSizeIdeal.x > 0 && win->ContentSizeIdeal.y > 0)
+      size = ImVec2(win->ContentSizeIdeal.x + win->WindowPadding.x * 2, win->ContentSizeIdeal.y + win->WindowPadding.y * 2);
   }
   ImGui::End();
   drawDialogs(app);
