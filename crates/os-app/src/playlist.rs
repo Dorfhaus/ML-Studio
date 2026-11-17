@@ -627,6 +627,7 @@ pub enum EditTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextEdit {
+    pub editor: crate::dialog::Field,
     pub target: EditTarget,
     pub text: String,
     /// Where the box is drawn (screen).
@@ -4824,7 +4825,12 @@ pub fn drag_end(app: &mut App, d: PlDrag, grid: Rect) {
                 }
             }
         }
-        PlDrag::ZoomBox { x0, y0 } => zoom_to(app, grid, x0, y0),
+        PlDrag::ZoomBox { x0, y0 } => {
+            if app.ctrl && (app.mouse.0-x0).hypot(app.mouse.1-y0)<4. {
+                let idx=(0..clips(&app.state).len()).collect::<Vec<_>>();
+                zoom_on(&mut app.state,(grid.w,grid.h),&idx);
+            } else { zoom_to(app,grid,x0,y0); }
+        },
         PlDrag::Playback => {
             crate::warp::cancel_play(app);
             app.transport.stop();
@@ -5001,6 +5007,16 @@ pub fn press_ruler(app: &mut App, grid: Rect, right: bool) {
     s.playlist.popup = None;
     let g = PGeom::new(s, grid);
     let t = snap_round(s, &g, g.tick_at(x), alt);
+    if let Some((start, end)) = s.playlist.range {
+        let left = (x - g.x64(f64::from(start)) as f32).abs();
+        let right_edge = (x - g.x64(f64::from(end)) as f32).abs();
+        if left.min(right_edge) <= 7.0 {
+            s.playlist.last_ruler = None;
+            app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0: if left <= right_edge { end } else { start } }));
+            app.invalidate();
+            return;
+        }
+    }
     if right {
         s.playlist.range = None;
         s.playlist.last_ruler = None;
@@ -5206,7 +5222,8 @@ pub fn start_edit(s: &mut State, target: EditTarget, at: (f32, f32)) {
         EditTarget::TypeIn(t, norm) => crate::typein::text(s, t, norm),
     };
     let sel = matches!(target, EditTarget::VisualText(..) | EditTarget::VisualValue(..) | EditTarget::TimelineTempo(_) | EditTarget::TimelineTempoPosition(_) | EditTarget::TimelineChord(_) | EditTarget::TimelineVideoStart(_) | EditTarget::TimelineMarkerSeconds(_));
-    s.playlist.edit = Some(TextEdit { target, text, at, sel });
+    let mut editor=crate::dialog::Field::default(); editor.set(&text); if sel {editor.select_all();}
+    s.playlist.edit = Some(TextEdit { target, text, at, sel, editor });
 }
 
 /// Enter in the text box.
@@ -6557,22 +6574,12 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> 
         match key {
             Key::Named(NamedKey::Enter) => commit_edit(&mut app.state),
             Key::Named(NamedKey::Escape) => app.state.playlist.edit = None,
-            // A selected text goes as a whole (the value box, spec: ui/type-in-value.md §1, §8).
-            Key::Named(NamedKey::Backspace) => {
-                if std::mem::take(&mut e.sel) {
-                    e.text.clear();
-                } else {
-                    e.text.pop();
-                }
+            _ => {
+                if e.editor.text!=e.text {e.editor.set(&e.text);}
+                if e.sel && !e.editor.all {e.editor.select_all();}
+                e.editor.key_mod(key,ctrl,alt,shift);
+                e.text.clone_from(&e.editor.text);e.sel=e.editor.all;
             }
-            Key::Named(NamedKey::Space) | Key::Character(_) if !ctrl => {
-                if std::mem::take(&mut e.sel) {
-                    e.text.clear();
-                }
-                e.text.push_str(if let Key::Character(c) = key { c } else { " " });
-            }
-            Key::Character(c) if c.eq_ignore_ascii_case("a") && matches!(e.target, EditTarget::TypeIn(..)) => e.sel = !e.text.is_empty(),
-            _ => {}
         }
         app.invalidate();
         return true;
@@ -6615,7 +6622,7 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> 
         }
         // Tool letters; with Shift too, which the typing keyboard leaves alone (it takes the plain letters as notes).
         // Shift+T and Shift+Z were taken above (as in the piano roll, spec: ui/piano-keys.md §4 rule 16).
-        Key::Character(c) if !ctrl && !alt && (shift || !app.typing_on() || ["p","b","c","e","g"].iter().any(|k| c.eq_ignore_ascii_case(k))) && PlTool::from_letter(c).is_some() => {
+        Key::Character(c) if !ctrl && !alt && (shift || !app.typing_on()) && PlTool::from_letter(c).is_some() => {
             Cmd::Tool(PlTool::from_letter(c).expect("checked"))
         }
         Key::Named(NamedKey::Delete) if ctrl => Cmd::DeleteSpace,

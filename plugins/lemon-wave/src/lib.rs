@@ -209,6 +209,8 @@ impl Plugin for LemonWave {
                     tuning,
                     ..
                 } => self.player.tune(&mut self.engine,note,channel,voice_id,tuning),
+                NoteEvent::PolyVolume { note, channel, voice_id, gain, .. } => self.engine.expression(note, channel, voice_id, Some(gain), None),
+                NoteEvent::PolyPan { note, channel, voice_id, pan, .. } => self.engine.expression(note, channel, voice_id, None, Some(pan)),
                 NoteEvent::MidiPitchBend { channel, value, .. } => self.engine.bend(channel, value),
                 NoteEvent::MidiCC {
                     channel,

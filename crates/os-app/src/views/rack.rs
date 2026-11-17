@@ -538,7 +538,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
         if hov {ui.c.stroke_rrect(follow,3.,1.5,t.glyph);}
         }
         // Name button (§13): the channel colour fills the face.
-        let nhov = ui.hit(nb, Action::ChannelSelect(i), "Click: plug-in window; drag: select channels; Ctrl+drag: move rows");
+        let nhov = ui.hit(nb, Action::ChannelSelect(i), "Click: plug-in window; Ctrl+click: select only; drag: select channels; Ctrl+drag: move rows");
         let base = ch.color.map_or(t.name_button, |col| rgb(col).mix(t.name_button, NAME_MIX));
         let face = if focused { base.shade(0.18).mix(t.name_button_sel, 0.5) } else { base };
         let face = if nhov { face.shade(0.06) } else { face };

@@ -225,6 +225,9 @@ fn minibpm(sample:&os_engine::Sample)->Option<f64>{
 }
 
 fn source_beats(sample:&os_engine::Sample,path:&str,near:f64)->Option<(f64,f64)> {
+    if let Some(meta)=os_engine::rex::metadata(std::path::Path::new(path)) {
+        return Some((meta.beats,f64::from(meta.bpm)));
+    }
     let secs=sample.frames() as f64/sample.rate.max(1) as f64;
     if let Some(mut bpm)=tagged_tempo(path) {
         // Packs sometimes label double time: interpret that octave near the project tempo.

@@ -31,6 +31,20 @@ pub struct Available {
     pub desc: Descriptor,
 }
 
+/// Nested hosts keep the same first-load containment as ordinary Mixer slots.
+pub(crate) fn create_nested(a: &Available) -> Result<SharedPlugin, String> {
+    if !cfg!(test) && a.desc.format == os_host::Format::Native && !crate::project_plugins::is_builtin(&a.desc) {
+        static CHECKS: OnceLock<std::sync::Mutex<os_native::check::Checks>> = OnceLock::new();
+        let checks = CHECKS.get_or_init(|| std::sync::Mutex::new(os_native::check::Checks::load(os_paths::user_file(NATIVE_CHECKS))));
+        let program = std::env::current_exe().map_err(|e| e.to_string())?;
+        match checks.lock().map_err(|_| "Native plugin check unavailable")?.verdict(&program, &a.desc.path) {
+            os_native::check::Verdict::Works => {},
+            os_native::check::Verdict::Fails(why) => return Err(format!("{} can't load ({why})", a.desc.name)),
+        }
+    }
+    a.lib.clone().create(&a.desc.id)
+}
+
 pub struct Hosted {
     /// Last ARA archive represented in the project model; used to reconcile undo/reload.
     pub ara_saved: Option<Vec<u8>>,
@@ -165,6 +179,7 @@ impl Hosted {
 /// What a plugin window asks of the app.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
+    StateEdit(usize, String),
     SampleFit(usize,isize),
     AraPlayback(usize,os_host::PlaybackRequest),
     BrowseSample(usize),
@@ -178,7 +193,7 @@ pub enum Request {
     PitchRange(usize, i32),
     Track(usize, u16),
     ShowTrack(usize),
-    #[cfg(target_os="linux")] Undo(bool),
+    #[cfg(target_os="linux")] Undo(bool, bool),
     WaveZoom(usize,u16),
     TrackHoverEnd,
     TrackHover(i32,i32),
@@ -343,9 +358,27 @@ pub fn builtin_effects() -> Vec<Available> {
         &tesla::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
         &lemon_tape::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
         &lemon_hall::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_phase::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_de_esser::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_meter::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_pitch_shift::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_convolver::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_vocoder::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_reference::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_split::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_waveshaper::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_tuner::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_frequency_shift::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_multiband_delay::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_time_shaper::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_vocal_tune::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_amp::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+
+
+
     ];
     let names = FILE_MAPPED.into_iter().chain(LINKED_EFFECTS);
-    LIBS.iter().zip(entries).zip(names).flat_map(|((lib, entry), name)| linked(lib, entry, name)).collect()
+    LIBS.iter().zip(entries).zip(names).flat_map(|((lib, entry), name)| linked(lib, entry, name)).chain(std::iter::once(crate::ml_patch::core::available())).collect()
 }
 
 /// The plugins of a CLAP entry table linked into this program.
@@ -507,7 +540,7 @@ impl Plugins {
     /// Native plugins load into this process only once a child process tried them (`os_native::check`): one that
     /// crashes, hangs or stops with an error there is refused with the reason.
     fn native_check(&mut self, desc: &Descriptor) -> Result<(), String> {
-        if desc.format != os_host::Format::Native {
+        if desc.format != os_host::Format::Native || desc.id == crate::ml_patch::core::ID {
             return Ok(());
         }
         let (Some(checks), Ok(program)) = (&mut self.native_checks, std::env::current_exe()) else { return Ok(()) };
@@ -520,13 +553,13 @@ impl Plugins {
     /// Whether effect `index` can be created without waiting: anything but a native effect whose check has not run
     /// yet. That check is started in the background; ask again on a later tick.
     pub fn effect_ready(&mut self, index: usize) -> bool {
-        let path = self.effects.get(index).filter(|a| a.desc.format == os_host::Format::Native).map(|a| a.desc.path.clone());
+        let path = self.effects.get(index).filter(|a| a.desc.format == os_host::Format::Native && a.desc.id != crate::ml_patch::core::ID).map(|a| a.desc.path.clone());
         path.is_none_or(|p| self.native_ready(&p))
     }
 
     /// `effect_ready` for instrument `index` (of `available`).
     pub fn instrument_ready(&mut self, index: usize) -> bool {
-        let path = self.available.get(index).filter(|a| a.desc.format == os_host::Format::Native).map(|a| a.desc.path.clone());
+        let path = self.available.get(index).filter(|a| a.desc.format == os_host::Format::Native && a.desc.id != crate::ml_patch::core::ID).map(|a| a.desc.path.clone());
         path.is_none_or(|p| self.native_ready(&p))
     }
 
@@ -638,6 +671,7 @@ impl Plugins {
     }
 
     pub(crate) fn prepare_effect(&mut self, index: usize, state: Option<&[u8]>, strict: bool) -> Result<Hosted, String> {
+        crate::ml_patch::core::set_catalog(&self.effects);
         let a = self.effects.get(index).ok_or("no such effect")?.clone();
         self.native_check(&a.desc)?;
         let plugin = a.lib.clone().create(&a.desc.id)?;
@@ -760,7 +794,11 @@ impl Plugins {
     /// The saved state of the instance under `key`, in its format's own bytes.
     pub fn state(&self, key: usize) -> Option<Vec<u8>> {
         #[cfg(test)] if self.state_fail.contains(&key){return None;}
-        self.hosted.get(&key)?.plugin.lock().ok()?.save_state()
+        let mut plugin = self.hosted.get(&key)?.plugin.lock().ok()?;
+        // A save can arrive before the next audio block/editor tick. Deliver
+        // queued parameter edits before serializing, including inactive samplers.
+        plugin.idle();
+        plugin.save_state()
     }
 
     /// Marks the instance under `key`, just created, as a copy standing in for a plugin in another format
@@ -1373,6 +1411,11 @@ impl Plugins {
         for (area, m) in crate::plugin_window::take_link() {
             let row = self.hosted.iter().find(|(_, h)| h.window.as_ref().is_some_and(|w| w.area() as isize == area)).map(|(&r, _)| r);
             match (row, m) {
+                (row, crate::plugin_window::LinkMsg::StateEdit(token)) => {
+                    if let Some(edit) = os_hostlink::take_state_edit(token) {
+                        if let Some(row) = row { out.push(Request::StateEdit(row, edit)); }
+                    }
+                },
                 (Some(row), crate::plugin_window::LinkMsg::SampleFit(code)) => out.push(Request::SampleFit(row,code)),
                 (Some(row), crate::plugin_window::LinkMsg::Note(k, v, on)) => out.push(Request::Note(row, k, v, on)),
                 (Some(row), crate::plugin_window::LinkMsg::LocateSample) => out.push(Request::LocateSample(row)),
@@ -1495,7 +1538,7 @@ impl Plugins {
                         FrameEvent::TrackHoverEnd=>Request::TrackHoverEnd,
                         FrameEvent::TrackHover(x,y)=>Request::TrackHover(x,y),
                         FrameEvent::TrackDrop(x,y) => Request::TrackDrop(row,x,y),
-                        #[cfg(target_os="linux")] FrameEvent::Undo(redo)=>Request::Undo(redo),
+                        #[cfg(target_os="linux")] FrameEvent::Undo(alt,shift)=>Request::Undo(alt,shift),
                         FrameEvent::PickTrack => Request::PickTrack(row),
                         FrameEvent::TrackMenu(x, y) => Request::TrackMenu(row, x, y),
                         FrameEvent::CommitTrackStep { from, to } => Request::CommitTrackStep(row, from, to),
@@ -1567,7 +1610,7 @@ fn stopped_message(name: &str, code: u32, effect: bool) -> String {
 /// Sizes window `w` to its freshly opened editor (`size` in device px at `scale`). A Lemon plugin answers the host
 /// link's hello: its page tabs go into the strip row and its editor shrinks to what is below them.
 #[cfg(plugin_windows)]
-fn fit_editor(w: &FrameWindow, (ew, eh): (u32, u32), scale: f32) -> Option<os_hostlink::Link> {
+pub(crate) fn fit_editor(w: &FrameWindow, (ew, eh): (u32, u32), scale: f32) -> Option<os_hostlink::Link> {
     let link = os_hostlink::Link::connect(w.area() as isize);
     match &link {
         Some(l) => {
@@ -1581,7 +1624,7 @@ fn fit_editor(w: &FrameWindow, (ew, eh): (u32, u32), scale: f32) -> Option<os_ho
 }
 
 /// Execute editor-only work after releasing the instance's audio lock.
-fn editor_action(plugin: &SharedPlugin, action: os_host::EditorAction) -> Result<(u32, u32), String> {
+pub(crate) fn editor_action(plugin: &SharedPlugin, action: os_host::EditorAction) -> Result<(u32, u32), String> {
     let job = {
         let mut instance = plugin.lock().map_err(|_| "plugin stopped")?;
         match instance.editor_job(action) {
@@ -1645,7 +1688,7 @@ pub const LEMON_EQ: &str = "ML EQ";
 /// Lemon Studio's effects compiled in besides the EQ (`builtin_effects`, in this order). They have no file plugin of
 /// their own to be stored as, so a project stores them wrapped, as it stored their plugin files
 /// (`project_plugins::is_wrapped`).
-pub const LINKED_EFFECTS: [&str; 13] = [
+pub const LINKED_EFFECTS: [&str; 28] = [
     "ML Limiter",
     "ML Reverb",
     "ML Delay",
@@ -1659,6 +1702,21 @@ pub const LINKED_EFFECTS: [&str; 13] = [
     TESLA,
     "ML Tape",
     "ML Hall",
+    "ML Phase",
+    "ML De-Esser",
+    "ML Meter",
+    "ML Pitch Shift",
+    "ML Convolver",
+    "ML Vocoder",
+    "ML Reference",
+    "ML Split",
+    "ML Waveshaper",
+    "ML Tuner",
+    "ML Frequency Shift",
+    "ML Multiband Delay",
+    "ML Time Shaper",
+    "ML Vocal Tune",
+    "ML Amp",
 ];
 /// Lemon Studio's effects compiled in that a project stores under the FL plugin they recreate, with that plugin's
 /// state (`new_slot`, `store_builtin_states`), so they are never saved wrapped.
@@ -2347,6 +2405,36 @@ pub type ChannelInfoT = ();
 /// (`OS_SHOT_DIR=<dir> OS_CLAP=<Lemon Sampler.clap> cargo test -p os-app plugin_window_shots -- --ignored`).
 #[cfg(all(test, windows))]
 mod tests {
+    #[test]
+    fn ml_phase_stock_picker_insert_and_reload() {
+        let mut pl = Plugins { effects: builtin_effects(), scale: 1.0, rate: 48000, ..Plugins::default() };
+        let index = pl.effect_index("ML Phase").expect("ML Phase in stock effect picker without scanning files");
+        assert_eq!(pl.effects.iter().filter(|x| x.desc.name == "ML Phase").count(), 1);
+        pl.create_effect(1, 0, index, None).unwrap();
+        let key = fx_key(1, 0);
+        let descriptor = pl.descriptor(key).unwrap();
+        assert_eq!(descriptor.name, "ML Phase");
+        let state = pl.state(key).expect("stock plugin serializes for projects");
+        pl.create_effect(2, 0, index, Some(&state)).unwrap();
+        assert_eq!(pl.state(fx_key(2, 0)).unwrap(), state);
+        assert_eq!(pl.effects().len(), 2);
+    }
+
+    #[test]
+    fn ml_tools_batch_stock_picker_insert_and_reload() {
+        for name in ["ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Convolver", "ML Vocoder", "ML Reference", "ML Split", "ML Waveshaper", "ML Tuner", "ML Frequency Shift", "ML Multiband Delay", "ML Time Shaper", "ML Vocal Tune", "ML Amp"] {
+            let mut pl = Plugins { effects: builtin_effects(), scale: 1.0, rate: 48000, ..Plugins::default() };
+            let index = pl.effect_index(name).expect("stock effect available without file scanning");
+            assert_eq!(pl.effects.iter().filter(|x| x.desc.name == name).count(), 1);
+            pl.create_effect(1, 0, index, None).unwrap();
+            assert_eq!(pl.descriptor(fx_key(1, 0)).unwrap().name, name);
+            let saved = pl.state(fx_key(1, 0)).unwrap();
+            pl.create_effect(2, 0, index, Some(&saved)).unwrap();
+            assert_eq!(pl.state(fx_key(2, 0)).unwrap(), saved);
+            assert_eq!(pl.effects().len(), 2);
+        }
+    }
+
     #[test]
     fn recovery_mode_blocks_external_library_before_loading() {
         let mut app = crate::app::App::new(None);
@@ -3466,6 +3554,23 @@ mod tests {
 
     /// A Lemon Sampler state that names no sample (an undone load into an empty channel, `history`) leaves it with
     /// none: a note plays nothing.
+    #[test]
+    fn sampler_save_includes_edits_before_the_next_audio_or_idle_tick() {
+        let mut pl=Plugins { available:builtin(), scale:1., rate:48000, ..Plugins::default() };
+        let index=pl.index_of(LEMON_SAMPLER).unwrap();pl.create_with(0,index,None).unwrap();
+        for (name,value) in [("Sample end",0.6),("Quick fade in",0.25),("Quick fade out",0.5)] {
+            assert!(pl.set_param_named(0,name,value));
+        }
+        let saved=pl.state(0).unwrap();
+        let v:serde_json::Value=serde_json::from_slice(&saved[8..]).unwrap();
+        for (id,value) in [("fx_length",0.6),("fx_in",0.25),("fx_out",0.5)] {
+            assert!((v["params"][id]["f32"].as_f64().unwrap()-value).abs()<1e-6,"{id}: {}",v["params"][id]);
+        }
+        pl.create_with(1,index,Some(&saved)).unwrap();
+        let reopened=pl.state(1).unwrap();
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&reopened[8..]).unwrap()["params"],v["params"]);
+    }
+
     #[test]
     fn lemon_sampler_state_without_a_sample_plays_nothing() {
         let mut pl = Plugins { available: builtin(), scale: 1.0, rate: 48000, ..Plugins::default() };

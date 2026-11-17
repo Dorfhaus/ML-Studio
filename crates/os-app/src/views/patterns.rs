@@ -140,14 +140,25 @@ pub fn paint(ui: &mut Ui, s: &State) {
         } else {
             ui.c.fill_rect(field, t.tempo_box);
         }
-        let tw = ui.c.text_width(font, &b.text);
-        if b.fresh && !b.text.is_empty() {
-            ui.c.fill_rect(Rect::new(field.x + 3.0, field.y + 3.0, tw + 2.0, 16.0), Color::rgb(0x3d6a8a));
+        let mut editor = b.editor.clone();
+        if editor.text != b.text { editor.set(&b.text); if b.fresh { editor.select_all(); } }
+        let caret = ui.c.text_width(font, editor.before_caret());
+        let offset = (caret - field.w + 12.).max(0.);
+        let left = field.x + 4. - offset;
+        ui.c.push_clip(field.inset(2.));
+        if let Some((a,b)) = editor.selection() {
+            let x = left + ui.c.text_width(font, &editor.text[..editor.at(a)]);
+            let end = left + ui.c.text_width(font, &editor.text[..editor.at(b)]);
+            ui.c.fill_rect(Rect::new(x,field.y+3.,end-x,16.),Color::rgb(0x3d6a8a));
         }
-        ui.c.text_clip(font, field.x + 4.0, field.y + 3.0, field.w - 6.0, t.glyph, &b.text);
-        if !b.fresh {
-            let cx = (field.x + 5.0 + tw).min(field.right() - 2.0);
-            ui.c.fill_rect(Rect::new(cx, field.y + 3.0, 1.0, 16.0), t.glyph);
+        ui.c.text(font,left,field.y+3.,t.glyph,&editor.text);
+        ui.c.fill_rect(Rect::new(left+caret,field.y+3.,1.,16.),t.glyph);
+        ui.c.pop_clip();
+        for i in 0..=editor.len() {
+            let at = left + ui.c.text_width(font, &editor.text[..editor.at(i)]);
+            let before = if i == 0 { field.x } else { (at + left + ui.c.text_width(font, &editor.text[..editor.at(i-1)])) / 2. };
+            let after = if i == editor.len() { field.right() } else { (at + left + ui.c.text_width(font, &editor.text[..editor.at(i+1)])) / 2. };
+            ui.hit(Rect::new(before,field.y,(after-before).max(0.),field.h).intersect(&field),Action::Pat(Hit::Text(i)),"Edit name; drag to select text");
         }
         let row = r.y + 29.0;
         let mut x = r.x + 4.0;

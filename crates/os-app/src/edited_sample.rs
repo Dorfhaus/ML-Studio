@@ -7,7 +7,7 @@ static TARGET: Mutex<Option<[i32; 4]>> = Mutex::new(None);
 static CHANNEL_PITCH: Mutex<Vec<(usize, f64)>> = Mutex::new(Vec::new());
 static RESULTS: Mutex<Vec<Result<PathBuf, String>>> = Mutex::new(Vec::new());
 
-pub fn update_target(app: &crate::app::App, target: Option<(&Window, f64, f64)>) {
+pub fn update_target(app: &crate::app::App, target: Option<(&Window, f64, f64, f64)>) {
     let mut pitches = CHANNEL_PITCH.lock().unwrap();
     pitches.clear();
     for (row, hosted) in &app.plugins.hosted {
@@ -30,15 +30,15 @@ pub fn update_target(app: &crate::app::App, target: Option<(&Window, f64, f64)>)
         }
     }
     drop(pitches);
-    *TARGET.lock().unwrap() = target.and_then(|(window, top, width)| {
+    *TARGET.lock().unwrap() = target.and_then(|(window, left, top, width)| {
         if window.is_minimized() == Some(true) {
             return None;
         }
         let origin = window.inner_position().ok()?;
         Some([
-            origin.x,
+            origin.x + left.round() as i32,
             origin.y + top.round() as i32,
-            origin.x + width.round() as i32,
+            origin.x + (left + width).round() as i32,
             origin.y + window.inner_size().height as i32,
         ])
     });

@@ -188,8 +188,9 @@ const LATE_START_SECONDS: f64 = 0.005;
 /// notes follow it (spec: audio/voice-levels.md "The main pitch"). `moves`: the instrument ignores a note's tuning
 /// (`Instrument::takes_tuning`), so a plugin channel's notes start on keys moved by their pitch's whole semitones and
 /// are tuned only by what is left; their note offs go to the moved keys.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct InstTuning {
+    colored: Vec<(u8, u8, f32, f32, f32)>,
     shift: f32,
     moves: bool,
     fine: [f32; 128],
@@ -200,7 +201,7 @@ struct InstTuning {
 
 impl Default for InstTuning {
     fn default() -> Self {
-        InstTuning { shift: 0.0, moves: false, fine: [0.0; 128], glide: [0.0; 128], sent: std::array::from_fn(|k| k as u8), keys: 0 }
+        InstTuning { colored:Vec::new(), shift: 0.0, moves: false, fine: [0.0; 128], glide: [0.0; 128], sent: std::array::from_fn(|k| k as u8), keys: 0 }
     }
 }
 
@@ -445,6 +446,9 @@ impl ChannelState {
         (self.volume, self.pan, self.base_rate) = self.init;
         self.knob = self.init_knob;
         self.main = self.init_main;
+        // Live pitch changes update the initial controls without rebuilding the channel.
+        // Recompute the rate when a loop/seek restores them instead of using init.2's old rate.
+        self.retune(self.init_knob);
         self.vol_v = self.init_v;
         self.ramp = None;
         self.adjust = self.init_adjust;
@@ -611,6 +615,7 @@ impl ChannelState {
 
 #[derive(Debug, Clone, Copy)]
 struct Voice {
+    color: u8,
     edit_last:(f32,f32),
     edit_transition:Option<((f32,f32),u32,u32)>,
     drive:f32,
@@ -1598,7 +1603,23 @@ impl Engine {
         }
         sched.sort_by_key(|s| s.tick);
         let mut mpe=vec![];
-        for (row,ch) in project.channels.iter().enumerate(){let config=project.mpe.config(ch.index);if !config.enabled{continue;}let notes=sched.iter().filter(|n|n.channel==row&&n.cut.is_none()&&!n.slide).map(|n|crate::mpe::Scheduled{start:n.tick,end:if n.len>0{n.tick+n.len}else{end_tick.max(n.tick+1)},key:n.key.min(127)as u8,velocity:n.velocity,release:n.release,expression:project.mpe.get(n.expression).map(|e|e.window(0.,if n.expression_len>0{n.len as f32/n.expression_len as f32}else{1.})).unwrap_or_default(),fine:laws::fine_pitch_cents(n.fine)as f32/100.}).collect();mpe.push((row,crate::mpe::Playback::new(config,notes).with_chase(false)));}
+        for (row, ch) in project.channels.iter().enumerate() {
+            let config = project.mpe.config(ch.index);
+            if !config.enabled { continue; }
+            let channel_notes = || sched.iter().filter(|n| n.channel == row && n.cut.is_none());
+            let notes = channel_notes().filter(|n| !n.slide).map(|n| crate::mpe::Scheduled {
+                start: n.tick, end: if n.len > 0 { n.tick + n.len } else { end_tick.max(n.tick + 1) },
+                key: n.key.min(127) as u8, color: n.color, velocity: n.velocity, release: n.release,
+                expression: project.mpe.get(n.expression).map(|e| e.window(0., if n.expression_len > 0 {
+                    n.len as f32 / n.expression_len as f32
+                } else { 1. })).unwrap_or_default(),
+                fine: laws::fine_pitch_cents(n.fine) as f32 / 100.,
+            }).collect();
+            let slides = channel_notes().filter(|n| n.slide).map(|n| crate::mpe::PitchSlide {
+                start: n.tick, len: n.len, key: n.key.min(127) as u8, color: n.color,
+            }).collect();
+            mpe.push((row, crate::mpe::Playback::new(config, notes).with_pitch_slides(slides).with_chase(false)));
+        }
         sched.retain(|n|n.cut.is_some()||!mpe.iter().any(|v|v.0==n.channel));
 
         let mut triggers: Vec<Trigger> = sched
@@ -1633,7 +1654,7 @@ impl Engine {
                     key: n.key,
                     end: (n.len > 0).then_some(n.tick + n.len),
                     velocity: n.velocity,
-                    levels: crate::NoteLevels { drive:f32::from(n.drive)/127., ..crate::NoteLevels::of_bytes(n.pan, n.mod_x, n.mod_y) },
+                    levels: crate::NoteLevels { color:n.color, drive:f32::from(n.drive)/127., ..crate::NoteLevels::of_bytes(n.pan, n.mod_x, n.mod_y) },
                     from,
                     start,
                     buf: 0,
@@ -2309,7 +2330,7 @@ impl Engine {
         self.note_off_one(channel, key); // retrigger
         self.voices.push(Voice {
             edit_last:(0.,0.),edit_transition:None,
-            drive:0.,origin: None,
+            color:0, drive:0.,origin: None,
             channel,
             pos: 0.0,
             step,
@@ -2854,7 +2875,7 @@ impl Engine {
         self.inst_owed = owed;
         self.inst_missed = missed;
         // So does the tuning its notes were given: a changed channel pitch retunes them on the next tick.
-        self.inst_tuning = old.inst_tuning.iter().enumerate().map(|(c, &t)| if same(c) { t } else { InstTuning::default() }).collect();
+        self.inst_tuning = old.inst_tuning.iter().enumerate().map(|(c, t)| if same(c) { t.clone() } else { InstTuning::default() }).collect();
         self.missed = old.missed;
         // The main volume glides from where it was.
         self.main_glide = old.main_glide;
@@ -3551,17 +3572,17 @@ impl Engine {
             for (i, &c) in layer.children.iter().enumerate() {
                 let hosted = self.channels.get(c).is_some_and(|ch| ch.plugin && ch.instrument.0.is_some());
                 if hosted && !layer.children[..i].contains(&c) {
-                    self.inst_events.push(notes::Event { layer: Some(t.channel), ..notes::Event::slide(c, 0, key, n) });
+                    self.inst_events.push(notes::Event { layer: Some(t.channel), slide_levels: Some((f32::from(t.velocity)/128., t.levels)), ..notes::Event::slide(c, 0, key, n) });
                 }
             }
         } else if self.channels[t.channel].plugin {
             if self.channels[t.channel].instrument.0.is_some() {
-                self.inst_events.push(notes::Event::slide(t.channel, 0, key, n));
+                self.inst_events.push(notes::Event { slide_levels: Some((f32::from(t.velocity)/128., t.levels)), ..notes::Event::slide(t.channel, 0, key, n) });
             }
             return;
         }
         let own = |v: &Voice| if is_layer { v.via.is_some_and(|w| w.layer == t.channel) } else { v.channel == t.channel && v.via.is_none() };
-        let moves = |v: &Voice| own(v) && v.cut.is_none() && v.release.is_none();
+        let moves = |v: &Voice| own(v) && v.color == t.levels.color && v.cut.is_none() && v.release.is_none();
         let top = self.voices.iter().filter(|v| moves(v) && v.off.is_none()).map(|v| f32::from(v.key) * 100.0 + v.slide.cents).reduce(f32::max);
         let Some(top) = top else { return };
         let by = f32::from(t.key) * 100.0 - top;
@@ -3666,6 +3687,7 @@ impl Engine {
         self.next_voice = self.next_voice.wrapping_add(1);
         self.channels[note.channel].via = note.via;
         self.inst_events.push(notes::Event {
+            slide_levels: None,
             ch: note.channel, off: 0, key, vel: f32::from(note.velocity.min(128)) / 128.0,
             start: note.start, fine: note.fine, long: note.end.is_some(), glide: 0, levels: note.levels,
             cuts: note.cuts, layer: note.via.map(|via| via.layer), porta: note.porta, voice: Some(id), echo,
@@ -3749,6 +3771,7 @@ impl Engine {
                     v
                 });
                 self.inst_events.push(notes::Event {
+            slide_levels: None,
                     ch: t.channel,
                     off: 0,
                     key: k,
@@ -3780,7 +3803,7 @@ impl Engine {
         let serial = self.channels[t.channel].serial;
         self.voices.push(Voice {
             edit_last:(0.,0.),edit_transition:None,
-            drive:t.levels.drive,origin: t.origin,
+            color:t.levels.color, drive:t.levels.drive,origin: t.origin,
             channel: t.channel,
             pos: t.from,
             step: t.rate,
@@ -3905,6 +3928,10 @@ impl Engine {
                 fines.shift = shift;
                 for key in (0..128u8).filter(|&k| fines.keys >> k & 1 == 1) {
                     inst.tune(0, fines.sent(key), fines.tuning(key));
+                }
+                for &(key, color, tuning, velocity, pan) in &fines.colored {
+                    let base = fines.tuning(key) - fines.glide[usize::from(key & 127)];
+                    inst.slide(0, fines.sent(key), color, base + tuning, velocity, pan);
                 }
             }
             // Ticks it missed are made up first: their notes at once, then their frames, unheard (at most a second;
@@ -4910,6 +4937,7 @@ fn send_note(inst: &mut dyn Instrument, off: u32, note: notes::Note, fines: &mut
                 Some(v) => inst.voice_start(off, sent, vel, start, levels, v),
                 None => inst.note_start(off, sent, vel, start, levels),
             }
+            fines.colored.retain(|&(k,c,_,_,_)| k != key || c != levels.color);
             let k = key & 127;
             (fines.fine[usize::from(k)], fines.glide[usize::from(k)], fines.sent[usize::from(k)]) = (fine, 0.0, sent);
             fines.keys |= 1 << k;
@@ -4917,6 +4945,13 @@ fn send_note(inst: &mut dyn Instrument, off: u32, note: notes::Note, fines: &mut
             if tuning.abs() > 1e-3 {
                 inst.tune(off, sent, tuning);
             }
+        }
+        notes::Note::Slide { key, color, tuning, velocity, pan } => {
+            let base = fines.tuning(key) - fines.glide[usize::from(key & 127)];
+            inst.slide(off, fines.sent(key), color, base + tuning, velocity, pan);
+            let value = (key, color, tuning, velocity, pan);
+            if let Some(old) = fines.colored.iter_mut().find(|v| v.0 == key && v.1 == color) { *old = value; }
+            else { fines.colored.push(value); }
         }
         notes::Note::Tune(key, semitones) => {
             fines.glide[usize::from(key & 127)] = semitones;
@@ -4973,6 +5008,7 @@ fn processing_order(tracks: &[MixTrack]) -> Vec<usize> {
 /// A scheduled note on the song's tick line.
 #[derive(Debug, Clone, Copy)]
 struct Sched {
+    color: u8,
     drive:u8,
     expression:u32,
     expression_len:u64,
@@ -5006,7 +5042,7 @@ struct Sched {
 impl Sched {
     fn note(tick: u64, n: &os_model::Note) -> Self {
         Sched {
-            drive:n.drive,expression:n.expression,
+            color:n.group & 15, drive:n.drive,expression:n.expression,
             expression_len:u64::from(n.length),
             release:n.release,
             origin: None,
@@ -5305,7 +5341,7 @@ fn schedule(project: &Project, mode: PlayMode, report: &mut EngineReport) -> (Ve
                             // A clip plays its sample from the window start, cut at the clip end.
                             Some((row, ChannelKind::AudioClip | ChannelKind::Sampler)) => {
                                 let from_s = c.window.map_or(0.0, |w| w.0.max(0.0) / 1000.0);
-                                out.push(Sched { drive:0,expression:0, expression_len:0, release:64, origin: Some((c.track, start, len, from_s.to_bits())), tick: start, channel: row, key: 60, fine: 120, velocity: 100, pan: 64, mod_x: 128, mod_y: 128, cut: Some(start + len), len, from_s, clip: ClipFx::of(c, fx), slide: false, porta: false });
+                                out.push(Sched { color:0, drive:0,expression:0, expression_len:0, release:64, origin: Some((c.track, start, len, from_s.to_bits())), tick: start, channel: row, key: 60, fine: 120, velocity: 100, pan: 64, mod_x: 128, mod_y: 128, cut: Some(start + len), len, from_s, clip: ClipFx::of(c, fx), slide: false, porta: false });
                             }
                             Some((_, ChannelKind::Automation)) => {}
                             _ => report.automation_clips_ignored += 1,
@@ -6071,6 +6107,23 @@ mod tests {
 
     // spec: audio/song-structure.md "Slide notes", audio/note-rules.md "Glides"
     #[test]
+    fn mpe_engine_keeps_colored_slide_notes_in_schedule() {
+        let mut a=long_note(0,384,0);a.group=2;
+        let mut b=a.clone();b.group=3;
+        let slide=Note {key:72,group:2,flags:0x4000|Note::SLIDE,..long_note(4,3,0)};
+        let mut p=project(vec![a,b,slide],vec![]);p.channels[0].kind=ChannelKind::Plugin;
+        p.mpe.set_config(0,os_model::mpe::Config {enabled:true,..Default::default()});
+        let mut engine=Engine::new(&p,&mut SampleLibrary::default(),48000,PlayMode::Pattern(1));
+        let playback=&mut engine.mpe[0].1;
+        playback.tick(0,true);for t in 1..7 {playback.tick(t,true);}
+        let events=playback.tick(7,true);
+        assert!(!events.iter().any(|b|b[0]&0xf0==0x90));
+        let bends:Vec<_>=events.iter().filter(|b|b[0]&0xf0==0xe0).collect();
+        assert_eq!(bends.len(),1);assert_eq!(bends[0][0],0xe1);
+        let raw=u16::from(bends[0][1])|(u16::from(bends[0][2])<<7);
+        assert!(raw.abs_diff(10240)<=1,"one-octave bend: {raw}");
+    }
+    #[test]
     fn slide_notes_glide_the_sounding_voice_and_make_no_sound() {
         let slide = |position: u32, length: u32, key: u16, velocity: u8| Note { key, velocity, flags: 0x4000 | Note::SLIDE, ..long_note(position, length, 0) };
         // A note on key 60, a slide note to 72 at tick 96 lasting 3 ticks with a lower velocity, then one back to 60.
@@ -6099,6 +6152,24 @@ mod tests {
         // Without a sounding voice a slide note does nothing and is not heard.
         let quiet = project(vec![slide(0, 96, 72, 100)], vec![]);
         assert_eq!(peak(&render(&quiet), 0), 0.0);
+    }
+
+    #[test]
+    fn sampler_slide_colors_survive_song_scheduling() {
+        let note = |key, group| Note { key, group, ..long_note(0, 384, 0) };
+        let slide = Note { key:72, group:2, velocity:50, flags:0x4000 | Note::SLIDE, ..long_note(96, 0, 0) };
+        let p = project(vec![note(60, 2), note(67, 3), slide], vec![]);
+        let mut lib = SampleLibrary::new(None);
+        let mut e = Engine::new(&p, &mut lib, 44100, PlayMode::Pattern(1));
+        while e.tick <= 95 { e.next_tick(); }
+        let before:Vec<_> = e.voices.iter().map(|v| (v.color,v.step,v.vel)).collect();
+        e.next_tick();
+        assert_eq!(e.voices.len(),2);
+        for (color, rate, velocity) in before {
+            let v=e.voices.iter().find(|v| v.color==color).unwrap();
+            if color==2 { assert!((v.step/rate-2.).abs()<1e-5); assert!((v.vel-laws::velocity_gain(50)).abs()<1e-6); }
+            else { assert_eq!((v.step,v.vel),(rate,velocity)); }
+        }
     }
 
     #[test]
@@ -6684,11 +6755,11 @@ mod tests {
         e.set_instrument(0, log.clone());
         e.render_all(480);
         let got = log.lock().unwrap().0.clone();
-        let half = crate::NoteLevels { echo_pitch: 0., drive:0., pan: 0.5, mod_x: 0.5, mod_y: -0.5 };
+        let half = crate::NoteLevels { color:0, echo_pitch: 0., drive:0., pan: 0.5, mod_x: 0.5, mod_y: -0.5 };
         let centred = crate::NoteLevels::of_bytes(64, 128, 128);
         assert_eq!(centred, crate::NoteLevels::default());
         assert_eq!(got, vec![(60, half), (62, centred)]);
-        assert_eq!(crate::NoteLevels::of_bytes(0, 0, 255), crate::NoteLevels { echo_pitch: 0., drive:0., pan: -1.0, mod_x: -1.0, mod_y: 127.0 / 128.0 });
+        assert_eq!(crate::NoteLevels::of_bytes(0, 0, 255), crate::NoteLevels { color:0, echo_pitch: 0., drive:0., pan: -1.0, mod_x: -1.0, mod_y: 127.0 / 128.0 });
     }
 
     /// Records what a layer's child is given, by frame: note ons (velocity), offs, chokes and tunings (semitones); it
@@ -7056,6 +7127,21 @@ mod tests {
     // spec: audio/voice-levels.md "The main pitch": sounding voices follow a change, here a hosted sampler's note
     // stretched by Lemon Sampler, while the song plays on.
     #[test]
+    fn community_live_pitch_survives_loop_and_seek() {
+        let mut p=project(vec![],vec![]);
+        let mut e=Engine::new(&p,&mut SampleLibrary::new(None),48000,PlayMode::Song);
+        let before=e.channels[0].base_rate;
+        p.main_pitch=Some(700);
+        e.set_live_project_controls(&p);
+        let changed=e.channels[0].base_rate;
+        assert!((changed/before-2f64.powf(700./1200.)).abs()<1e-6);
+        e.jump_to(0,false);
+        assert_eq!(e.channels[0].base_rate,changed);
+        e.seek_tick(96);
+        assert_eq!(e.channels[0].base_rate,changed);
+    }
+
+    #[test]
     fn master_pitch_automation_retunes_and_resets() {
         let mut p=project(vec![],vec![]);p.main_pitch=Some(100);p.channels.push(channel());
         p.channels[1].misc.main_pitch=false;
@@ -7066,6 +7152,25 @@ mod tests {
         assert!((e.channels[0].base_rate/before-2f64.powf(500.0/1200.0)).abs()<0.001);
         e.channels[0].reset();assert_eq!(e.channels[0].main,Some(100));assert_eq!(e.channels[0].base_rate,before);
         let init=os_model::InitControl::from_unit(os_model::target::MAIN_PITCH,0.75).unwrap();assert_eq!(init.value,600);assert_eq!(init.unit(),Some(0.75));
+    }
+
+    #[test]
+    fn main_pitch_changes_preserve_colored_slide_targets() {
+        use os_model::Clip;
+        #[derive(Default)] struct Log(Vec<(u8,u8,f32,f32,f32)>);
+        impl crate::Instrument for Log {
+            fn note_on(&mut self,_:u32,_:u8,_:f32) {} fn note_off(&mut self,_:u32,_:u8) {}
+            fn slide(&mut self,_:u32,key:u8,color:u8,tuning:f32,velocity:f32,pan:f32) { self.0.push((key,color,tuning,velocity,pan)); }
+            fn process(&mut self,_:u32,_:&mut[f32],_:&mut[f32]) {}
+        }
+        let slide=Note { key:72, velocity:50, flags:0x4000 | Note::SLIDE, ..long_note(12,0,0) };
+        let mut p=song(vec![long_note(0,384,0),slide],vec![Clip::new(0,384,0,ClipSource::Pattern(1))]);
+        let mut lib=SampleLibrary::new(None);let log=Arc::new(std::sync::Mutex::new(Log::default()));
+        let mut e=Engine::new(&p,&mut lib,48000,PlayMode::Song);e.set_instrument(0,log.clone());
+        let mut out=Vec::new();e.render_ticks(24,&mut out);
+        assert_eq!(log.lock().unwrap().0.last().copied(),Some((60,0,12.,50./128.,0.)));
+        p.main_pitch=Some(300);let mut next=Engine::new(&p,&mut lib,48000,PlayMode::Song);next.set_instrument(0,log.clone());next.continue_from(&mut e);next.render_ticks(24,&mut out);
+        assert_eq!(log.lock().unwrap().0.last().copied(),Some((60,0,15.,50./128.,0.)));
     }
 
     #[test]

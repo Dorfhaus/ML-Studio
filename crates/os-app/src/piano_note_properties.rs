@@ -183,7 +183,7 @@ mod tests{
         crate::history::undo(&mut a.state);assert_eq!(pl::clips(&a.state).len(),4);
         a.state.z.push(Win::ChannelRack);a.repeat=true;a.key(&Key::Character("b".into()),true,false);assert_eq!(pl::clips(&a.state).len(),4);
         a.state.z=vec![Win::Playlist];piano::pattern_mut(&mut a.state).notes.push(Note::step(0,0));open(&mut a,0);assert!(a.modal_open());a.key(&Key::Character("b".into()),true,false);assert_eq!(pl::clips(&a.state).len(),4);command(&mut a,Command::Cancel);
-        a.state.playlist.edit=Some(pl::TextEdit{target:pl::EditTarget::TrackName(0),text:"Vocal".into(),at:(0.,0.),sel:false});
+        a.state.playlist.edit=Some(pl::TextEdit{target:pl::EditTarget::TrackName(0),text:"Vocal".into(),at:(0.,0.),sel:false,editor:Default::default()});
         a.key(&Key::Character("b".into()),true,false);assert_eq!(pl::clips(&a.state).len(),4);a.state.playlist.edit=None;
         a.repeat=false;a.state.playlist.sel=vec![0];a.state.playlist.range=Some((0,bar*2));
         for i in 0..2{a.repeat=i>0;a.key(&Key::Character("b".into()),true,false);}

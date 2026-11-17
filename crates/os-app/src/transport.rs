@@ -73,11 +73,20 @@ const TICK_ROOM: usize = 1 << 17;
 /// Frames the queue is filled with before a stream starts (the device's block size is not known yet).
 const PREFILL_FRAMES: usize = 1024;
 
+struct PreviewLevel(AtomicU32);
+impl Default for PreviewLevel { fn default()->Self { Self(AtomicU32::new(1f32.to_bits())) } }
+fn preview_output_gain(project:&Project)->f32 {
+    let main=os_dsp::level::curve(f32::from(project.main_volume.unwrap_or(Project::MAIN_VOLUME_DEFAULT))*os_dsp::level::R12800);
+    let master=project.mixer.iter().find(|m|m.index==0).map_or(1.,|m|if m.enabled {os_engine::laws::fader_gain(m.volume.unwrap_or(0.8)) as f32}else{0.});
+    main*master
+}
+
 /// State the UI reads every frame.
 #[derive(Default)]
 pub struct Shared {
     automation_writing: Mutex<Vec<(os_model::target::Target,f64)>>,
     preview_active: AtomicBool,
+    preview_level: PreviewLevel,
     preview_ms: AtomicU64,
     eq_scope_track: AtomicU32,
     eq_scope: Mutex<crate::mini_eq::Scope>,
@@ -798,6 +807,7 @@ impl Transport {
         }
     }
     pub(crate) fn update_owned(&self, mut project: Project, warp: WarpBuffer) {
+        self.shared.preview_level.0.store(preview_output_gain(&project).to_bits(),Ordering::Relaxed);
         // Playback consumes rendered sources. Persistent editor histories stay with the UI.
         project.audio_edits.clear();
         project.vocal_edits.clear();
@@ -2576,6 +2586,8 @@ impl Session {
         let feed = FeedThread::spawn(feeder);
         let mut r = Renderer::new(queue, ctl.clone(), done.clone(), shared.clone(), rate);
         r.tap = !preview;
+        r.preview_main = kind == Kind::Preview;
+        r.preview_level=f32::from_bits(shared.preview_level.0.load(Ordering::Relaxed));
         if !preview && crate::input_monitor::monitor().on() {r.gain=0.;}
         r.wake = feed.thread();
         let detach = Detach(r.detach.clone());
@@ -2607,6 +2619,8 @@ struct Renderer {
     shared: Arc<Shared>,
     /// Output gain, ramped toward 1 (playing) or 0 (paused) by `step` per frame.
     gain: f32,
+    preview_main: bool,
+    preview_level: f32,
     last: [f32;2],
     last_extra: Vec<f32>,
     step: f32,
@@ -2624,7 +2638,7 @@ impl Renderer {
         // A stream that starts paused (moved to new audio settings while paused) starts silent.
         let gain = if ctl.paused.load(Ordering::Relaxed) { 0.0 } else { 1.0 };
         let last_extra = vec![0.0; queue.extra_channels];
-        Renderer { queue, wake: None, inline: None, ctl, done, shared, gain, last:[0.;2], last_extra, step, tap: false, detach: Arc::new(AtomicBool::new(false)), asked: None }
+        Renderer { queue, wake: None, inline: None, ctl, done, shared, gain, preview_main:false, preview_level:1., last:[0.;2], last_extra, step, tap: false, detach: Arc::new(AtomicBool::new(false)), asked: None }
     }
 
     /// Renders one block (see `render_block`) and copies it to the monitor tap, unless the stream is held.
@@ -2720,6 +2734,13 @@ impl Renderer {
                 }
             }
         }
+        if self.preview_main {
+            let level=f32::from_bits(self.shared.preview_level.0.load(Ordering::Relaxed));
+            for frame in stereo.chunks_exact_mut(2) {
+                self.preview_level += (level-self.preview_level).clamp(-self.step,self.step);
+                frame[0]*=self.preview_level; frame[1]*=self.preview_level;
+            }
+        }
         if self.gain != 1.0 || target != 1.0 {
             for (frame, f) in stereo.chunks_exact_mut(2).enumerate() {
                 self.gain = if self.gain < target { (self.gain + self.step).min(target) } else { (self.gain - self.step).max(target) };
@@ -2760,6 +2781,33 @@ impl Source for Renderer {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn community_browser_preview_obeys_main_and_master_volume() {
+        struct Tone;
+        impl os_engine::engine::MixerInput for Tone {
+            fn render(&mut self,_:u32,tracks:&mut[Vec<f32>]) { tracks[0].fill(0.25); }
+        }
+        let mut project=Project::default();project.mixer=vec![os_model::MixerTrack::new(0)];
+        let mut e=Engine::new(&project,&mut SampleLibrary::default(),48000,PlayMode::Song);
+        e.clear_schedule();e.set_awake(true);e.set_mixer_input(Box::new(Tone));
+        let (mut r,_,shared)=renderer(e);r.preview_main=true;
+        let mut samples=[0.;2048];r.render(&mut samples);
+        let baseline=samples[2047];assert!(baseline>0.01);
+        project.mixer[0].volume=Some(0.4);
+        let gain=preview_output_gain(&project);assert!(gain>0. && gain<1.);
+        shared.preview_level.0.store(gain.to_bits(),Ordering::Relaxed);
+        r.render(&mut samples);r.render(&mut samples);
+        assert!((samples[2047]-baseline*gain).abs()<1e-5);
+        for mute_main in [true,false] {
+            project.main_volume=Some(if mute_main {0}else{Project::MAIN_VOLUME_DEFAULT});
+            project.mixer[0].enabled=mute_main;
+            assert_eq!(preview_output_gain(&project),0.);
+            shared.preview_level.0.store(0f32.to_bits(),Ordering::Relaxed);
+            r.render(&mut samples);r.render(&mut samples);
+            assert!(samples.iter().all(|x|*x==0.));
+        }
+    }
+
     #[test]
     fn automation_feedback_waits_for_heard_frames_and_discards_old_sessions() {
         use os_model::target::Target;

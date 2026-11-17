@@ -249,6 +249,8 @@ struct Voice {
     age: u64,
     held: bool,
     velocity: f32,
+    expression_gain: f32,
+    expression_pan: f32,
     tune: f32,
     phase: [[f32; 7]; 2],
     sample_cursor: [[f64; 7]; 2],
@@ -398,6 +400,7 @@ impl Engine {
             age: self.age,
             held: true,
             velocity: velocity.clamp(0., 1.),
+            expression_gain: 1.,
             ..Voice::default()
         };
         for o in 0..2 {
@@ -500,6 +503,14 @@ impl Engine {
             self.bend[channel as usize] = (value.clamp(0., 1.) * 2. - 1.) * 2.;
         }
     }
+    pub fn expression(&mut self, note:u8, channel:u8, id:Option<i32>, gain:Option<f32>, pan:Option<f32>) {
+        for v in &mut self.voices {
+            if v.owner == 0 && v.note == note && v.channel == channel && id.is_none_or(|i| v.id == Some(i)) {
+                if let Some(g) = gain.filter(|g| g.is_finite()) { v.expression_gain = g.clamp(0., 4.); }
+                if let Some(p) = pan.filter(|p| p.is_finite()) { v.expression_pan = p.clamp(-1., 1.); }
+            }
+        }
+    }
     pub fn tune(&mut self, note: u8, channel: u8, id: Option<i32>, value: f32) {
         if value.is_finite() {
             for v in &mut self.voices {
@@ -584,7 +595,7 @@ impl Engine {
                 if v.env.reference {
                     v.env.settings = envelope_settings(p, ENV_ATTACK, ENV_HOLD);
                 }
-                let amp = v.amp.tick(attack, decay, p[SUSTAIN] / 1000., self.rate) * v.velocity;
+                let amp = v.amp.tick(attack, decay, p[SUSTAIN] / 1000., self.rate) * v.velocity * v.expression_gain;
                 let env = v.env.tick(ea, ed, p[ENV_SUSTAIN] / 1000., self.rate);
                 if v.owner == 0 && v.amp.stage == 0 && self.ended.len() < 256 {
                     self.ended.push((v.note, v.channel, v.id));
@@ -838,7 +849,7 @@ impl Engine {
                             dry+((apply(0,dry)-dry)+(apply(1,dry)-dry))/(a+b).max(1.)
                         }};
                         let filtered=filtered+(dry-filtered)*direct;
-                        lanes[lane][ch]+=filtered*amp*am*(1.+modulation[7]).clamp(0.,2.);
+                        lanes[lane][ch]+=filtered*amp*am*(1.+modulation[7]).clamp(0.,2.)*voice_pan(v.expression_pan,ch);
                     }}
                 }else{
                     oscillator[2]=[sub+noise;2];
@@ -846,7 +857,7 @@ impl Engine {
                         let x=oscillator[lane][ch]*0.3;
                         let x=if model==0 && p[DRIVE]>0.1 {(x*drive).tanh()/drive.sqrt()} else {x};
                         let filtered=if let Some(c)=&coeff {v.lane_recovered[lane][ch].tick(x,c)} else {v.lane_filter[lane][ch].tick(x,g,k,discrete[FILTER] as usize)};
-                        lanes[lane][ch]+=filtered*amp*am*(1.+modulation[7]).clamp(0.,2.);
+                        lanes[lane][ch]+=filtered*amp*am*(1.+modulation[7]).clamp(0.,2.)*voice_pan(v.expression_pan,ch);
                     }}
                 }
                 for ch in 0..2 {
@@ -861,7 +872,7 @@ impl Engine {
                     } else {
                         v.filter[ch].tick(x, g, k, discrete[FILTER] as usize)
                     };
-                    output[ch] += filtered * amp * am * (1. + modulation[7]).clamp(0., 2.);
+                    output[ch] += filtered * amp * am * (1. + modulation[7]).clamp(0., 2.) * voice_pan(v.expression_pan,ch);
                 }
             }
             self.live = live;
@@ -1231,6 +1242,24 @@ mod tests {
         assert!((read_delay(&data, 18000, 18000.5) - 0.75).abs() < 1e-5);
     }
     #[test]
+    fn per_voice_volume_pan_and_tuning_change_audio_without_retrigger() {
+        fn setup()->Engine { let mut e=Engine::new(48000.); let mut p=defaults();p[ATTACK]=0.;p[SUSTAIN]=1000.;p[FILTER]=0.;e.set(p);e.reset();e.on(69,0.8,0,Some(1));e }
+        let (mut a,mut b)=(setup(),setup());
+        let (mut al,mut ar,mut bl,mut br)=(vec![0.;4096],vec![0.;4096],vec![0.;4096],vec![0.;4096]);
+        a.render(&mut al,&mut ar);b.render(&mut bl,&mut br);
+        b.expression(69,0,Some(2),Some(0.),None);
+        assert_eq!(b.voices.iter().find(|v|v.id==Some(1)).unwrap().expression_gain,1.);
+        b.expression(69,0,Some(1),Some(0.5),Some(-1.));
+        a.render(&mut al,&mut ar);b.render(&mut bl,&mut br);
+        let energy=|x:&[f32]| x.iter().map(|x|f64::from(x*x)).sum::<f64>();
+        assert!(energy(&bl)>0. && energy(&br)<energy(&bl)*1e-6);
+        assert!((energy(&bl)/energy(&al)-0.25).abs()<0.01);
+        b.tune(69,0,Some(1),12.);
+        assert_eq!(b.voices.iter().find(|v|v.id==Some(1)).unwrap().tune,12.);
+        assert_eq!(b.voices.iter().filter(|v|v.amp.stage!=0).count(),1);
+    }
+
+    #[test]
     fn render_pitch_release_reset_and_extremes() {
         for rate in [44100., 48000., 96000.] {
             let mut e = Engine::new(rate);
@@ -1295,4 +1324,8 @@ mod tests {
         assert!(a.voices.iter().any(|v| v.id == Some(1) && v.amp.stage == 4));
         assert!(a.voices.iter().any(|v| v.id == Some(2) && v.held));
     }
+}
+
+fn voice_pan(pan:f32, channel:usize)->f32 {
+    if channel == 0 { (1. - pan).min(1.) } else { (1. + pan).min(1.) }
 }

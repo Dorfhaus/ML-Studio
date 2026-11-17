@@ -105,6 +105,7 @@ pub fn remember_shared(path:&Path,sample:Arc<Sample>){if let (Some(stamp),Ok(mut
 
 /// Decodes a WAV (PCM or Vorbis-in-WAV) / FLAC / Ogg Vorbis / WavPack / MP3 / AIFF file.
 pub fn load(path: &Path) -> Result<Sample, SampleError> {
+    if crate::rex::is_rex(path) {return crate::rex::read(path).map_err(|message| SampleError::Decode {path:path.to_owned(),message});}
     let bytes = std::fs::read(path).map_err(|source| SampleError::Io { path: path.to_owned(), source })?;
     let decode_err = |message: String| SampleError::Decode { path: path.to_owned(), message };
     if let Some(vw) = vorbis_in_wav(&bytes) {
@@ -190,6 +191,10 @@ pub struct WavTags {
 /// The `smpl` and `acid` chunks of the file at `path`. A file that isn't a RIFF WAV, or can't be read, has neither.
 /// Only the chunk headers and those two bodies are read.
 pub fn wav_tags(path: &Path) -> WavTags {
+    if let Some(meta)=crate::rex::metadata(path) {
+        let beats=meta.beats.round();
+        return WavTags{unity_note:None,beats:((beats-meta.beats).abs()<0.0001 && beats>=1. && beats<=f64::from(u32::MAX)).then_some(beats as u32)};
+    }
     std::fs::File::open(path).ok().and_then(|f| tags_of(std::io::BufReader::new(f))).unwrap_or_default()
 }
 

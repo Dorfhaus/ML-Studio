@@ -136,6 +136,7 @@ pub const OPT_TYPE: &str = "type";
 pub const OPT_TAGS: &str = "tags";
 pub const OPT_INDEX: &str = "index";
 pub const OPT_REINDEX: &str = "reindex";
+pub const OPT_RIGHT: &str = "dock_right";
 pub const OPT_AUTOHIDE: &str = "autohide";
 pub const OPT_HIDEDRAG: &str = "hidedrag";
 pub const OPT_CONTRAST: &str = "contrast";
@@ -157,7 +158,7 @@ pub fn saved_opts()->std::collections::HashSet<&'static str> {
         crate::prefs::set_text("browser_option_preview","1");
         crate::prefs::set_text("browser_full_preview_v2","1");
     }
-    [OPT_PANEL,OPT_TREE_PLUGINS,OPT_PARENTS,OPT_EXPAND,OPT_FOLDERS,OPT_TOP,OPT_TYPE,OPT_TAGS,OPT_INDEX,OPT_REINDEX,OPT_AUTOHIDE,OPT_HIDEDRAG,OPT_CONTRAST,OPT_PREVIEW,OPT_PROJECT,OPT_PLUGINS,OPT_PRESETS,OPT_PARAMETERS,OPT_SINGLE_FOLDER].into_iter().filter(|k| {
+    [OPT_RIGHT,OPT_PANEL,OPT_TREE_PLUGINS,OPT_PARENTS,OPT_EXPAND,OPT_FOLDERS,OPT_TOP,OPT_TYPE,OPT_TAGS,OPT_INDEX,OPT_REINDEX,OPT_AUTOHIDE,OPT_HIDEDRAG,OPT_CONTRAST,OPT_PREVIEW,OPT_PROJECT,OPT_PLUGINS,OPT_PRESETS,OPT_PARAMETERS,OPT_SINGLE_FOLDER].into_iter().filter(|k| {
         crate::prefs::text(&format!("browser_option_{k}")).map_or(DEFAULT_OPTS.contains(k),|v|v=="1")
     }).collect()
 }
@@ -445,7 +446,7 @@ pub fn list_dir(s: &State, dir: &Path) -> Rc<Vec<Entry>> {
 pub fn file_icon(name: &str) -> Icon {
     let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
     match ext.as_str() {
-        "wav" | "mp3" | "ogg" | "flac" | "aif" | "aiff" => Icon::FileAudio,
+        "wav" | "mp3" | "ogg" | "flac" | "aif" | "aiff" | "wv" | "rx2" | "rex" | "rcy" => Icon::FileAudio,
         "mid" | "midi" => Icon::PianoRoll,
         "lmn" | "flp" => Icon::FileProject,
         "txt" | "url" | "pdf" | "nfo" | "rtf" | "htm" | "html" | "md" => Icon::FileText,
@@ -767,7 +768,7 @@ pub fn scrollbar(s: &State) -> Option<(Rect, Rect)> {
     let h = list_h(s).max(0.);
     let max = max_scroll(s);
     if max <= 0. || h <= 0. { return None; }
-    let track = Rect::new(crate::views::browser_w(s) - 12., list_top(s), 11., h);
+    let track = Rect::new(super::browser_content(s).right() - 11., list_top(s), 11., h);
     let thumb_h = (h * h / (h + max)).max(24.).min(h);
     let y = track.y + s.browser_scroll.clamp(0., max) / max * (h - thumb_h);
     Some((track, Rect::new(track.x + 2., y, 7., thumb_h)))
@@ -817,21 +818,22 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     let dy = r.y - super::WORK_Y;
     // The panel left of the splitter: 201 px measured, wider as the splitter is dragged (§9).
     let bw = r.w - SPLITTER;
+    let bx = r.x + if super::browser_right(s) { SPLITTER } else { 0. };
     ui.hit(r, Action::Swallow, "");
     // Title bar.
-    ui.c.fill_rect(Rect::span(0.0, bw - 1.0, 83.0 + dy, 105.0 + dy), t.browser_title);
-    if s.vintage_2005 {crate::vintage_rack_art::header_middle(ui.c,Rect::new(0.,83.+dy,bw,23.));}
+    ui.c.fill_rect(Rect::span(bx, bx + bw - 1.0, 83.0 + dy, 105.0 + dy), t.browser_title);
+    if s.vintage_2005 {crate::vintage_rack_art::header_middle(ui.c,Rect::new(bx,83.+dy,bw,23.));}
     let at = menu_at(s);
     let menu_open = s.playlist.popup.as_ref().is_some_and(|p| p.x == at.0 && p.y == at.1);
-    let mhov = ui.hit(Rect::new(2.0, 85.0 + dy, 16.0, 18.0), Action::BrowserMenu, "Browser options");
+    let mhov = ui.hit(Rect::new(bx + 2.0, 85.0 + dy, 16.0, 18.0), Action::BrowserMenu, "Browser options");
     if mhov || menu_open {
-        ui.c.stroke_rrect(Rect::new(3.0, 86.0 + dy, 15.0, 16.0), 2.0, 1.2, t.browser_tab_outline);
+        ui.c.stroke_rrect(Rect::new(bx + 3.0, 86.0 + dy, 15.0, 16.0), 2.0, 1.2, t.browser_tab_outline);
     }
-    icons::draw(ui.c, Icon::ArrowRight, Rect::new(5.0, 87.0 + dy, 12.0, 14.0), if mhov || menu_open { t.glyph } else { t.text_dim });
+    icons::draw(ui.c, Icon::ArrowRight, Rect::new(bx + 5.0, 87.0 + dy, 12.0, 14.0), if mhov || menu_open { t.glyph } else { t.text_dim });
     // Collapse structure and Reread structure (spec §4, "Title-bar icons"): outlined like the ▸ while hovered.
     for (r, icon, action, hint) in [
-        (Rect::new(17.0, 85.0 + dy, 16.0, 18.0), Icon::ArrowUp, Action::BrowserCollapse, "Collapse structure (Ctrl+Up)"),
-        (Rect::new(33.0, 85.0 + dy, 15.0, 18.0), Icon::Back, Action::BrowserReread, "Reread structure (Ctrl+R)"),
+        (Rect::new(bx + 17.0, 85.0 + dy, 16.0, 18.0), Icon::ArrowUp, Action::BrowserCollapse, "Collapse structure (Ctrl+Up)"),
+        (Rect::new(bx + 33.0, 85.0 + dy, 15.0, 18.0), Icon::Back, Action::BrowserReread, "Reread structure (Ctrl+R)"),
     ] {
         let hov = ui.hit(r, action, hint);
         if hov {
@@ -839,14 +841,14 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
         }
         icons::draw(ui.c, icon, Rect::new(r.x + 1.0, 87.0 + dy, 12.0, 14.0), if hov { t.glyph } else { t.text_dim });
     }
-    ui.c.text_clip(os_ui::Font::new(14), 52.0, 85.0 + dy, (bw - 56.0).max(0.0),
+    ui.c.text_clip(os_ui::Font::new(14), bx + 52.0, 85.0 + dy, (bw - 56.0).max(0.0),
         t.text_dim, crate::prefs::language::Language::current().text("Browser"));
     // Tabs (spec ui/browser.md §1): FL's five without Online content, sharing the strip.
-    ui.c.fill_rect(Rect::span(0.0, bw - 1.0, 106.0 + dy, (if s.vintage_2005 {127.0}else{141.0}) + dy), t.browser_tabs);
+    ui.c.fill_rect(Rect::span(bx, bx + bw - 1.0, 106.0 + dy, (if s.vintage_2005 {127.0}else{141.0}) + dy), t.browser_tabs);
     let tabs=tabs(s);
     let step=((bw-6.)/tabs.len() as f32).min(50.);
     for (slot,(i,icon,tip)) in tabs.into_iter().enumerate() {
-        let cx = 3. + step*(slot as f32+0.5);
+        let cx = bx + 3. + step*(slot as f32+0.5);
         let tab_w=(step-2.).min(36.);
         let rr = Rect::new(cx - tab_w/2., 108.0 + dy, tab_w, if s.vintage_2005 {18.0}else{30.0});
         let hov = ui.hit(rr, Action::BrowserTab(i), tip);
@@ -859,20 +861,20 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     let top = list_top(s);
     let search_on_top = opt(s,OPT_TOP);
     if search_on_top {
-        ui.c.fill_rect(Rect::new(0.0, (if s.vintage_2005 {128.0}else{LIST_Y}) + dy, bw, SEARCH_ROW), t.browser_footer);
-        search_box(ui, s, Rect::new(13.0, (if s.vintage_2005 {128.0}else{LIST_Y}) + dy + 4.0, bw - 38.0, 20.0));
+        ui.c.fill_rect(Rect::new(bx, (if s.vintage_2005 {128.0}else{LIST_Y}) + dy, bw, SEARCH_ROW), t.browser_footer);
+        search_box(ui, s, Rect::new(bx + 13.0, (if s.vintage_2005 {128.0}else{LIST_Y}) + dy + 4.0, bw - 38.0, 20.0));
     }
     if s.browser_tab==5 {
-        crate::plugin_downloads::paint(ui,s,Rect::new(0.,top,bw,(r.bottom()-FOOTER_H-top).max(0.)));
+        crate::plugin_downloads::paint(ui,s,Rect::new(bx,top,bw,(r.bottom()-FOOTER_H-top).max(0.)));
     } else {
     let rows = rows(s);
     let info = info_path(&rows, s);
     let ih = info_h(&rows,s);
-    let list = Rect::span(13.0, bw - 1.0, top, r.bottom() - FOOTER_H - ih);
-    ui.c.fill_rect(Rect::new(0.0, top, 13.0, list.h), t.browser_tabs.shade(0.02));
+    let list = Rect::span(bx + 13.0, bx + bw - 1.0, top, r.bottom() - FOOTER_H - ih);
+    ui.c.fill_rect(Rect::new(bx, top, 13.0, list.h), t.browser_tabs.shade(0.02));
     ui.c.fill_rect(list, t.browser_list);
-    ui.hit(Rect::new(0.0, top, bw, list.h), Action::BrowserList, "");
-    ui.c.push_clip(Rect::new(0.0, top, bw, list.h));
+    ui.hit(Rect::new(bx, top, bw, list.h), Action::BrowserList, "");
+    ui.c.push_clip(Rect::new(bx, top, bw, list.h));
     let cats: [Color; 2] = [t.cat_project, t.cat_plugin_db];
     let rh=row_h(s);
     let scroll = s.browser_scroll.min((rows.len() as f32 * rh - list.h).max(0.0)).max(0.0);
@@ -883,8 +885,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
         if y + rh < list.y || y > list.bottom() {
             continue;
         }
-        let x = 13.0 + INDENT * f32::from(row.depth);
-        let rect = Rect::new(13.0, y, bw - 13.0, rh);
+        let x = bx + 13.0 + INDENT * f32::from(row.depth);
+        let rect = Rect::new(bx + 13.0, y, bw - 13.0, rh);
         // A parameter row's hint carries its value (spec: plugins/plugin-parameters.md §6); read for the hovered row only.
         let hint = match row.item {
             Item::Param(key, index) if ui.hovering(rect) => crate::params::row_hint(s, key, index),
@@ -934,7 +936,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
         if !original_tree {
             icons::draw(ui.c,row.icon,if s.vintage_2005 {Rect::new(x+3.,y+1.,10.,10.)}else{Rect::new(x+6.,y+3.,17.,17.)},ic);
         }
-        let (f,w)=(if s.vintage_2005 {os_ui::Font::vintage(11)}else{os_ui::Font::new(17)},bw-15.-label_x);
+        let (f,w)=(if s.vintage_2005 {os_ui::Font::vintage(11)}else{os_ui::Font::new(17)},bx+bw-15.-label_x);
         let w=if let Item::Param(key,index)=row.item {
             if s.params.generic_editor==Some(key) {
                 let width=(w*0.42).clamp(25.,65.);
@@ -974,7 +976,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     if rows.is_empty() {
         if s.browser_tab == 0 && s.browser_search.is_empty() {
             crate::starter_pack::paint_empty(ui, list);
-        } else { ui.c.text(os_ui::Font::new(14).italic(), 22.0, top + 6.0, t.text_faint, empty); }
+        } else { ui.c.text(os_ui::Font::new(14).italic(), bx + 22.0, top + 6.0, t.text_faint, empty); }
     } else if s.browser_tab == 0 { crate::starter_pack::paint_status(ui, list); }
     ui.c.pop_clip();
     if let Some((track, thumb)) = scrollbar(s) {
@@ -982,35 +984,36 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
         let hover = ui.hit(track, Action::BrowserScroll, "Drag to scroll samples");
         ui.c.fill_rrect(thumb, 3., if hover { t.text_dim } else { t.splitter.shade(0.15) });
     }
-    if crate::browser_preview::visible(s) {crate::browser_preview::paint(ui,s,Rect::new(0.,list.bottom(),bw,ih));}
+    if crate::browser_preview::visible(s) {crate::browser_preview::paint(ui,s,Rect::new(bx,list.bottom(),bw,ih));}
     else if let Some(p) = &info {
-        paint_info(ui, s, p, Rect::new(0.0, list.bottom(), bw, ih));
+        paint_info(ui, s, p, Rect::new(bx, list.bottom(), bw, ih));
     }
     }
     // Footer: the search field takes the width the splitter adds.
     let fy = r.bottom() - 27.0;
-    ui.c.fill_rect(Rect::new(0.0, fy, bw, 27.0), t.browser_footer);
-    let field = Rect::new(13.0, fy + 4.0, bw - 38.0, 20.0);
+    ui.c.fill_rect(Rect::new(bx, fy, bw, 27.0), t.browser_footer);
+    let field = Rect::new(bx + 13.0, fy + 4.0, bw - 38.0, 20.0);
     if !search_on_top {
         search_box(ui, s, field);
     } else {
         ui.c.fill_rrect(field, 3.0, t.sunken);
     }
     icons::draw(ui.c, Icon::Folder, Rect::new(field.right() - 18.0, fy + 7.0, 14.0, 14.0), t.text_faint);
-    let glass = Rect::new(bw - 23.0, fy + 3.0, 21.0, 21.0);
+    let glass = Rect::new(bx + bw - 23.0, fy + 3.0, 21.0, 21.0);
     let hov = ui.hit(glass, Action::BrowserSearch, "Search the browser (Enter = find next, Esc = clear)");
     icons::draw(ui.c, Icon::Search, Rect::new(glass.x + 2.0, fy + 5.0, 17.0, 17.0), if hov { t.browser_search.shade(0.2) } else { t.browser_search });
     if t.style.vintage_2005 {
-        let frame = Rect::new(1., r.y+1., bw-2., r.h-2.);
+        let frame = Rect::new(bx + 1., r.y+1., bw-2., r.h-2.);
         ui.c.stroke_rrect(frame,0.,1.,t.window_border);
         ui.c.stroke_rrect(frame.inset(1.),0.,1.,t.toolbar_edge);
         ui.c.stroke_rrect(frame.inset(3.),0.,1.,t.window_border);
     }
+    let split_x = if super::browser_right(s) { r.x } else { bx + bw };
     // Splitter: drags the browser's width (§9).
-    ui.c.fill_rect(Rect::new(bw, r.y, 6.0, r.h), t.splitter);
-    ui.c.fill_rect(Rect::new(bw + 6.0, r.y, 2.0, r.h), t.splitter_dark);
+    ui.c.fill_rect(Rect::new(split_x, r.y, 6.0, r.h), t.splitter);
+    ui.c.fill_rect(Rect::new(split_x + 6.0, r.y, 2.0, r.h), t.splitter_dark);
     if s.native_view == Some(crate::app::Win::Browser) { return; }
-    ui.hit(Rect::new(bw, r.y, SPLITTER, r.h), Action::BrowserSplitter, "Browser: drag to resize, double-click for the default width");
+    ui.hit(Rect::new(split_x, r.y, SPLITTER, r.h), Action::BrowserSplitter, "Browser: drag to resize, double-click for the default width");
 }
 
 /// The splitter's width right of the browser panel.
@@ -1048,7 +1051,7 @@ pub fn samples_root() -> PathBuf {
 
 /// Where the options menu opens (just below the title bar's ▸, spec §4).
 pub fn menu_at(s: &State) -> (f32, f32) {
-    (1.0, 105.0 + super::work_y(s) - super::WORK_Y)
+    (super::browser_content(s).x + 1.0, 105.0 + super::work_y(s) - super::WORK_Y)
 }
 
 /// The search field (spec §5): typed text, a caret while focused; click focuses.

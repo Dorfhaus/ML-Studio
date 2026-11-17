@@ -45,7 +45,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Tempo Tapper shortcut", "visible_win-tapper"),
         ("Touch Controller shortcut", "visible_win-touch"),
     ]),
-    ("Stock plugins", &[("Advanced DSP controls", lemon_small_fx::STOCK_DSP_CONTROLS)]),
+    ("Stock plugins", &[("ML Patch in plugin menus", crate::ml_patch::VISIBILITY),("Advanced DSP controls", lemon_small_fx::STOCK_DSP_CONTROLS)]),
     ("Editor feedback", &[
         ("MCP activity orb", crate::ai_control::ACTIVITY_ORB_VISIBILITY),
         ("Selected effect sidechain source", crate::mixer::SIDECHAIN_SOURCE_VISIBILITY),

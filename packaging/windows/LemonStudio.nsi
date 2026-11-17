@@ -26,9 +26,11 @@ SetCompressor /SOLID lzma
 !ifdef TEST_INSTALL
 !define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\LemonStudio-Package-Test"
 !define SHORTCUT "$INSTDIR\ML Studio.lnk"
+!define STARTMENU "$INSTDIR\Start Menu\ML Studio"
 !else
 !define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\LemonStudio-MichaelLane"
 !define SHORTCUT "$DESKTOP\ML Studio.lnk"
+!define STARTMENU "$SMPROGRAMS\ML Studio"
 InstallDirRegKey HKCU "${REGKEY}" "InstallLocation"
 !endif
 Function .onInit
@@ -56,6 +58,7 @@ Section "ML Studio"
   File "${PAYLOAD}\Lemon Studio Source.zip"
   File "${PAYLOAD}\Lemon Starter.lmn"
   File "${PAYLOAD}\runtime\*.dll"
+!ifndef TEST_INSTALL
   WriteRegStr HKCU "Software\Classes\LemonStudio.LmnProject" "" "ML Studio project"
   WriteRegStr HKCU "Software\Classes\LemonStudio.LmnProject\DefaultIcon" "" '$\"$INSTDIR\lemonstudio.exe$\",0'
   WriteRegStr HKCU "Software\Classes\LemonStudio.LmnProject\shell\open\command" "" '$\"$INSTDIR\lemonstudio.exe$\" $\"%1$\"'
@@ -63,6 +66,7 @@ Section "ML Studio"
   ReadRegStr $0 HKCU "Software\Classes\.lmn" ""
   StrCmp $0 "" 0 +2
   WriteRegStr HKCU "Software\Classes\.lmn" "" "LemonStudio.LmnProject"
+!endif
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 !ifndef TEST_INSTALL
   ; Retire the old shortcut name when upgrading the same installation.
@@ -74,8 +78,10 @@ Section "ML Studio"
   ${EndIf}
 !endif
   CreateShortcut "${SHORTCUT}" "$INSTDIR\lemonstudio.exe"
+  CreateDirectory "${STARTMENU}"
+  CreateShortcut "${STARTMENU}\ML Studio.lnk" "$INSTDIR\lemonstudio.exe"
   WriteRegStr HKCU "${REGKEY}" "DisplayName" "ML Studio - Michael Lane Edition"
-  WriteRegStr HKCU "${REGKEY}" "DisplayVersion" "2026.11.16.3"
+  WriteRegStr HKCU "${REGKEY}" "DisplayVersion" "2026.11.17.1"
   WriteRegStr HKCU "${REGKEY}" "Publisher" "Michael Lane"
   WriteRegStr HKCU "${REGKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${REGKEY}" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
@@ -86,6 +92,7 @@ Section "ML Studio"
   nsExec::ExecToLog '"$INSTDIR\lemonstudio.exe" --cleanup-updates'
 SectionEnd
 Section "Uninstall"
+!ifndef TEST_INSTALL
   ReadRegStr $0 HKCU "Software\Classes\LemonStudio.LmnProject\shell\open\command" ""
   StrCmp $0 '$\"$INSTDIR\lemonstudio.exe$\" $\"%1$\"' 0 lmn_assoc_done
   DeleteRegKey HKCU "Software\Classes\LemonStudio.LmnProject"
@@ -94,7 +101,10 @@ Section "Uninstall"
   StrCmp $0 "LemonStudio.LmnProject" 0 lmn_assoc_done
   DeleteRegValue HKCU "Software\Classes\.lmn" ""
   lmn_assoc_done:
+!endif
   Delete "${SHORTCUT}"
+  Delete "${STARTMENU}\ML Studio.lnk"
+  RMDir "${STARTMENU}"
   Delete "$INSTDIR\lemonstudio.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\THIRD-PARTY-NOTICES.txt"

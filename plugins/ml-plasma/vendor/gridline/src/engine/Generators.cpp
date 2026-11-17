@@ -38,6 +38,7 @@ void Generator::fire(const Ev& e) {
     case Ev::Off: onNoteOff(e.id); break;
     case Ev::AllOff: onAllOff(); break;
     case Ev::Glide: onGlide(e.id, e.pitch, e.time); break;
+    case Ev::Expression: onExpression(e.id, static_cast<int>(e.pitch), e.velocity); break;
     case Ev::Cut: onCut(e.id); break;
     case Ev::Midi:
       onMidi(static_cast<uint8_t>(e.id & 0xFF), static_cast<uint8_t>((e.id >> 8) & 0xFF), static_cast<uint8_t>((e.id >> 16) & 0xFF));

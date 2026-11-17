@@ -898,7 +898,7 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
     let led_x=control_x+if full {23.*knob_scale}else{0.};
     let hit_radius=if full {8.5} else {7.};
     let led_y=ly.y(if full {PAN_Y}else{LED_Y});
-    ui.hit(Rect::new(led_x-hit_radius,led_y-hit_radius,2.*hit_radius,2.*hit_radius), Action::Mix(MHit::Led(n)), "Mute / solo");
+    ui.hit(Rect::new(led_x-hit_radius,led_y-hit_radius,2.*hit_radius,2.*hit_radius), Action::Mix(MHit::Led(n)), "Mute; right-click solo; Alt-click solo with inputs");
     if console {if full {console_skin::lamp(ui,led_x,led_y,enabled,Color::rgb(0xb7d98b),5.);} else {console_skin::lamp(ui,led_x,led_y,enabled,Color::rgb(0xb7d98b),4.);}}else{led(ui, control_x, ly.y(LED_Y), enabled);}
     let lock = if led_x + 23. <= left + width {
         Rect::new(led_x + 9., led_y - 7., 14., 14.)

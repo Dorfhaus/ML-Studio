@@ -24,7 +24,7 @@ use crate::dialog::{spans, Kind, Then};
 /// folder.
 const UNZIP_DIR: &str = "Unzipped projects";
 /// Files already compressed are stored as they are.
-const STORED: &[&str] = &["mp3", "ogg", "flac", "m4a", "aac", "opus", "zip"];
+const STORED: &[&str] = &["mp3", "ogg", "flac", "m4a", "aac", "opus", "rx2", "rex", "rcy", "zip"];
 
 /// A zip being unzipped or written: the panel's title and file, and the bytes done of the total.
 pub struct Zipping {
@@ -300,7 +300,7 @@ pub(crate) fn collaboration_unpack(zip:&Path)->Result<PathBuf,String>{
         let name=f.name().map_err(|e|e.to_string())?;
         let ext=Path::new(name.as_ref()).extension().and_then(|e|e.to_str()).unwrap_or("").to_ascii_lowercase();
         if name.contains(['/', '\\', ':'])||name.len()>240||!names.insert(name.to_ascii_lowercase())||
-            !["lmn","flp","wav","aif","aiff","flac","mp3","ogg","m4a","aac","opus"].contains(&ext.as_str())||
+            !["lmn","flp","wav","aif","aiff","flac","mp3","ogg","m4a","aac","opus","rx2","rex","rcy"].contains(&ext.as_str())||
             f.unix_mode().is_some_and(|m|m & 0o170000==0o120000){
             return Err("Unsupported or unsafe file in shared project".into());
         }

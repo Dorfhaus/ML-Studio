@@ -54,6 +54,7 @@ pub fn paint(ui: &mut Ui, s: &State) {
             crate::voice_assistant::Screen::Ready | crate::voice_assistant::Screen::Result);
         ui.hit(full, if voice_orb { Action::Dlg(DHit::Voice(crate::voice_assistant::Button::Dismiss)) } else { Action::Swallow }, "");
         match &m.body {
+            Body::Patch(f)=>{let r=place(s,m,(s.screen.0-24.).clamp(760.,1120.),(s.screen.1-30.).clamp(620.,680.));frame(ui,r,"ML Patch");crate::ml_patch::paint(ui,r,f);},
             Body::ClipFx(channel,page)=>{let r=place(s,m,510.,386.);frame(ui,r,"Clip Effects");crate::clip_effects::paint(ui,s,r,*channel,*page);},
             Body::Collaboration(f)=>{let r=place(s,m,594.,454.);frame(ui,r,"Collaborate - direct host");crate::collaboration::paint(ui,r,f);},
             Body::NoteProperties(f)=>{let r=place(s,m,460.,420.);frame(ui,r,"Note properties");crate::piano_note_properties::paint(ui,r,f);},
@@ -777,7 +778,7 @@ fn file_icon(name: &str) -> Icon {
     let ext = std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     match ext.as_str() {
         "lmn" | "flp" => Icon::FileProject,
-        "wav" | "mp3" | "flac" | "ogg" | "aif" | "aiff" => Icon::FileAudio,
+        "wav" | "mp3" | "flac" | "ogg" | "aif" | "aiff" | "wv" | "rx2" | "rex" | "rcy" => Icon::FileAudio,
         "zip" => Icon::FileZip,
         "txt" | "flstheme" => Icon::FileText,
         e if e == crate::presets::EXT => Icon::FilePreset,

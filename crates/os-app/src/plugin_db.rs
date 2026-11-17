@@ -795,7 +795,7 @@ pub fn lists(available: &[Available], effects: &[Available], prefs: &Prefs, miss
 
 fn entries(list: &[Available], prefs: &Prefs, missing: &HashSet<String>) -> Vec<Entry> {
     let into = combined_into(list, prefs, missing);
-    let shown: Vec<usize> = (0..list.len()).filter(|&i| into[i].is_none()).filter(|&i| { let u = list[i].desc.uid(); !prefs.is_hidden(&u) && !missing.contains(&u) && (list[i].desc.name!="ML Tape" || crate::workspace_visibility::shown("visible_plugin-tape")) && (list[i].desc.name!="ML Hall" || crate::workspace_visibility::shown("visible_plugin-hall")) && (list[i].desc.name != ml_plasma::NAME || crate::workspace_visibility::shown(ml_plasma::VISIBILITY)) }).collect();
+    let shown: Vec<usize> = (0..list.len()).filter(|&i| into[i].is_none()).filter(|&i| { let u = list[i].desc.uid(); !prefs.is_hidden(&u) && !missing.contains(&u) && (list[i].desc.id != crate::ml_patch::core::ID || crate::workspace_visibility::shown(crate::ml_patch::VISIBILITY)) && (list[i].desc.name!="ML Tape" || crate::workspace_visibility::shown("visible_plugin-tape")) && (list[i].desc.name!="ML Hall" || crate::workspace_visibility::shown("visible_plugin-hall")) && (list[i].desc.name != ml_plasma::NAME || crate::workspace_visibility::shown(ml_plasma::VISIBILITY)) }).collect();
     let mut v: Vec<Entry> = shown
         .iter()
         .map(|&i| {

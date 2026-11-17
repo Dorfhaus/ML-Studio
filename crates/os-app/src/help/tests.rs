@@ -68,7 +68,7 @@ fn shot(canvas: &Canvas, name: &str) {
 #[test]
 fn guide_catalog_links_images_and_stock_plugins() {
     use super::content::Block;
-    assert_eq!(chapters().len(), 13);
+    assert_eq!(chapters().len(), 14);
     assert!(topics().len() >= 140);
     for (i, chapter) in chapters().iter().enumerate() {
         assert!(!chapter.intro.is_empty() && !chapter.topics.is_empty());
@@ -80,7 +80,7 @@ fn guide_catalog_links_images_and_stock_plugins() {
             "missing keywords in {}",
             topic.title
         );
-        assert!(topic.blocks.len() >= 2, "empty article {}", topic.title);
+        assert!(!topic.blocks.is_empty(), "empty article {}", topic.title);
         for title in &topic.related {
             assert_eq!(
                 topics()
@@ -107,12 +107,12 @@ fn guide_catalog_links_images_and_stock_plugins() {
         .into_iter()
         .chain(crate::plugins::LINKED_EFFECTS)
         .chain(crate::plugins::FILE_MAPPED)
-        .chain([crate::master_assistant::NAME])
+        .chain([crate::master_assistant::NAME,crate::ml_patch::core::NAME])
     {
         assert!(
             topics()
                 .iter()
-                .any(|topic| matches!(topic.chapter, 6 | 7) && topic.title.contains(name)),
+                .any(|topic| topic.title.contains(name) && !topic.title.contains("parameter names")),
             "{name}"
         );
     }

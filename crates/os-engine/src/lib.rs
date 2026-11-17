@@ -23,6 +23,7 @@ pub mod instrument;
 pub mod laws;
 pub mod metronome;
 pub mod sample;
+pub mod rex;
 pub mod voices;
 pub mod vocal_audition;
 pub mod vu;

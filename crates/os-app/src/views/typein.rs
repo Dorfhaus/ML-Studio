@@ -21,14 +21,7 @@ pub fn paint(ui: &mut Ui, s: &State, e: &TextEdit, t: Target, norm: bool) {
     // The field: the text, its selection or the caret.
     let font = Font::new(17);
     let max_w = r.w - 52.0;
-    let tw = ui.c.text_width(font, &e.text).min(max_w);
-    if e.sel && !e.text.is_empty() {
-        ui.c.fill_rect(Rect::new(r.x + 5.0, r.y + 4.0, tw + 2.0, 24.0), th.s(0x315d8a));
-    }
-    ui.c.text_clip(font, r.x + 6.0, r.y + 6.0, max_w, th.text, &e.text);
-    if !e.sel {
-        ui.c.fill_rect(Rect::new(r.x + 7.0 + tw, r.y + 6.0, 1.0, 19.0), th.text);
-    }
+    super::playlist::inline_text(ui,e,Rect::new(r.x+2.,r.y+4.,max_w+4.,24.),font,th.text);
 
     // Mode buttons: the knob's unit, then "A" (normalized).
     if let Some((label, name)) = typein::mode_button(t) {

@@ -379,6 +379,7 @@ impl App {
         let mut moved = None;
         let mut edited = Vec::new();
         let mut ara_changes=Vec::new();
+        let mut native_edits=Vec::new();
         let mut automate = Vec::new();
         let mut stretch = Vec::new();
         let mut recorded=Vec::new();
@@ -429,6 +430,8 @@ impl App {
             }
             let sampler = key < crate::plugins::FX_KEY && p.desc().name == crate::plugins::LEMON_SAMPLER;
             if p.take_state_changed(){edited.push(key);if self.state.project.channels.get(key).is_some_and(crate::ara::is){ara_changes.push((key,p.save_state()));}}
+            let state_undo = p.state_undo_supported();
+            native_edits.extend(p.take_state_edits().into_iter().map(|edit| (key, edit)));
             let pending=ui.capture_pending.remove(&key);
             for e in p.take_param_events() {
                 // Preserve gesture order even when Begin/Value/End arrive in one poll.
@@ -447,7 +450,7 @@ impl App {
                         os_host::ParamEvent::End(id)=>{l.gestures.remove(&id);}
                         os_host::ParamEvent::Value(id,v) if v.is_finite()=>{
                             let before=l.values.borrow_mut().insert(id,v);
-                            if before.is_some_and(|old|old!=v) && !l.gestures.get(&id).copied().unwrap_or(false) {
+                            if !state_undo && before.is_some_and(|old|old!=v) && !l.gestures.get(&id).copied().unwrap_or(false) {
                                 if let Some(index)=l.params.iter().position(|x|x.id==id) {
                                     undo.push((key,index,before,v));
                                     if let Some(done)=l.gestures.get_mut(&id){*done=true;}
@@ -524,6 +527,8 @@ impl App {
             }
         }
         for (key,index,before,v) in undo {crate::history::param(&mut self.state,key,index,before,v);}
+        for (key, edit) in native_edits { self.record_plugin_state_edit(key, &edit); }
+        self.pending_plugin_state_edits();
         for (key,blob) in ara_changes {crate::ara::edited(self,key,blob);}
         // A knob moved in a plugin's own window is the user's edit (`Plugins::mark_edited`).
         for key in edited {

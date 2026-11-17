@@ -109,9 +109,8 @@ impl RowDrag {
 
 fn over_browser(app: &App) -> bool {
     let s = &app.state;
-    let (x, y) = app.mouse;
     s.show_browser && !s.browser_auto_hidden && s.native_view.is_none()
-        && x >= 0.0 && x < views::browser_w(s) && y >= s.work_rect().y
+        && app.over_browser()
 }
 
 fn insertion(s: &State, (x, y): (f32, f32)) -> Option<(usize, bool, f32)> {

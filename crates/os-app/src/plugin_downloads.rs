@@ -159,7 +159,8 @@ pub fn paint_tooltip(ui:&mut Ui,s:&State) {
     let w=360_f32.min(s.screen.0-16.);let body_w=w-24.;
     let ih=text_height(ui,&p.info,body_w);let nh=text_height(ui,&p.note,body_w);
     let h=94.+ih+nh;
-    let x=(crate::views::browser_w(s)+8.).min((s.screen.0-w-8.).max(8.));
+    let dock=crate::views::browser_rect(s);
+    let x=(if crate::views::browser_right(s) {dock.x-w-8.} else {dock.right()+8.}).clamp(8.,(s.screen.0-w-8.).max(8.));
     let y=row_y.clamp(8.,(s.screen.1-h-8.).max(8.));let r=Rect::new(x,y,w,h);
     // Register as an overlay so native plugin editors are clipped underneath it.
     // The card has no controls and cannot start a download.

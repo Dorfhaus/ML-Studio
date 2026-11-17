@@ -352,6 +352,18 @@ pub fn key_input(app:&mut App,key:&winit::keyboard::Key,ctrl:bool,alt:bool)->boo
   }
   assert_eq!(std::fs::read(dir.join("Vocal.wav")).unwrap(),original_audio);
  }
+ #[test]
+ fn community_vocal_partial_repaint_keeps_input_surface() {
+  let (mut app,_,ci)=fixture(); let mut canvas=Canvas::new(1280,900,1.).unwrap();
+  paint(&mut app,&mut canvas);
+  let before=pl::clips(&app.state).to_vec();
+  let r=hit(&app,Action::Vocal(Command::Note(ci,1)));
+  // A small repaint in the toolbar must not discard the editor's hit targets.
+  app.paint(&mut canvas,Some(Rect::new(0.,0.,50.,30.)));
+  assert!(matches!(app.top_hit(r.cx(),r.cy()).map(|h|&h.action),Some(Action::Vocal(_))));
+  app.mouse_move(r.cx(),r.cy()); app.mouse_down(); app.mouse_up();
+  assert_eq!(pl::clips(&app.state),before);
+ }
  #[test]fn vocal_download_requires_consent_and_cancel_keeps_project(){
   let(mut app,_,_)=fixture();app.state.playlist.vocal.row=None;app.state.playlist.vocal.ready=Some(false);let before=app.state.project.clone();toggle(&mut app,2);
   assert!(app.vocal_job.is_none());assert_eq!(app.state.project,before);
@@ -370,7 +382,12 @@ pub fn key_input(app:&mut App,key:&winit::keyboard::Key,ctrl:bool,alt:bool)->boo
   app.state.dialogs.clear();app.dialog_done(crate::dialog::Then::VocalDownload(2),crate::dialog::Reply::Button(crate::dialog::Answer::Yes));
   fn wait(app:&mut App){let until=Instant::now()+Duration::from_secs(60);while app.vocal_job.is_some(){tick(app);assert!(Instant::now()<until,"{}",app.state.playlist.vocal.message);std::thread::sleep(Duration::from_millis(10));}}
   wait(&mut app);assert!(engine::ready(),"{}",app.state.playlist.vocal.message);assert_eq!(app.state.project.vocal_edits.len(),1,"{}",app.state.playlist.vocal.message);
-  assert_ne!(pl::clips(&app.state)[ci].source,shared);assert_eq!(pl::clips(&app.state).last().unwrap().source,shared);
+  // Reconciliation may isolate the duplicate before the download completes.
+  // Require independent sources, not a particular allocation order for IDs.
+  let other=pl::clips(&app.state).last().unwrap().source;
+  assert_ne!(pl::clips(&app.state)[ci].source,other);
+  let ClipSource::Channel(other_id)=other else{panic!()};
+  assert_eq!(app.state.project.channel(other_id).unwrap().sample_path.as_deref(),Some(dir.join("Vocal.wav").to_str().unwrap()));
   assert!(app.state.project.vocal_edits[0].notes.len()>=3);paint(&mut app,&mut canvas);
   let note=hit(&app,Action::Vocal(Command::Note(ci,1)));let g=pl::PGeom::new(&app.state,app.pl_grid().unwrap());let pr=view::pitch_rect(&g,2);
   app.mouse_move(note.cx(),note.cy());app.mouse_down();app.mouse_move(note.cx(),note.cy()-3.*pr.h/app.state.playlist.vocal.span);app.mouse_up();

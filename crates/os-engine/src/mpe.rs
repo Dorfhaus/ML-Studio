@@ -313,10 +313,27 @@ pub struct Scheduled {
     pub start: u64,
     pub end: u64,
     pub key: u8,
+    pub color: u8,
     pub velocity: u8,
     pub release: u8,
     pub expression: os_model::mpe::Expression,
     pub fine: f32,
+}
+/// Piano Roll slide notes target the highest held note of their color, preserving
+/// intervals. This is distinct from MPE's timbre lane, also called "slide".
+pub struct PitchSlide {
+    pub start: u64,
+    pub len: u64,
+    pub key: u8,
+    pub color: u8,
+}
+#[derive(Clone)]
+struct PitchRamp { start: u64, len: u64, from: f32, to: f32 }
+fn slide_pitch(ramps: &[PitchRamp], tick: u64) -> f32 {
+    let end = ramps.partition_point(|r| r.start <= tick);
+    let Some(r) = end.checked_sub(1).map(|i| &ramps[i]) else { return 0. };
+    let progress = ((tick - r.start).saturating_add(1) as f64 / r.len.saturating_add(1) as f64).min(1.) as f32;
+    r.from + (r.to - r.from) * progress
 }
 #[derive(Clone)]
 struct Voice {
@@ -332,6 +349,7 @@ pub struct Playback {
     pub config: os_model::mpe::Config,
     pub pitch_offset: f32,
     pub notes: Vec<Scheduled>,
+    pitch_slides: Vec<Vec<PitchRamp>>,
     voices: Vec<Voice>,
     live: [bool; 16],
     live_up: [bool; 16],
@@ -348,6 +366,7 @@ impl Playback {
             resume_tick: None,
             config: config.valid(),
             pitch_offset: 0.,
+            pitch_slides: vec![vec![]; notes.len()],
             notes,
             voices: vec![],
             live: [false; 16],
@@ -359,6 +378,25 @@ impl Playback {
         }
     }
     pub fn with_chase(mut self, on: bool) -> Self { self.chase_notes = on; self }
+    /// Compile slide ramps while preparing the project, not in the audio callback.
+    /// Absolute musical positions make seek, loop and engine replacement deterministic.
+    pub fn with_pitch_slides(mut self, mut slides: Vec<PitchSlide>) -> Self {
+        slides.sort_by_key(|s| s.start);
+        for slide in slides {
+            let end = self.notes.partition_point(|n| n.start <= slide.start);
+            let matching: Vec<_> = (0..end).filter(|&i| {
+                let n = &self.notes[i]; n.end > slide.start && n.color == slide.color
+            }).collect();
+            let before = |i: usize| slide.start.checked_sub(1).map_or(0., |t| slide_pitch(&self.pitch_slides[i], t));
+            let Some(top) = matching.iter().map(|&i| f32::from(self.notes[i].key) + before(i)).reduce(f32::max) else { continue };
+            let delta = f32::from(slide.key) - top;
+            let ramps: Vec<_> = matching.iter().map(|&i| (i, before(i))).collect();
+            for (i, from) in ramps {
+                self.pitch_slides[i].push(PitchRamp { start:slide.start, len:slide.len, from, to:from + delta });
+            }
+        }
+        self
+    }
     pub fn adopt(&mut self, old: &mut Self) {
         if self.config != old.config {
             self.pending.extend(old.shutdown());
@@ -375,6 +413,7 @@ impl Playback {
             let matches = |i: usize, n: &Scheduled| {
                 n.start == oldnote.start
                     && n.key == oldnote.key
+                    && n.color == oldnote.color
                     && !self.voices.iter().any(|v| v.note == i)
             };
             let note = self
@@ -572,7 +611,8 @@ impl Playback {
             let n = &self.notes[v.note];
             let at = (tick - n.start) as f32 / (n.end - n.start).max(1) as f32;
             let pitch =
-                (n.expression.value(0, at) * self.config.sensitivity + n.fine + self.pitch_offset)
+                (n.expression.value(0, at) * self.config.sensitivity + n.fine + self.pitch_offset
+                    + slide_pitch(&self.pitch_slides[v.note], tick))
                     / f32::from(self.config.bend);
             let raw = (8192. + pitch.clamp(-1., 1.) * if pitch >= 0. { 8191. } else { 8192. })
                 .round() as i32;
@@ -615,6 +655,46 @@ impl Playback {
 #[cfg(test)]
 mod playback_tests {
     use super::*;
+    fn held_note(key: u8, color: u8) -> Scheduled {
+        Scheduled { start:0, end:96, key, color, velocity:100, release:64, expression:Default::default(), fine:0. }
+    }
+    fn bends(events: &[[u8; 3]]) -> Vec<(u8, f32)> {
+        events.iter().filter(|b| b[0] & 0xf0 == 0xe0).map(|b| {
+            let raw = i32::from(b[1]) + (i32::from(b[2]) << 7) - 8192;
+            (b[0] & 15, raw as f32 * 48. / if raw >= 0 {8191.} else {8192.})
+        }).collect()
+    }
+    #[test]
+    fn mpe_pitch_slides_keep_chord_intervals_colors_and_unisons() {
+        let mut p = Playback::new(Default::default(), vec![held_note(60,2), held_note(64,2), held_note(60,3)])
+            .with_pitch_slides(vec![PitchSlide {start:4,len:3,key:76,color:2}]);
+        p.tick(0,true);
+        for tick in 1..4 {assert!(p.tick(tick,true).is_empty());}
+        for tick in 4..8 {
+            let events = p.tick(tick,true);
+            assert!(!events.iter().any(|b| b[0] & 0xf0 == 0x90), "slides must not retrigger");
+            let got = bends(&events);
+            assert_eq!(got.len(),2);
+            for (channel,pitch) in got {assert!(channel==1 || channel==2); assert!((pitch-(tick-3) as f32*3.).abs()<0.01);}
+        }
+        assert!(p.tick(8,true).is_empty());
+        let seek = bends(&p.tick(5,true));
+        assert!(seek.iter().any(|&(ch,v)| ch==1 && (v-6.).abs()<0.01));
+        assert!(seek.iter().any(|&(ch,v)| ch==3 && v.abs()<0.01));
+    }
+    #[test]
+    fn mpe_pitch_slides_chain_add_expression_and_survive_engine_adoption() {
+        let mut n = held_note(60,2); n.expression.set(0,0.,1.,false); n.fine=0.25;
+        let make = || Playback::new(Default::default(),vec![n.clone()]).with_pitch_slides(vec![
+            PitchSlide {start:4,len:3,key:72,color:2}, PitchSlide {start:6,len:1,key:64,color:2}]);
+        let mut p=make(); p.tick(0,true); for t in 1..6 {p.tick(t,true);}
+        let mut next=make(); next.adopt(&mut p); next.pitch_offset=2.;
+        let events=next.tick(6,true);
+        assert!(!events.iter().any(|b| b[0]&0xf0==0x90));
+        assert!(bends(&events).iter().any(|&(_,v)| (v-8.25).abs()<0.01));
+        assert!(bends(&next.tick(7,true)).iter().any(|&(_,v)| (v-7.25).abs()<0.01));
+        assert_eq!(next.tick(96,true).iter().filter(|b| b[0]&0xf0==0x80).count(),1);
+    }
     #[test]
     fn mpe_playback_channels_seek_overlap_and_muting() {
         let mut expr = os_model::mpe::Expression::default();
@@ -623,6 +703,7 @@ mod playback_tests {
             start: 0,
             end: 96,
             key: 60,
+            color: 0,
             velocity: 100,
             release: 64,
             expression: expr,

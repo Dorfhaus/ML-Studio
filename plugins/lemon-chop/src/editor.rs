@@ -855,7 +855,7 @@ impl Logic {
                 if let Some(p) = rfd::FileDialog::new()
                     .add_filter(
                         "Audio",
-                        &["wav", "aiff", "aif", "flac", "mp3", "ogg", "m4a", "wv"],
+                        &["wav", "aiff", "aif", "flac", "mp3", "ogg", "m4a", "wv", "rx2", "rex", "rcy"],
                     )
                     .pick_file()
                 {
@@ -1678,7 +1678,7 @@ mod win32 {
                 | Cmd::Automate
                 | Cmd::Audio
                 | Cmd::Resizable
-                | Cmd::SampleFit | Cmd::BrowseSample
+                | Cmd::StateEdit | Cmd::SampleFit | Cmd::BrowseSample
                 | Cmd::SetSize => 0,
             }
         }

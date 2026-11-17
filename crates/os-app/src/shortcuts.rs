@@ -92,7 +92,7 @@ pub struct Form {
 impl Form {
     /// The applied shortcuts (as the window opens).
     pub fn applied() -> Form {
-        Form { vals: ROWS.map(prefs::index), open: None,bindings:COMMANDS.iter().map(|(id,_,default)|prefs::text(&format!("command_key_{id}")).unwrap_or_else(||default.to_string())).collect(),capture:None,page:0,notice:String::new() }
+        Form { vals: ROWS.map(prefs::index), open: None,bindings:COMMANDS.iter().map(|(id,_,default)|prefs::text(&format!("command_key_{id}")).map(|v|if v=="-" {String::new()}else{v}).unwrap_or_else(||default.to_string())).collect(),capture:None,page:0,notice:String::new() }
     }
 
     /// Row `row` takes choice `v`. Each value is used once per group, "(disabled)" included: the row of the group that
@@ -119,7 +119,7 @@ impl Form {
     /// Apply: the form's choices are kept and work at once.
     pub fn apply(&self) {
         for (c, &v) in ROWS.iter().zip(&self.vals) {prefs::set_choice(c, v);}
-        for ((id,_,_),key) in COMMANDS.iter().zip(&self.bindings) {prefs::set_text(&format!("command_key_{id}"),key);}
+        for ((id,_,_),key) in COMMANDS.iter().zip(&self.bindings) {prefs::set_text(&format!("command_key_{id}"),if key.is_empty(){"-"}else{key});}
     }
 
     /// Row `row`'s choice as its box shows it.
@@ -134,6 +134,7 @@ pub const COMMANDS:&[(&str,&str,&str)]=&[
     ("undo","Undo","Ctrl+Z"),("redo","Redo","Ctrl+Shift+Z"),
     ("playlist","Playlist","F5"),("rack","Channel rack","F6"),("piano","Piano roll","F7"),("mixer","Mixer","F9"),
     ("metronome","Metronome","Ctrl+M"),("typing","Typing piano keyboard","Ctrl+T"),
+    ("maximize_focused","Maximize / restore focused editor","Enter"),
 ];
 pub const COMMAND_PAGE:usize=8;
 pub fn chord(key:&winit::keyboard::Key,ctrl:bool,alt:bool,shift:bool)->Option<String>{
@@ -141,6 +142,7 @@ pub fn chord(key:&winit::keyboard::Key,ctrl:bool,alt:bool,shift:bool)->Option<St
     let name=match key {
         Key::Character(c) if c.chars().count()==1 && (ctrl||alt)=>c.to_uppercase(),
         Key::Named(N::Space)=>"Space".into(),
+        Key::Named(N::Enter)=>"Enter".into(),
         Key::Named(n @ (N::F2|N::F3|N::F4|N::F5|N::F6|N::F7|N::F9|N::F10|N::F11|N::F12))=>format!("{n:?}"),
         _=>return None,
     };
@@ -157,7 +159,7 @@ impl Form {
             if !value.is_empty() && self.bindings.iter().enumerate().any(|(j,v)|j!=i&&v==&value) {
                 self.notice="Already assigned. Clear that command first.".into();
             }else {self.bindings[i]=value;self.capture=None;self.notice="Apply to keep your shortcuts.".into();}
-        }else{self.notice="Use Ctrl/Alt + a letter, Space, or a function key (F8 reserved).".into();}
+        }else{self.notice="Use Ctrl/Alt + a letter, Space, Enter, or a function key (F8 reserved).".into();}
         true
     }
 }
@@ -179,7 +181,9 @@ pub fn command_key(app:&mut App,key:&winit::keyboard::Key,ctrl:bool,alt:bool)->b
         6=>{let m=crate::history::ctrl_shift_z(&mut app.state);app.say(m);},
         7=>app.act(Action::ToggleWin(Win::Playlist)),8=>app.act(Action::ToggleWin(Win::ChannelRack)),
         9=>app.act(Action::ToggleWin(Win::PianoRoll)),10=>app.act(Action::ToggleWin(Win::Mixer)),
-        11=>app.act(Action::Metronome),12=>app.act(Action::Typing),_=>{}
+        11=>app.act(Action::Metronome),12=>app.act(Action::Typing),
+        13=>if !app.state.no_focus && let Some(&win)=app.state.z.last() && win.slot().is_some() {app.act(Action::MaxWin(win));},
+        _=>{}
     }
     app.invalidate();
     true
@@ -292,6 +296,21 @@ mod tests {
 
     fn row(c: &Combo) -> usize {
         ROWS.iter().position(|r| r.key == c.key).expect("a row")
+    }
+
+    #[test]
+    fn community_enter_maximizes_focused_editor_and_can_be_reassigned() {
+        use winit::keyboard::{Key,NamedKey};
+        let mut f=Form::applied();f.reset();f.apply();
+        let mut app=App::new(None);app.state.z=vec![Win::Playlist];app.state.no_focus=false;
+        let old=app.state.is_max(Win::Playlist);
+        app.key(&Key::Named(NamedKey::Enter),false,false);assert_ne!(app.state.is_max(Win::Playlist),old);
+        app.key(&Key::Named(NamedKey::Enter),false,false);assert_eq!(app.state.is_max(Win::Playlist),old);
+        app.state.settings.open=true;app.key(&Key::Named(NamedKey::Enter),false,false);assert_eq!(app.state.is_max(Win::Playlist),old);
+        app.state.settings.open=false;
+        let i=COMMANDS.iter().position(|c|c.0=="maximize_focused").unwrap();f.bindings[i]=String::new();f.apply();
+        app.key(&Key::Named(NamedKey::Enter),false,false);assert_eq!(app.state.is_max(Win::Playlist),old);
+        f.reset();f.apply();
     }
 
     #[test] fn community_command_shortcuts_capture_conflicts_and_dispatch(){

@@ -47,3 +47,12 @@ built Windows `ml_plasma_editor_fixture` target is for device-free regression
 checks only; it is never included in the embedded shipping payload. Run the
 ignored ML host editor test explicitly with `ML_PLASMA_EDITOR_TEST_LIBRARY`
 pointing at its `ML Plasma Editor Test.clap` output.
+
+ML Studio host undo uses the versioned `org.ml-studio.state-undo/1` CLAP
+extension for this adapter. Completed native editor gestures return the prior
+plugin keys, including asset data and bulk parameter edits. Host automation and
+state restoration do not create editor transactions. Other hosts continue to
+receive the normal CLAP parameter and dirty-state notifications. The event
+queue and ML host history have a 128 MiB state-edit budget; no idle asset polling
+is introduced. Host Ctrl+Z and Ctrl+Shift+Z are verified separately from the
+native editor's own undo controls.

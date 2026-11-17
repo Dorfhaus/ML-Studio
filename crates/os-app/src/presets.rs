@@ -651,6 +651,7 @@ fn apply(app: &mut App, key: usize, body: &Body) -> Result<Vec<String>, String> 
 /// State preparation is complete before the transport sees the replacement. Keep
 /// the old editor alive until its instance has left every playing engine.
 pub(crate) fn restore_state(app: &mut App, key: usize, state: &[u8]) -> Result<(), String> {
+    if let Some(result)=crate::ml_patch::restore(app,key,state){return result;}
     let next = app.plugins.prepare_preset(key, state)?;
     commit_prepared(app, key, next);
     Ok(())

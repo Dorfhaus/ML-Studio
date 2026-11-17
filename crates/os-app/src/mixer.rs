@@ -323,13 +323,13 @@ impl Default for MixerUi {
     }
 }
 
-/// Highest insert a channel can target (at least 1).
+/// Highest visible insert a channel can target; zero means Master only.
 pub fn max_insert(p: &os_model::Project) -> u16 {
     max_insert_of(&p.mixer)
 }
 
 pub fn max_insert_of(mixer: &[MixerTrack]) -> u16 {
-    (mixer.len().saturating_sub(2) as u16).max(1)
+    mixer.len().saturating_sub(2) as u16
 }
 
 /// Inserts shown: stored tracks minus the master and the last (hidden) one (§1).
@@ -749,6 +749,10 @@ pub fn hit(app: &mut App, h: MHit) -> Option<String> {
     if h==MHit::AttachPlaylist {crate::attached_mixer::toggle(app);return None;}
     if let MHit::Lock(t) = h { return toggle_lock(app, t); }
     if locked_hit(&app.state, h) { return Some(LOCK_MESSAGE.into()); }
+    if let MHit::Led(n)=h && app.alt {
+        solo_with(&mut app.state,n,true);
+        return None;
+    }
     if h==MHit::MasterAssistant {crate::master_assistant::open(app,false);return None;}
     if h==MHit::MasterAssistantToggle {crate::master_assistant::open(app,true);return None;}
     if h==MHit::Headphones {crate::headphones::open(app);return None;}
@@ -1311,7 +1315,7 @@ fn select_linked(s: &mut State, n: u16, down: bool) -> Option<String> {
 }
 
 /// The inserts Trim unused tracks deletes (spec: ui/mixer-track-commands.md §4, §6): no channel uses them and (unless
-/// `non_empty`) they hold no effect; a track a kept track sends to stays, and so does one insert at least.
+/// `non_empty`) they hold no effect; a track a kept track sends to stays. Master is always kept.
 pub fn trim_list(s: &State, non_empty: bool) -> Vec<u16> {
     let n = inserts(s);
     let last_protected = (1..=n).rev().find(|&t| group_structure_locked(s, t)).unwrap_or(0);
@@ -1332,61 +1336,7 @@ pub fn trim_list(s: &State, non_empty: bool) -> Vec<u16> {
         }
         gone.retain(|t| !fed.contains(t));
     }
-    if gone.len() == usize::from(n) {
-        gone.remove(0);
-    }
     gone
-}
-
-/// Deletes the tracks in `gone`: the others close up in order, channels and sends follow them, the mixer gets
-/// shorter (spec: ui/mixer-track-commands.md §4).
-fn remove_tracks(s: &mut State, gone: &[u16]) -> Option<String> {
-    if gone.iter().any(|&t| protected_routes(s, t) || group_shift_locked(s, t)) { return Some(LOCK_MESSAGE.into()); }
-    if gone.is_empty() {
-        return Some("No unused mixer tracks".into());
-    }
-    let mut new_of = std::collections::HashMap::new();
-    let mut k = 0u16;
-    for m in &s.project.mixer {
-        if !gone.contains(&m.index) {
-            new_of.insert(m.index, k);
-            k += 1;
-        }
-    }
-    let m = |t: u16| new_of.get(&t).copied();
-    s.mixer.recording.inputs=std::mem::take(&mut s.mixer.recording.inputs).into_iter().filter_map(|(t,i)|Some((m(t)?,i))).collect();
-    s.mixer.recording.armed=s.mixer.recording.armed.iter().copied().filter_map(m).collect();
-    for &t in gone {
-        for slot in 0..64 {
-            s.mixer.pending.push(FxReq::Delete { track: t, slot });
-        }
-    }
-    let mut map = Vec::new();
-    for (&o, &n) in &new_of {
-        if o != n {
-            map.extend((0..64u8).map(|slot| ((o, slot), (n, slot))));
-        }
-    }
-    s.mixer.pending.push(FxReq::Remap(map));
-    let old = std::mem::take(&mut s.project.mixer);
-    s.project.mixer = old
-        .into_iter()
-        .filter_map(|t| {
-            let index = m(t.index)?;
-            let routes = t.routes.iter().filter_map(|&r| m(r)).collect();
-            let send_levels = t.send_levels.iter().filter_map(|&(d, l)| m(d).map(|d| (d, l))).collect();
-            Some(MixerTrack { index, routes, send_levels, ..t })
-        })
-        .collect();
-    s.project.mixer.sort_by_key(|t| t.index);
-    for c in s.project.channels.iter_mut() {
-        c.mixer_track = m(c.mixer_track).unwrap_or(0);
-    }
-    s.selected_mixer = m(s.selected_mixer).unwrap_or(1).min(inserts(s));
-    s.mixer.sel = s.mixer.sel.iter().filter_map(|&t| m(t)).collect();
-    s.mixer.slot_names = std::mem::take(&mut s.mixer.slot_names).into_iter().filter_map(|((t, k), v)| Some(((m(t)?, k), v))).collect();
-    changed(s);
-    Some(format!("Removed {} unused mixer track(s)", gone.len()))
 }
 
 /// Routes the selected tracks to `dst` (§5): a normal route at unity, a sidechain at level 0, `only` drops their
@@ -1708,71 +1658,7 @@ fn sync_playlist_order(s:&mut State,lo:u16,hi:u16) {
 /// Swaps track `n` with its neighbour (`d` = -1 left, +1 right), §6.1 Move left / right.
 fn move_track(s:&mut State,n:u16,d:i32)->Option<String>{let group=if is_selected(s,n){selected(s)}else{vec![n]};let edge=if d<0{*group.iter().filter(|t|**t>0).min().unwrap_or(&n)}else{*group.iter().max().unwrap_or(&n)};let to=edge as i32+d;if to>=1&&to<=inserts(s)as i32{reorder_selected(s,n,to as u16);}None}
 
-/// Deletes track `n`: later tracks move one left, a default track is added at the end (§6.1 Delete).
-fn delete_track(s: &mut State, n: u16) -> Option<String> {
-    if protected_routes(s, n) || group_shift_locked(s, n) { return Some(LOCK_MESSAGE.into()); }
-    if n == 0 || n > inserts(s) {
-        return Some("The master track can't be deleted".into());
-    }
-    let label = name(s, n);
-    let len = s.project.mixer.len() as u16;
-    // Drop the track's slots and routes into it, then close the gap.
-    for t in s.project.mixer.iter_mut() {
-        t.routes.retain(|&r| r != n);
-        t.send_levels.retain(|&(d, _)| d != n);
-    }
-    for c in s.project.channels.iter_mut().filter(|c| c.mixer_track == n) {
-        c.mixer_track = 0;
-    }
-    for k in 0..64 {
-        s.mixer.pending.push(FxReq::Delete { track: n, slot: k });
-    }
-    s.mixer.slot_names.retain(|(t, _), _| *t != n);
-    // The hidden last track stays last; the default track comes before it (spec: flp/events/mixer.md "The last track").
-    let hidden = len - 1;
-    let m = move |t: u16| if t > n && t < hidden { t - 1 } else { t };
-    let retained:Vec<_>=s.project.peak_links.iter().copied().filter(|l|l.source!=n && crate::peak_link::mixer_target(l.target)!=Some(n)).collect();
-    crate::peak_link::restore_removed(s,&retained);s.project.peak_links=retained;
-    for l in &mut s.project.peak_links{l.source=m(l.source);l.target=crate::peak_link::remap_target(l.target,&m);}
-    let old = s.project.mixer.clone();
-    for t in &old {
-        if t.index > n && t.index < hidden {
-            if let Some(dst) = s.project.mixer.iter_mut().find(|x| x.index == t.index - 1) {
-                *dst = MixerTrack { index: t.index - 1, ..t.clone() };
-            }
-        }
-    }
-    if let Some(last) = s.project.mixer.iter_mut().find(|x| x.index == hidden - 1) {
-        *last = MixerTrack::new(hidden - 1);
-    }
-    for t in s.project.mixer.iter_mut() {
-        for r in t.routes.iter_mut() {
-            *r = m(*r);
-        }
-        for (d, _) in t.send_levels.iter_mut() {
-            *d = m(*d);
-        }
-    }
-    for c in s.project.channels.iter_mut() {
-        c.mixer_track = m(c.mixer_track);
-    }
-    for a in &mut s.project.arrangements {
-        for t in &mut a.tracks {t.attached_mixer=t.attached_mixer.filter(|v|*v!=n).map(m);}
-        a.attached_hidden.retain_mut(|v| if *v==n { false } else { *v=m(*v); true });
-    }
-    let mut map = Vec::new();
-    for t in n + 1..hidden {
-        for k in 0..64u8 {
-            map.push(((t, k), (t - 1, k)));
-        }
-    }
-    s.mixer.pending.push(FxReq::Remap(map));
-    s.mixer.slot_names = std::mem::take(&mut s.mixer.slot_names).into_iter().map(|((t, k), v)| ((m(t), k), v)).collect();
-    s.mixer.sel.clear();
-    s.selected_mixer = n.min(inserts(s)).max(1);
-    changed(s);
-    Some(format!("Deleted {label}"))
-}
+include!("mixer_delete.rs");
 
 fn reset_blocked(s: &State, tracks: &[u16]) -> bool {
     locked(s, 0) || tracks.iter().any(|&t| protected_routes(s, t) || group_structure_locked(s, t))
@@ -1904,11 +1790,16 @@ fn track_items(s: &State, n: u16) -> Vec<PItem> {
         PItem::new("Rename...", mx(MCmd::Rename(n))).key("F2"),
         PItem::new("Save effect chain…", mx(MCmd::SaveEffectChain(n))),
         PItem::sub("Change color...", colors),
+        PItem::new("Random color", mx(MCmd::RandomColor(n))),
         PItem::not_yet("Change icon..."),
         PItem::sep(),
         PItem::new(if targets(s,n).len()>1{"Solo selected tracks"}else{"Solo"},mx(MCmd::Solo(n))),
         PItem::new("Reset selected track(s) to default", mx(MCmd::Reset(n))),
         PItem::new("Reset selected track(s) routing", mx(MCmd::ResetRouting(n))),
+        {
+            let item=PItem::new("Delete selected insert(s)",mx(MCmd::Delete(n))).key("Delete");
+            if targets(s,n).iter().any(|&t|t>0 && t<=inserts(s)){item}else{item.off()}
+        },
         PItem::sep(),
         PItem::new("Separator", mx(MCmd::Separator(n))).mark(Mark::Check(has_separator(s, n))),
         PItem::sub("Channel Strip mixer",crate::rack_mixer::menu(s,n)),
@@ -2173,6 +2064,8 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
         MCmd::ArmDisk(t)=>return app.arm_mixer_disk(t),
         _=>{}
     }
+    if let MCmd::Delete(n)=c {return delete_inserts(app,targets(&app.state,n));}
+    if let MCmd::Trim{non_empty}=c {return delete_inserts(app,trim_list(&app.state,non_empty));}
     let at = app.mouse;
     let s = &mut app.state;
     if let MCmd::RandomColor(n)=c {
@@ -2306,13 +2199,10 @@ pub fn run(app: &mut App, c: MCmd) -> Option<String> {
             s.mixer.sel = s.project.mixer.iter().map(|m| m.index).filter(|&t| t <= inserts(s)).collect();
             None
         }
-        MCmd::Trim { non_empty } => {
-            let gone = trim_list(s, non_empty);
-            remove_tracks(s, &gone)
-        }
+        MCmd::Trim { .. } => unreachable!(),
         MCmd::MoveLeft(n) => move_track(s, n, -1),
         MCmd::MoveRight(n) => move_track(s, n, 1),
-        MCmd::Delete(n) => delete_track(s, n),
+        MCmd::Delete(_) => unreachable!(),
         MCmd::InsertOne(n) => {
             let n = add_track(s, Some(n.max(1)));
             Some(format!("Inserted {}", name(s, n)))
@@ -2797,6 +2687,7 @@ impl App {
         }
         #[cfg(plugin_windows)]
         {
+            if crate::ml_patch::open(self,key){return;}
             if self.open_generic_editor(key){return;}
             let info = fx_info(&self.state.project, &self.state.mixer, key);
             match info.map(|i| self.plugins.open_window(key, i)) {
@@ -2934,7 +2825,7 @@ mod tests {
             .find(|item| item.cmd == Cmd::Mixer(MCmd::CustomColor(3))).unwrap();
         crate::playlist::run(&mut a, color.cmd.clone());
         crate::patterns::hit(&mut a.state, crate::patterns::Hit::EditSwatch(0));
-        crate::patterns::key(&mut a.state, &Key::Character("#237BCD".into()), false);
+        a.state.pat_ui.name_box.as_mut().unwrap().custom.as_mut().unwrap().1=crate::theme_adjust::hsv(os_ui::Color::rgb(0x237BCD));
         crate::patterns::key(&mut a.state, &Key::Named(NamedKey::Enter), false);
         assert_eq!(track(&a.state, 3).unwrap().color, Some(Rgb::new(0x23, 0x7B, 0xCD)));
         assert_eq!(crate::history::undo(&mut a.state), Some("Mixer track color"));
@@ -3258,7 +3149,7 @@ mod tests {
         run(&mut a, MCmd::Delete(1));
         assert_eq!(name(&a.state, 2), "Two", "later tracks move left");
         assert_eq!(a.state.project.channels[0].mixer_track, 2);
-        assert_eq!(a.state.project.mixer.len(), len + 1, "a fresh track fills the end");
+        assert_eq!(a.state.project.mixer.len(), len, "Delete reduces the insert count");
         run(&mut a, MCmd::InsertOne(2));
         assert_eq!(name(&a.state, 3), "Two");
         assert!(a.state.project.mixer.iter().enumerate().all(|(i, m)| usize::from(m.index) == i), "indices stay in order");
@@ -3459,12 +3350,12 @@ mod tests {
         assert_eq!(track(&a.state, 5).unwrap().routes, vec![6], "its send follows 13 to 6");
         assert!(a.state.project.mixer.last().unwrap().routes.is_empty(), "the hidden last track stays");
         assert!(trim_list(&a.state, true).is_empty());
-        // Nothing uses any insert: one stays.
+        // Nothing uses any insert: all can be removed.
         for c in a.state.project.channels.iter_mut() {
             c.mixer_track = 0;
         }
         track_mut(&mut a.state, 5).unwrap().routes = vec![0];
-        assert_eq!(trim_list(&a.state, true), vec![2, 3, 4, 5, 6]);
+        assert_eq!(trim_list(&a.state, true), vec![1, 2, 3, 4, 5, 6]);
     }
 
     // spec: ui/mixer-track-commands.md §5
@@ -3561,6 +3452,16 @@ mod tests {
         assert_eq!(on(&a).len(), a.state.project.mixer.len());
         run(&mut a, MCmd::Solo(5));
         assert_eq!(on(&a), vec![0, 3, 5], "Solo keeps where 5 sends");
+    }
+
+    #[test]
+    fn community_alt_click_mixer_led_solos_bus_with_inputs() {
+        let mut a=app();track_mut(&mut a.state,5).unwrap().routes=vec![3];
+        a.alt=true;hit(&mut a,MHit::Led(3));
+        assert_eq!(a.state.project.mixer.iter().filter(|m|m.enabled).map(|m|m.index).collect::<Vec<_>>(),vec![0,3,5]);
+        hit(&mut a,MHit::Led(3));assert!(a.state.project.mixer.iter().all(|m|m.enabled));
+        a.alt=false;hit(&mut a,MHit::Led(3));assert!(!track(&a.state,3).unwrap().enabled);
+        assert!(track(&a.state,5).unwrap().enabled);
     }
 
     #[test]

@@ -253,6 +253,7 @@ pub enum Body {
     Collaboration(crate::collaboration::Form),
     NoteProperties(crate::piano_note_properties::Form),
     ClipFx(u16,usize),
+    Patch(crate::ml_patch::Form),
     Normalize(crate::clip_normalize::Form),
     StripSilence(crate::strip_silence::Form),
     VocalAlign(crate::vocal_align::Form),
@@ -311,6 +312,7 @@ pub enum DHit {
     Collaboration(crate::collaboration::Command),
     NoteProperties(crate::piano_note_properties::Command),
     ClipFx(crate::clip_effects::Command),
+    Patch(crate::ml_patch::Command),
     Normalize(crate::clip_normalize::Command),
     StripSilence(crate::strip_silence::Command),
     VocalAlign(crate::vocal_align::Command),
@@ -511,7 +513,7 @@ impl App {
             Body::VoiceAssistant => { crate::voice_assistant::close(self); return; }
             Body::MixAssistant(_) => { crate::mix_assistant::closed(self); return; }
             Body::VocalAlign(_) => { crate::vocal_align::closed(self); return; }
-            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..)=>{self.drag=None;return;},
+            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::Patch(_) | Body::ClipFx(..)=>{self.drag=None;return;},
             Body::Msg(m) => {
                 // Ok with Remember my choice ticked turns the message off; Cancel never does.
                 if let Some((entry, true)) = m.remember {
@@ -561,7 +563,7 @@ impl App {
         Some(match &self.state.dialogs.last()?.body {
             Body::Msg(m) => Reply::Button(m.escape()),
             Body::File(_) => Reply::File(None),
-            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Shortcuts(_) => Reply::Button(Answer::Cancel),
+            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::Patch(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Shortcuts(_) => Reply::Button(Answer::Cancel),
             Body::TimeSig(_) => Reply::Button(Answer::Cancel),
             Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => Reply::Button(Answer::Cancel),
         })
@@ -570,7 +572,7 @@ impl App {
     fn top_file(&mut self) -> Option<&mut FileDlg> {
         match &mut self.state.dialogs.last_mut()?.body {
             Body::File(f) => Some(f),
-            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Msg(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
+            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::Patch(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::Msg(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
         }
     }
 
@@ -672,7 +674,7 @@ impl App {
             DHit::Button(i) => {
                 let a = match &m.body {
                     Body::Msg(msg) => msg.buttons.get(i).copied().filter(|a| !(*a==Answer::Ok && matches!(msg.then,Then::StemChoose(_,0)))),
-                    Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
+                    Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::Patch(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
                 };
                 if let Some(a) = a {
                     self.answer(Reply::Button(a));
@@ -682,6 +684,7 @@ impl App {
             // (a swap within its group, `Form::pick`); Reset all fills in the defaults.
             DHit::Apply => self.answer(Reply::Button(Answer::Ok)),
             DHit::ClipFx(c)=>crate::clip_effects::command(self,c),
+            DHit::Patch(c)=>crate::ml_patch::command(self,c),
             DHit::NoteProperties(c)=>crate::piano_note_properties::command(self,c),
             DHit::Normalize(c)=>crate::clip_normalize::command(self,c),
             DHit::StripSilence(c)=>crate::strip_silence::command(self,c),
@@ -796,6 +799,7 @@ impl App {
             Body::Normalize(_)=>{crate::clip_normalize::key(self,key,ctrl,alt);}
             Body::StripSilence(_)=>{crate::strip_silence::key(self,key,ctrl,alt);}
             Body::VocalAlign(_) => { if matches!(key, Key::Named(NamedKey::Escape)) { self.answer(Reply::Button(Answer::Cancel)); } }
+            Body::Patch(_)=>crate::ml_patch::key(self,key,ctrl,alt),
             Body::ClipFx(..) | Body::Ai | Body::VoiceAssistant => {
                 if matches!(key, Key::Named(NamedKey::Escape)) { self.answer(Reply::Button(Answer::Cancel)); }
             }
@@ -901,7 +905,7 @@ impl App {
         let path=f.sel.and_then(|i|f.entries.get(i)).filter(|e|!e.dir).map(|e|f.dir.join(&e.name));
         if path==f.preview_last{return;}
         f.preview_last=path.clone();
-        if let Some(path)=path.filter(|p|p.extension().is_some_and(|e|["wav","mp3","flac","ogg","aif","aiff","wv"].iter().any(|x|e.eq_ignore_ascii_case(x)))) {
+        if let Some(path)=path.filter(|p|p.extension().is_some_and(|e|["wav","mp3","flac","ogg","aif","aiff","wv","rx2","rex","rcy"].iter().any(|x|e.eq_ignore_ascii_case(x)))) {
             self.preview_sample(&path.to_string_lossy());
         }else{crate::browser_preview::dismiss(self);}
     }
@@ -956,7 +960,7 @@ impl App {
     pub fn top_message(&self) -> Option<(String, String)> {
         match &self.state.dialogs.last()?.body {
             Body::Msg(m) => Some((m.title.clone(), m.plain())),
-            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
+            Body::Collaboration(_) | Body::NoteProperties(_) | Body::Normalize(_) | Body::StripSilence(_) | Body::Patch(_) | Body::ClipFx(..) | Body::VocalAlign(_) | Body::File(_) | Body::Shortcuts(_) | Body::TimeSig(_) | Body::Project(_) | Body::Headphones(_) | Body::RoutePicker(_) | Body::MixAssistant(_) | Body::MixerInsert(_) | Body::Ai | Body::VoiceAssistant => None,
         }
     }
 }

@@ -21,11 +21,12 @@ pub(crate) const PREVIEW_LIMIT: std::time::Duration = std::time::Duration::from_
 impl App {
     pub(crate) fn browser_auto_hide(&mut self,x:f32,y:f32) {
         let s=&mut self.state;
-        let enabled=!s.native_detached.contains(&crate::app::Win::Browser) && s.show_browser && view::opt(s,view::OPT_AUTOHIDE);
+        let enabled=s.native_view.is_none() && !s.native_detached.contains(&crate::app::Win::Browser) && s.show_browser && view::opt(s,view::OPT_AUTOHIDE);
+        let x=if crate::views::browser_right(s) {s.screen.0-x} else {x};
         let width=s.browser_w.min(s.screen.0/2.).max(crate::views::BROWSER_W);
-        let hidden=if !enabled {false} else if s.browser_auto_hidden {!(x<=8. && y>=crate::views::work_y(s))}
+        let hidden=if !enabled {false} else if s.browser_auto_hidden {!(x>=0. && x<=8. && y>=crate::views::work_y(s))}
             else {s.browser_hovered && x>width && s.playlist.popup.is_none() && !s.browser_search_focus && self.drag.is_none()};
-        if x<=width && y>=crate::views::work_y(s) {s.browser_hovered=true;}
+        if x>=0. && x<=width && y>=crate::views::work_y(s) {s.browser_hovered=true;}
         if hidden {s.browser_hovered=false;}
         if hidden!=s.browser_auto_hidden {s.browser_auto_hidden=hidden;self.invalidate();}
     }
@@ -195,7 +196,7 @@ impl App {
             BCmd::LoadSample => {
                 let start=s.browser_folders.last().cloned();
                 let dlg=crate::filedlg::FileDlg::new(crate::filedlg::Mode::Open,"Load sample in new channel","audio",crate::dialog::Then::BrowserSample)
-                    .filter("Audio", &["wav","mp3","flac","ogg","aif","aiff","wv"]).start(start.as_deref());
+                    .filter("Audio", &["wav","mp3","flac","ogg","aif","aiff","wv","rx2","rex","rcy"]).start(start.as_deref());
                 self.file_dialog(dlg);
             },
             BCmd::OpenFiles => {
@@ -210,6 +211,7 @@ impl App {
                     s.browser_opts.insert(k);
                 }
                 crate::prefs::set_text(&format!("browser_option_{k}"),if view::opt(s,k) {"1"}else{"0"});
+                if k==view::OPT_RIGHT {s.browser_auto_hidden=false;s.browser_hovered=false;s.browser_split_click=None;}
                 if !view::opt(s,view::OPT_AUTOHIDE) {s.browser_auto_hidden=false;}
                 if [(view::OPT_PROJECT,1),(view::OPT_PLUGINS,2),(view::OPT_PRESETS,4),(view::OPT_PARAMETERS,view::PARAMETERS_TAB)].iter().any(|(key,id)|*key==k && *id==s.browser_tab && !view::opt(s,k)) {s.browser_tab=0;}
                 s.browser_scroll = s.browser_scroll.min(view::max_scroll(s));
@@ -295,7 +297,7 @@ impl App {
     /// Whether the mouse is over the docked browser.
     pub(crate) fn over_browser(&self) -> bool {
         let (x, y) = self.mouse;
-        self.state.show_browser && (self.state.native_view.is_none() || self.state.native_view == Some(crate::app::Win::Browser)) && x >= 0. && y < self.state.screen.1 && x < crate::views::browser_w(&self.state) && y >= crate::views::work_y(&self.state)
+        self.state.show_browser && (self.state.native_view.is_none() || self.state.native_view == Some(crate::app::Win::Browser)) && crate::views::browser_rect(&self.state).contains(x,y)
     }
 
     /// Whether typed letters belong to the browser search (the typing keyboard leaves them alone).
@@ -328,6 +330,23 @@ impl App {
         let shift = self.shift;
         let focus = self.state.browser_search_focus;
         let over = self.over_browser() || focus;
+        if over && !focus && !ctrl && !alt && !shift && matches!(key, Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight)) {
+            let rows = view::rows(&self.state);
+            if let Some(i) = rows.iter().position(|r| Some(&r.key) == self.state.browser_sel.as_ref()) {
+                let row = &rows[i];
+                if matches!(key,Key::Named(NamedKey::ArrowLeft)) {
+                    if row.open == Some(true) { self.state.browser_open.remove(&row.key); }
+                    else if let Some(parent) = rows[..i].iter().rev().find(|p|p.depth < row.depth) {
+                        self.state.browser_sel = Some(parent.key.clone());
+                        self.state.browser_open.remove(&parent.key);
+                    }
+                    reveal(&mut self.state); self.invalidate(); return true;
+                } else if row.open.is_some() {
+                    self.state.browser_open.insert(row.key.clone());
+                    self.invalidate(); return true;
+                }
+            }
+        }
         if over && !ctrl && !alt && !shift && matches!(key, Key::Named(NamedKey::ArrowRight)) {
             let rows = view::rows(&self.state);
             if let Some(Item::Sample(path)) = rows.iter().find(|r| Some(&r.key) == self.state.browser_sel.as_ref()).map(|r| &r.item) {
@@ -405,7 +424,8 @@ impl App {
             save_width(s.browser_w);
             return self.invalidate();
         }
-        self.drag = Some(Drag::BrowserSplit { dx: self.mouse.0 - crate::views::browser_w(&self.state) });
+        let x=if crate::views::browser_right(s) {s.screen.0-self.mouse.0} else {self.mouse.0};
+        self.drag = Some(Drag::BrowserSplit { dx: x - crate::views::browser_w(s) });
     }
 
     /// The splitter dragged so that the browser (its splitter included) ends at `right`: whole px, from its default width
@@ -1212,7 +1232,7 @@ pub(crate) fn default_options_menu(s: &crate::app::State) -> Vec<PItem> {
         ]),
         PItem::sub("Audio preview",vec![t("Show preview panel",view::OPT_PANEL),t("Play full sample / track",view::OPT_PREVIEW)]),
         b(if s.native_detached.contains(&crate::app::Win::Browser) {"Dock Browser"} else {"Detach Browser"}, BCmd::Detach),
-        PItem::sub("Appearance",vec![t("Auto-hide browser",view::OPT_AUTOHIDE),t("Search box on top",view::OPT_TOP),t("High contrast text",view::OPT_CONTRAST)]),
+        PItem::sub("Appearance",vec![t("Dock on right",view::OPT_RIGHT),t("Auto-hide browser",view::OPT_AUTOHIDE),t("Search box on top",view::OPT_TOP),t("High contrast text",view::OPT_CONTRAST)]),
         PItem::sub("Search",vec![find("Find previous","F2",-1),find("Find next","F3",1),PItem::sep(),t("Type to filter",view::OPT_TYPE),t("Show parent folders",view::OPT_PARENTS),t("Include folders",view::OPT_FOLDERS)]),
         PItem::sub("Navigation",vec![b("Back",BCmd::History(-1)),b("Forward",BCmd::History(1)),PItem::sep(),b("Collapse folders",BCmd::Collapse).key("Ctrl+Up"),b("Refresh folders",BCmd::Reread).key("Ctrl+R")]),
         PItem::sub("Send to selected channel",vec![b("Previous sample",BCmd::Send(-1)).key("Shift+Up"),b("Next sample",BCmd::Send(1)).key("Shift+Down")]),
@@ -1417,6 +1437,13 @@ mod favorite_tests {
         assert_eq!(app.state.browser_scroll, view::max_scroll(&app.state));
         app.browser_scroll_drag(track.y - 500., 0.);
         assert_eq!(app.state.browser_scroll, 0.);
+        let selected=app.state.browser_sel.clone();
+        assert!(app.browser_key(&Key::Named(NamedKey::ArrowLeft),false,false));
+        assert_ne!(app.state.browser_sel,selected);
+        let parent=app.state.browser_sel.clone().unwrap();
+        assert!(!app.state.browser_open.contains(&parent));
+        assert!(app.browser_key(&Key::Named(NamedKey::ArrowRight),false,false));
+        assert!(app.state.browser_open.contains(&parent));
         app.mouse.0 = 700.;
         assert!(!app.browser_key(&Key::Named(NamedKey::ArrowDown), false, false));
         // No device is opened: preview decoding is asynchronous and is not pumped.

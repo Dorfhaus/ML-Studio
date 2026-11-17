@@ -157,7 +157,9 @@ pub fn paint(ui:&mut Ui,s:&State,g:&PGeom){
     let y = g.y_of(row) + g.rows.base_height(row);
     let area = Rect::new(g.grid.x, y, g.grid.w, super::EXTRA - 3.0);
     let visible = area.intersect(&g.grid);
-    if visible.is_empty() || !ui.c.visible(visible) { return; }
+    // Hit targets must be rebuilt even when this editor lies outside the paint damage.
+    // Skipping it lets the underlying Playlist accept clicks and insert audio clips.
+    if visible.is_empty() { return; }
     ui.c.push_clip(visible);
     ui.clip_hit_rect(visible, |ui| editor(ui, s, g, row, area));
     ui.c.pop_clip();

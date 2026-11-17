@@ -47,6 +47,15 @@ static LINK: Mutex<Vec<(isize, LinkMsg)>> = Mutex::new(Vec::new());
 pub fn take_link() -> Vec<(isize, LinkMsg)> {
     LINK.lock().map(|mut k| std::mem::take(&mut *k)).unwrap_or_default()
 }
+pub fn take_state_links() -> Vec<(isize, usize)> {
+    let mut out = Vec::new();
+    if let Ok(mut queue) = LINK.lock() {
+        queue.retain(|(area, message)| {
+            if let LinkMsg::StateEdit(token) = message { out.push((*area, *token)); false } else { true }
+        });
+    }
+    out
+}
 /// A docked window moved, shrank, was clipped smaller or went: part of the main window was uncovered (`take_exposed`).
 static EXPOSED: AtomicBool = AtomicBool::new(false);
 
@@ -703,6 +712,7 @@ unsafe extern "system" fn area_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 }
                 Some(os_hostlink::Cmd::Automate) => LinkMsg::Automate(lp.max(0) as usize),
                 Some(os_hostlink::Cmd::Audio) => LinkMsg::Audio(lp != 0),
+                Some(os_hostlink::Cmd::StateEdit) => LinkMsg::StateEdit(lp as usize),
                 Some(os_hostlink::Cmd::SampleFit) => LinkMsg::SampleFit(lp),
                 Some(os_hostlink::Cmd::BrowseSample) if lp==1 => LinkMsg::LocateSample,
                 Some(os_hostlink::Cmd::BrowseSample) => LinkMsg::BrowseSample,

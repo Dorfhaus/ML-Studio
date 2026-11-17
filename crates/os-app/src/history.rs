@@ -53,6 +53,7 @@ pub const PROJECT_INFO: &str = "Project info";
 /// What a step changes, as it is on the other side of the step.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Snap {
+    MixerDelete(Box<crate::mixer::DeleteSnapshot>),
     AttachedInstrument { generator:Box<Snap>, playlist:Box<crate::playlist::Snapshot>, mixer:Option<Box<crate::mixer::ChannelCopy>>, n:u16, selected:u16 },
     ChannelEnabled(usize,bool),
     /// Permutation to apply, with a channel snapshot only when protecting a shared edit.
@@ -111,6 +112,7 @@ pub enum Snap {
     RackStrips(Vec<crate::mixer::ChannelCopy>),
     /// Parameter `.1` of hosted plugin instance `.0` (normalized), set by Lemon Studio itself (`crate::params`).
     Param(usize, usize, f64),
+    NativeState(crate::plugin_state_undo::Snapshot),
     /// What a sample load changes on channel `row`: its sample, its name ("Auto name channels"), its root note and its
     /// stretch ("Read sample root note" and "Read sample tempo information", `rack::read_tags`) and its sampler flags
     /// (Keep on disk, "Auto keep long audio on disk").
@@ -424,6 +426,7 @@ impl Snap {
     /// What this covers, as the project has it now.
     fn now(&self, s: &State) -> Snap {
         match self {
+            Snap::MixerDelete(_)=>Snap::MixerDelete(Box::new(crate::mixer::DeleteSnapshot::now(s))),
             Snap::AttachedInstrument{generator,mixer,n,..}=>Snap::AttachedInstrument{generator:Box::new(generator.now(s)),playlist:Box::new(crate::playlist::capture(s)),mixer:if mixer.is_none(){crate::mixer::channel_copy(s,*n).map(Box::new)}else{None},n:*n,selected:s.selected_mixer},
             Snap::ClipFxTargets(..)=>Snap::ClipFxTargets(s.project.automations.clone(),s.project.init_controls.clone(),s.project.peak_links.clone()),
             Snap::MpeConfig(_)=>Snap::MpeConfig(s.project.mpe.channels.clone()),
@@ -476,6 +479,7 @@ impl Snap {
             Snap::ChannelEnabled(row,_) => s.project.channels.get(*row).map_or_else(||self.clone(),|c|Snap::ChannelEnabled(*row,c.enabled)),
             Snap::RackOrder(order, _) => Snap::RackOrder(crate::rack::inverse_order(order), s.collaborating.then(|| s.project.channels.clone())),
             Snap::PitchFollow(row,..) => s.project.channels.get(*row).map_or_else(||self.clone(),|c|Snap::PitchFollow(*row,c.misc.main_pitch,c.misc.pitch_follow_offset)),
+            Snap::NativeState(snapshot) => Snap::NativeState(snapshot.now(s).unwrap_or_else(|| snapshot.clone())),
             Snap::Param(key, i, _) => crate::params::param_value(s, *key, *i).map_or_else(|| self.clone(), |v| Snap::Param(*key, *i, v)),
             // A channel gone since is left as the step has it (`put` does nothing then).
             Snap::Sample { row, .. } => Snap::sample(s, *row).unwrap_or_else(|| self.clone()),
@@ -513,7 +517,7 @@ impl Snap {
     /// Whether this holds the playlist (`forget_playlist`).
     fn has_playlist(&self) -> bool {
         match self {
-            Snap::Playlist(_) | Snap::AttachedInstrument{..} => true,
+            Snap::Playlist(_) | Snap::AttachedInstrument{..} | Snap::MixerDelete(_) => true,
             Snap::Several(v) => v.iter().any(Snap::has_playlist),
             Snap::WithMixerInsert{edit,..}=>edit.has_playlist(),
             Snap::SampleRoute { sample, .. } => sample.has_playlist(),
@@ -524,6 +528,7 @@ impl Snap {
     /// `rescale` for this.
     fn rescale(&mut self, from: u16, to: u16) {
         match self {
+            Snap::MixerDelete(v)=>v.rescale(from,to),
             Snap::Pattern { notes, controls, length, .. } => {
                 notes.iter_mut().for_each(|n| n.rescale(from, to));
                 controls.iter_mut().for_each(|c| c.rescale(from, to));
@@ -609,6 +614,7 @@ impl Snap {
             | Snap::ChannelEnabled(..)
             | Snap::RackOrder(..)
             | Snap::PitchFollow(..)
+            | Snap::NativeState(..)
             | Snap::Param(..)
             | Snap::Sample { .. }
             | Snap::Channel { .. }
@@ -640,6 +646,7 @@ impl Snap {
     /// Puts this into the project. A pattern's step also shows that pattern, as the piano roll's undo always did.
     fn put(self, s: &mut State) {
         match self {
+            Snap::MixerDelete(v)=>v.put(s),
             Snap::AttachedInstrument{generator,playlist,mixer,n,selected}=>{
                 if let Some(m)=mixer{
                     crate::mixer::insert_tracks(s,Some(n),1);
@@ -704,6 +711,7 @@ impl Snap {
                 if let Some(c)=s.project.channels.get_mut(row){c.misc.main_pitch=on;c.misc.pitch_follow_offset=offset;}
                 if let Some(i)=s.params.lists.get(&row).and_then(|l|l.params.iter().position(|p|p.name=="Affected by the main pitch")){crate::params::set_param_value(s,row,i,f64::from(on));}
             }
+            Snap::NativeState(snapshot) => { snapshot.put(s); },
             Snap::Param(key, i, v) => {
                 crate::params::set_param_value(s, key, i, v);
             }
@@ -1030,6 +1038,14 @@ impl History {
             self.done -= 1;
         }
         self.steps.truncate(max.max(self.done));
+        // Embedded tables/noise samples must not grow Undo without bound.
+        let cost = |step: &Step| crate::plugin_state_undo::bytes(&step.snap)
+            + step.expected.as_ref().map_or(0, |s| crate::plugin_state_undo::bytes(s));
+        let mut total: usize = self.steps.iter().map(cost).sum();
+        while total > os_hostlink::STATE_EDIT_BUDGET && self.steps.len() > 1 {
+            let index = if self.done > 0 { self.done -= 1; 0 } else { self.steps.len() - 1 };
+            total = total.saturating_sub(cost(&self.steps.remove(index)));
+        }
     }
 
     /// What Ctrl+Z does next: redo (Alternate undo mode off, after an undo) or undo.
@@ -1050,6 +1066,11 @@ pub fn record(s: &mut State, name: &'static str, snap: Snap) {
     h.wheel = None;
     h.fresh = true;
     h.trim();
+}
+
+pub fn native_state(s: &mut State, snapshot: crate::plugin_state_undo::Snapshot) {
+    record(s, "Plugin editor", Snap::NativeState(snapshot));
+    s.history.fresh = false;
 }
 
 /// Names the newest step `name` while its press is held (recorded since the last release): a gesture that turned into
@@ -1236,7 +1257,9 @@ pub fn undo(s: &mut State) -> Option<&'static str> {
     (h.undid, h.wheel, h.fresh) = (true, None, false);
     let i = h.done;
     swap(s, i);
-    Some(s.history.steps[i].name)
+    let name = s.history.steps[i].name;
+    s.history.trim();
+    Some(name)
 }
 
 /// Redoes the oldest undone step; its name, or `None` when nothing is undone.
@@ -1252,7 +1275,9 @@ pub fn redo(s: &mut State) -> Option<&'static str> {
     let h = &mut s.history;
     h.done += 1;
     (h.undid, h.wheel, h.fresh) = (false, None, false);
-    Some(h.steps[i].name)
+    let name = h.steps[i].name;
+    h.trim();
+    Some(name)
 }
 
 /// "Step seq edit" as a menu entry writes it after Undo / Redo: "step seq edit".

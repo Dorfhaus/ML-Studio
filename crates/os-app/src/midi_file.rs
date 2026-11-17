@@ -1355,4 +1355,33 @@ fn mpe_raw(t:&Track,track:usize,configs:&[os_model::mpe::Config])->Vec<Raw>{use 
  }}}
  let end=t.events.last().map_or(1,|e|e.tick);for(_,mut n)in held{n.end=end.max(n.start+1);for lane in &mut n.expression.as_mut().unwrap().lanes{for p in lane{p.at=(p.at/(n.end-n.start)as f32).clamp(0.,1.);}}out.push(n);}out
 }
-fn expressive_events<'a>(p:&Project,ch:u16,notes:impl Iterator<Item=(u32,u32,&'a Note)>)->Vec<Event>{let c=p.mpe.config(ch);if !c.enabled{return note_events(notes);}let notes:Vec<_>=notes.filter(|(_,_,n)|!n.muted()).map(|(s,e,n)|os_engine::mpe::Scheduled{start:u64::from(s),end:u64::from(e.max(s+1)),key:n.key.min(127)as u8,velocity:n.velocity,release:n.release,expression:p.mpe.get(n.expression).map(|x|x.window(0.,if n.length>0{e.saturating_sub(s) as f32/n.length as f32}else{1.})).unwrap_or_default(),fine:(f32::from(n.fine_pitch)-120.)/10.}).collect();let end=notes.iter().map(|n|n.end).max().unwrap_or(0);let mut playback=os_engine::mpe::Playback::new(c,notes);let mut out=vec![];for tick in 0..=end{for b in playback.tick(tick,true){out.push(Event{tick:tick as u32,kind:midi_kind(b)});}}out}
+fn expressive_events<'a>(p:&Project,ch:u16,notes:impl Iterator<Item=(u32,u32,&'a Note)>)->Vec<Event> {
+    let c=p.mpe.config(ch);if !c.enabled{return note_events(notes);}
+    let notes:Vec<_>=notes.filter(|(_,_,n)|!n.muted()).collect();
+    let slides=notes.iter().filter(|(_,_,n)|n.slide()).map(|(s,e,n)|os_engine::mpe::PitchSlide {
+        start:u64::from(*s),len:u64::from(e.saturating_sub(*s).max(1)),key:n.key.min(127) as u8,color:n.group&15,
+    }).collect();
+    let notes:Vec<_>=notes.into_iter().filter(|(_,_,n)|!n.slide()).map(|(s,e,n)|os_engine::mpe::Scheduled {
+        start:u64::from(s),end:u64::from(e.max(s+1)),key:n.key.min(127) as u8,color:n.group&15,
+        velocity:n.velocity,release:n.release,
+        expression:p.mpe.get(n.expression).map(|x|x.window(0.,if n.length>0{e.saturating_sub(s) as f32/n.length as f32}else{1.})).unwrap_or_default(),
+        fine:(f32::from(n.fine_pitch)-120.)/10.,
+    }).collect();
+    let end=notes.iter().map(|n|n.end).max().unwrap_or(0);
+    let mut playback=os_engine::mpe::Playback::new(c,notes).with_pitch_slides(slides);let mut out=vec![];
+    for tick in 0..=end {for b in playback.tick(tick,true){out.push(Event{tick:tick as u32,kind:midi_kind(b)});}}
+    out
+}
+
+#[cfg(test)]
+#[test]
+fn community_mpe_midi_export_slides_without_retriggering() {
+    let mut p=Project::default();p.mpe.set_config(0,os_model::mpe::Config{enabled:true,..Default::default()});
+    let base=Note{key:60,length:16,group:2,..Note::step(0,0)};
+    let other=Note{group:3,..base};
+    let slide=Note{key:72,length:3,position:4,flags:Note::SLIDE,..base};
+    let notes=[base,other,slide];let events=expressive_events(&p,0,notes.iter().map(|n|(n.position,n.position+n.length as u32,n)));
+    assert_eq!(events.iter().filter(|e|matches!(e.kind,Ev::NoteOn{..})).count(),2);
+    assert!(events.iter().any(|e|e.tick==7&&matches!(e.kind,Ev::PitchBend{channel:1,value:2048})));
+    assert!(!events.iter().any(|e|matches!(e.kind,Ev::PitchBend{channel:2,value}if value!=0)));
+}

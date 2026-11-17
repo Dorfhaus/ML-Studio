@@ -179,6 +179,10 @@ impl TableEditor {
     }
 }
 impl Extension for TableEditor {
+    fn animation_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(if self.params.telemetry.read().active { 66 } else { 250 })
+    }
+    fn take_state_edits(&self) -> Vec<String> { self.modulation.take_state_edits() }
     fn modulation_routes(&self, id: &str) -> Vec<(usize, &'static str, &'static str)> {
         if crate::visibility::shown(0) { self.modulation.routes_for(id) } else { Vec::new() }
     }

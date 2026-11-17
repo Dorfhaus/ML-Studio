@@ -1,0 +1,13 @@
+[package]
+name = "ml-time-shaper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[lib]
+crate-type = ["cdylib", "lib"]
+[features]
+linked = []
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
+ml-performance-core = { path = "../ml-performance-core" }
+os-plugkit = { path = "../../crates/os-plugkit" }

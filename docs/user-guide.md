@@ -1,5 +1,68 @@
 # ML Studio User Guide
 
+## Everyday editing shortcuts
+Overview: Precise selections, folder navigation and reliable editing.
+
+### Solo a bus and its inputs
+Keywords: mixer alt click mute solo bus inputs
+Alt-click a Mixer mute light to solo that channel together with the channels feeding it and its output routes. Alt-click again to leave solo; the existing Restore previous state after solo preference determines whether earlier mute states are restored. Right-click remains ordinary solo, and a plain left click toggles mute. Locked tracks keep their saved mute state.
+
+### Maximize an editor with Enter
+Keywords: enter maximize restore window shortcut focused
+Press Enter to maximize or restore the focused Playlist, Piano Roll, Mixer, Score or Visualizer window. Text fields, dialogs and settings keep their own Enter action. Settings > Controls lets you change or clear **Maximize / restore focused editor**. Plugin editors and the Channel Rack keep their own sizing behavior.
+
+### Select a Channel Rack instrument without opening it
+Keywords: channel rack select row plugin window ctrl click
+Ctrl-click the channel name to select that channel without opening or closing its plugin editor. You can also use the narrow selection strip beside the row. A normal name click still opens the instrument. Ctrl-drag retains the existing channel-reorder gesture.
+
+### Import REX loops and their slices
+Keywords: rex rx2 rcy recycle loop import sample chop slices tempo
+Import .rx2, .rex or .rcy through the Browser, the Playlist audio drop, the Channel Rack or the Sampler/Chop file chooser. Decoding is included in ML Studio; it needs no separate REX runtime download. Playlist and Sampler receive the reconstructed audio loop. ML Chop also uses the file's original slice positions and tempo instead of redetecting its slices. Use the existing fit-to-project-tempo option when you want imported loops to follow the project tempo; importing alone does not change that preference.
+Save normally to retain the source path, or use the project sample-collection/ZIP workflow to carry the source with the project. Import can be undone. REX export is not included. Files larger than 64 MiB or decoded loops longer than 16,777,216 frames are refused.
+
+### Resize the Playlist loop selection
+Keywords: loop ruler time selection edge drag
+Drag either end of an existing loop selection in the Playlist ruler to move that boundary while keeping the other end fixed. A drag elsewhere in the ruler starts a new selection. This edits the time selection, not the lengths of your clips.
+
+### Type notes without losing C or T
+Keywords: typing keyboard piano slice mute shortcuts
+With typing-keyboard piano enabled, plain note keys play the selected instrument in both the Playlist and Piano Roll, including C and T. Turn typing-keyboard piano off to use plain-letter editing shortcuts. In the Playlist, Shift plus a tool letter can select a tool while typing-piano remains enabled, except where an existing Shift shortcut takes priority. In Piano Roll, Shift+C retains its selection command; use the slice toolbar button or turn typing-piano off and press C.
+
+### Edit part of a name or a value
+Keywords: rename select text copy paste cursor undo filename
+In rename and value fields, click to place the caret or drag to select part of the text. Shift+Left/Right extends selection; Home/End moves to the beginning/end. Ctrl+A selects all, Ctrl+C/X/V copies/cuts/pastes, and Ctrl+Z undoes the text edit. Enter accepts and Escape cancels the field without closing the editor behind it. These text commands also apply to the app's file-dialog filename field.
+
+### Navigate Browser folders with arrow keys
+Keywords: browser collapse folder left right preview
+With the pointer over the Browser and a row selected, Left collapses its folder, or selects and collapses its parent. Right expands a selected folder. On a sample, Right restarts its preview. Up/Down changes the selected sample; Shift+Up/Down sends the sample to the selected sampler channel. Middle-click a sample to send it directly. Browser preview loudness follows its preview volume plus the main volume and Master fader/mute.
+
+### Use menus, precise notes and multiple colors
+Keywords: submenu escape vendor folders alt resize random colors
+Plugin replacement menus retain vendor folders, including nested folders. With menu hover enabled, resting on a submenu row opens it after a short delay; moving to a sibling row closes the old branch. Escape closes one nested level at a time.
+
+Hold Alt while resizing a Piano Roll note to bypass snap and shorten it down to one project tick. Ctrl+right-click without dragging fits content in the Playlist or Piano Roll; Ctrl+right-drag remains a zoom box.
+
+In the Playlist pattern picker, Random color applies to the selected patterns when the clicked pattern is selected. In the Mixer, right-click an insert and choose Random color to color the selected inserts. Each operation can be undone as one step.
+
+### Undo inside instrument editors
+Keywords: undo redo Ctrl Z Citrus Wave Plasma plugin edits
+
+Use **Ctrl+Z** (Command+Z on Mac) for ML Studio's project undo, including while
+an instrument window has focus. **Ctrl+Shift+Z** (Command+Shift+Z) redoes a change
+in either General > Undo history mode. The Alternate undo setting still controls
+whether repeated Ctrl+Z steps backward or alternates undo and redo.
+
+Citrus internal controls, Plasma editor gestures and bulk/wavetable edits, and
+Wave's internal preset, table and LFO-curve edits participate in project history.
+A completed Citrus drag or Plasma pointer gesture is one edit. Wave envelope
+nodes keep their parameter gestures open for the duration of a drag. Text-entry
+fields can retain their own local text-editing undo while typing.
+
+Undo history is temporary, limited by the configured maximum levels. Persistent
+plugin-state edits also have a 128 MiB memory budget, dropping older steps when
+needed; they do not create accumulating files on disk. Saving a project keeps
+the resulting instrument state, not the session's undo history.
+
 ## Start here
 Overview: Install, set up audio, and make your first song.
 
@@ -202,7 +265,7 @@ Double-click a note to inspect its properties. Set snap according to the grid yo
 Keywords: glide slide portamento normal note type
 Guide: piano-notes
 Choose Glide Note in note properties to place a glide. Select an existing normal or glide note to pick up that placement type.
-Place a glide against a sounding note on a compatible instrument and adjust its length to control the transition. Check the result on the instrument you are using, since third-party plugins can handle note slides differently.
+Place a glide against a sounding note on a compatible instrument and adjust its length to control the transition. Give the slide the same note color as the notes it should move; notes of another color keep their pitch and levels. The slide starts no new sound. Its velocity and pan become the target levels over its length. ML Sampler, Citrus, ML Wave and ML Plasma accept the supported per-note slide controls. For a compatible third-party instrument, enable MPE / Note expression in the Piano Roll and enable MPE in the plugin itself. Slide notes then send per-note pitch bends. Match the instrument bend range to ML Studio; a mismatch produces the wrong interval. This does not make every VST MPE-compatible. Built-in arpeggiators or sequencers may generate their own notes, so check their behavior separately.
 
 ### Zoom, navigate and place patterns
 Keywords: piano roll alt wheel vertical zoom place pattern playlist toolbar
@@ -228,6 +291,7 @@ Keywords: mpe pitch bend pressure slide timbre controller lanes
 Guide: piano-mpe
 Open MPE / Note expression in the Piano Roll menu. Enable it for the instrument and show the expression lanes. Use a compatible instrument or patch and match its pitch bend range.
 Select one note to edit its expression curves. For a hardware controller, also match its zone and member channels to the instrument settings.
+With MPE enabled, a Piano Roll slide moves sounding notes of the same color toward its target pitch, preserving chord intervals. Different colors keep their pitch. The slide adds to the note expression curve, fine pitch and global pitch; the configured bend range limits the result. The slide does not retrigger the note. These MPE slide notes control pitch; velocity and pan targets remain the native-instrument slide workflow. Enable MPE inside the receiving plugin too and match its bend range, zone and available member channels.
 
 ### Work with chord and scale tools
 Keywords: chord workspace harmony key scale scale highlighting chord progressions
@@ -546,6 +610,35 @@ Select the source Mixer track. Click the routing triangle beneath the destinatio
 For parallel effects, keep the dry route and send some signal to a reverb or delay return. For a bus, use Route to this track only if the bus should carry the full signal.
 For sidechain ducking, create a sidechain route and choose that source in the effect slot's Sidechain input menu. Check the plugin's own sidechain controls.
 
+### Reduce sibilance with ML De-Esser
+Keywords: de esser sibilance harsh vocals Airwindows amount removed signal
+Add **ML De-Esser** to a Mixer effect slot. Start with **Amount** at 50% and adjust while playing the brightest vocal passage. **Mix** blends the processed signal with the dry signal; **Output** adjusts the final level. The **Reduction (RMS)** reading shows the measured energy reduction before Mix and Output.
+Choose **Removed** to hear what the processor removes, then return to **Normal** to hear the result in the mix. Removed is a monitoring mode and is saved with the project, so return to Normal before export. This dedicated insert reuses ML Studio's existing de-essing engine and adds no latency; it does not change the de-esser already available in mixer strips.
+
+### Check levels and loudness with ML Meter
+Keywords: LUFS RMS true peak dBTP peak hold loudness correlation meter
+Add **ML Meter** at the point in the effect chain you want to measure. It passes audio through unchanged. Each channel shows sample peak hold, a moving 400 ms RMS reading, and true peak hold. Peak readings at or above 0 dBFS/dBTP turn red. RMS uses the mathematical convention: a full-scale sine reads approximately -3 dBFS RMS.
+Momentary loudness measures 400 ms; Short Term measures three seconds; Integrated is the gated loudness since the last reset. A dash means there is not enough audio yet, or the signal is below the measurement gate. **L/R Correlation** ranges from +1 for matching channels to -1 for opposite polarity; silence displays 0. This is an indicator to investigate, not a command to remove all negative correlation.
+Click **Reset meters** before measuring another passage. Playback resets also clear the history; meter history is not stored in the project. The meter measures its position in the chain, so downstream effects and faders are not included. Use an appropriately routed output bus when you need to measure the final result.
+
+### Change pitch with ML Pitch Shift
+Keywords: transpose semitone cents real time pitch shift formant preserve dry wet
+Add **ML Pitch Shift** to a Mixer effect slot. **Semitones** shifts up or down by as much as two octaves; **Fine Tune** adds up to 100 cents in either direction. The song's duration and tempo stay unchanged. **Follow pitch** moves the spectral character with the pitch; **Preserve** applies formant compensation, often useful on vocals. Listen to both modes for your material, especially at large shifts.
+**Mix** blends shifted and original audio; both paths have matching latency. **Output** sets the final gain. **Host Latency** shows the delay reported to ML Studio for compensation. The high-quality streaming engine has lookahead, so this effect is intended for mixing rather than low-latency live monitoring. Neutral pitch passes the original signal through the compensated delay. Parameter values save with the project and use the usual plugin automation controls.
+All three tools use the standard stock editor. **Settings > Visibility > Stock plugins > Advanced DSP controls** can hide their controls and readouts while leaving processing unchanged.
+
+### Align related recordings with ML Phase
+Keywords: phase alignment polarity timing delay microphones reference sidechain ML Phase
+Add **ML Phase** to the Mixer effect slot on the recording you want to move. It is a stock effect and needs no separate download. Use it for related recordings of the same performance, such as two microphones on one instrument; it is not intended to align unrelated instruments.
+
+1. Select the reference Mixer track. Right-click the routing triangle below the track containing ML Phase and create a sidechain route. Choose the reference in ML Phase's effect-slot **Sidechain input** menu.
+2. Play a passage where both recordings are audible, then click **Capture** in ML Phase. It measures two seconds of the incoming main and reference left channels. **Cancel** discards an unfinished capture.
+3. Review the suggested timing, polarity and confidence. Click **Apply suggestion** to change the controls, then listen to the combined recordings. Capturing alone never changes the controls. Missing or unrelated signals produce a message instead of a suggestion.
+4. Adjust **Timing** and **Polarity** manually if needed. Positive timing delays this recording; negative timing advances it relative to the compensated mix. The same correction is applied to both channels to preserve their stereo relationship. Settings save with the project and can be automated through the usual plugin controls.
+
+ML Phase uses a fixed lookahead of approximately 50 ms, plus its interpolation filter, and reports that latency to ML Studio's plugin-delay compensation. It is intended for mixing recorded audio rather than latency-sensitive live monitoring. Closing the editor, restarting playback or resetting the effect cancels a pending capture. Capture again after changing the source, reference, routing or upstream processing. **Settings > Visibility > Stock plugins > Advanced DSP controls** can hide its controls without changing the processing.
+Related: Create sends, buses and sidechains | Insert effects, wet/dry mix and plugin bypass
+
 ### Duck a track with Quick Sidechain
 Keywords: kick bass duck pumping quick sidechain ML Limiter threshold ratio release silent send no effect
 1. Select the Mixer track that should trigger the ducking, such as the kick.
@@ -747,6 +840,13 @@ Preview and MP4 export use the same scene controls and the Playlist Tempo track.
 ## Browser & plugins
 Overview: Find sounds, manage plugins, and organize presets.
 
+### Dock the Browser on the right
+Keywords: browser dock right left resize auto hide inspector workspace layout
+
+Open the Browser's top-left arrow menu, then **Appearance > Dock on right**. Turn it off to return the Browser to the left. The choice is saved in your profile and does not change your project. The Mixer Inspector has a separate **Inspector on left** option in the Mixer menu.
+
+Drag the divider between the Browser and the workspace to resize it; double-click the divider to restore its default width. Search, previews, scrolling and sample/plugin drag-and-drop work on either side. **Appearance > Auto-hide browser** hides it to the selected edge after you leave it; move the pointer to that edge to reveal it. A detached Browser stays in its own window and remembers your chosen dock side when reattached. The existing Browser show/hide command and Workspace Visibility controls still apply.
+
 ### Find installed plugins
 Keywords: plugin scan vst vst3 vst2 clap plugin manager add folders missing plugin
 Related: Search, favorite and manage the plugin picker | Load and save presets | Recover a missing plugin or preset
@@ -871,6 +971,7 @@ Assign an LFO or envelope to a control to add movement. Right-click a modulated 
 ### Design sounds with ML Plasma
 Keywords: ml plasma gridline wavetable synthesizer oscillator modulation preset
 ![ML Plasma | ML Plasma editor](../crates/os-app/assets/plugin-picker/ml-plasma.png)
+ML Plasma remembers its editor size in saved plugin state. Filter send levels are in the filter's Sends popup: drag the Send A or Send B slider horizontally, or hover and use the wheel. Shift makes wheel changes finer. These are send amounts; choose an effect in the corresponding send chain to hear it.
 Add ML Plasma from the instrument picker. Use its oscillator and wavetable controls to shape the source, then use the filter, envelopes, and modulation to shape the movement and tone.
 Save the project to keep the synth state. Use the instrument's preset controls when you want to reuse a sound in another project.
 
@@ -889,6 +990,7 @@ Use the slices to build a pattern in Piano Roll. Compare playback with the origi
 
 ### ML Citrus
 Keywords: citrus sytrus FM RM operators filters matrix carrier modulator envelope harmonics
+The Piano Roll note cutoff and resonance controls provide per-note Mod X and Mod Y offsets in Citrus. Their audible effect depends on how the patch maps X and Y; they do not automatically create a filter routing. Note pan and slide volume also apply per voice.
 Citrus is a six-operator synth. Choose a factory preset, then use the routing matrix to send an operator to the output, a filter, or another operator. A carrier reaches the audio output. Turning up an operator routed into the carrier changes its harmonics.
 Work on one operator at a time. Shape its waveform and envelopes, set frequency ratio or offset, then route it. The filter and effects sections shape the combined output. Compare a simple carrier patch with a routed modulation patch to hear the difference.
 Citrus can interpret supported Sytrus state in imported FL projects. Play the original and imported versions side by side when migrating a song.
@@ -1160,6 +1262,117 @@ Save a new sample or drag an edited range into the project. For a linked cleanup
 ![ML Tesla | Waveform editor and processing toolbar](../crates/os-app/assets/plugin-picker/tesla_empty.png)
 Related: Clean up audio in Tesla | ML Tesla time stretch and pitch shift
 
+### ML Convolver
+Keywords: convolution reverb impulse response WAV load import wet dry
+
+Choose **ML Convolver** in a Mixer effect slot. Click **Small room** to try the included synthetic room, or **Load WAV** to choose your own impulse response. Drag/drop onto the editor also works. Supported files: mono/stereo RIFF WAV, PCM 8/16/24/32-bit or float32, 8–192 kHz, up to 10 seconds and 16 MiB. Four-channel true-stereo IRs are not supported.
+
+Cancelling the file picker leaves the impulse unchanged. Invalid files display an error and retain the previous impulse. **Clear IR** returns to dry audio. Without an impulse the signal passes dry regardless of Mix. The impulse is embedded in projects and presets, so the original file can move afterward. Import, Small room and Clear IR participate in host Undo/Redo. Preparation runs in the background; the current impulse continues until the replacement is ready, then crossfades during playback.
+
+**Mix** blends dry and convolved audio; **Pre-delay** adds up to 250 ms to the wet signal; **Low cut** and **High cut** shape only the wet signal; **Output** trims the result. No algorithmic latency is added. Pre-delay and silence inside an IR are intentional effect timing. Use Mix at 100% for a send/return, or start lower on an insert.
+
+### ML Vocoder
+Keywords: vocoder voice carrier sidechain bands formant sibilance
+
+Put **ML Vocoder** on the voice or other modulator track. The default **Internal** carrier supplies a band-limited saw: choose its **Note** and play the voice. This is a single-note carrier. Use an external synth for chords or a moving melody.
+
+For an external carrier, select **Sidechain**, create a sidechain route from the synth's Mixer track to the voice track, then choose the synth in the effect slot's **Sidechain input** menu. The voice enters the normal input and the synth enters the sidechain. Disable the synth's ordinary audible route if you only want the vocoded result. The status line indicates missing voice or carrier. Polyphonic synth audio works; the vocoder itself does not receive MIDI notes. Voice is summed to mono for analysis; the carrier's left and right channels are processed independently.
+
+Choose 8 or 16 **Bands**. Increasing **Response** slows the envelopes; **Resonance** sharpens the bands; **Formant** shifts the filter-bank range. **Sibilance** restores high-frequency consonants and may pass some voice without a carrier; set it to zero for carrier-only sound. **Mix** blends the original voice and **Output** trims the result. Transport reset clears the envelopes.
+
+Both effects use normal stock-editor gestures, saved parameters and automation. Their extra controls and readouts follow **Settings > Visibility > Stock plugins > Advanced DSP controls**. Hiding controls retains processing and saved project data.
+
+### ML Reference
+Keywords: reference song loudness level match A B monitoring export
+
+Add **ML Reference** as the last effect on Master. Click **Load / relink** or drop a WAV, FLAC, MP3, Ogg or AIFF onto its editor. Supported files are 8-192 kHz, up to 20 minutes and 256 MiB. **Start** chooses the beginning of the reference section; **Loop** chooses its length. The section follows the DAW transport position and repeats. Brief fades soften loop edges. The reference file remains linked by its saved path; keep it available when moving a project. Missing or invalid files pass your mix through and show a relink/error message. Cancelling the picker leaves the current reference alone. **Clear** removes it. Loading and clearing participate in host Undo/Redo.
+
+Play your song with **Your mix** selected. **Level match** measures your mix and the reference before the A/B switch. Wait at least 0.4 seconds; a few seconds gives a more representative reading. Click **Reference** to compare, then **Your mix** to return. The match freezes while listening to the reference, so a quiet passage in your song does not suddenly change reference gain. **Ref trim** provides a manual adjustment. Loudness matching is limited to +/-18 dB and reference gain is capped using the source file's sample peaks with a -1 dBFS target, so a very dynamic reference may not reach the requested loudness. Resampling can change peaks; this is not a sample/true-peak limiter. With Level match off, Ref trim controls the reference gain directly, still subject to the sample-peak cap.
+
+A/B selection is monitoring-only and is not saved or automated. Reopening a project starts on Your mix. Offline exports always keep your mix, even while Reference is selected. A real-time loopback recording captures what you are monitoring. This effect does not process or master your song.
+
+### ML Split
+Keywords: multiband crossover low mid high parallel routing bands
+
+Add **ML Split** to divide stereo audio into Low, Mid and High using a fourth-order Linkwitz-Riley crossover. Set **Low / Mid** and **Mid / High** frequencies. Choose **All** to sum the bands, or select one band to hear/process it. The three gain controls and Output are independent. Crossovers are limited to sensible ordered values and the current sample rate.
+
+For independent band effects, send the source to three parallel Mixer tracks. Add ML Split first on each, choose Low, Mid and High respectively, and use identical crossover settings. Disable the source's direct audible route to avoid adding the dry signal again. Add each band's effects after ML Split and route the three tracks to a common bus. This version does not create these routes automatically or expose three separate plugin output ports.
+
+The three bands sum to a flat frequency-response magnitude at unity gain. Their allpass phase rotation means the sum is not identical to unfiltered dry audio. There is no fixed processing latency; normal host compensation still applies to effects added after each split.
+
+### ML Waveshaper
+Keywords: distortion transfer curve drive bias oversampling undo
+
+Add **ML Waveshaper** for editable distortion. Increase **Drive**, adjust **Bias** for asymmetric shaping, and drag any blue graph point vertically to change its transfer curve. **Linear**, **Soft**, **Hard** and **Fold** replace the curve with starting shapes. Curve points are saved and can be automated through Browse parameters. A completed drag is one parameter gesture; normal host Undo/Redo restores curve edits and presets. Closing the editor completes an active drag.
+
+**Mix** blends the shaped and delay-aligned dry paths. **Output** trims both. **Remove DC** removes the constant offset that asymmetric curves can create. Fixed 4x oversampling reduces aliasing and adds 32 samples of latency, reported to the host for compensation. Mix 0% keeps an exact delayed dry signal; the linear wet curve includes the oversampling filters and gently rolls off near Nyquist.
+
+All three effects appear in normal Mixer effect selection without an external plugin scan or download. Extra editor controls follow **Settings > Visibility > Stock plugins > Advanced DSP controls**; hiding controls preserves processing and saved state.
+
+### ML Tuner
+Keywords: tuner tuning note pitch cents A4 guitar bass mute
+
+Add **ML Tuner** to the Mixer channel carrying the instrument you want to tune. Play one steady note. **Input** chooses Left, Right or their Mid average for measurement; it does not change the stereo output. Choose **A4** for your tuning reference (440 Hz by default). Lower **Gate** if a quiet instrument is not detected, or raise it to ignore background noise.
+
+The large note and frequency show the detected pitch; the needle shows cents flat or sharp and turns green within three cents. Use individual notes between 27.5 and 2000 Hz. Chords, very noisy sounds and short transients may not produce a reliable reading. The display clears when no reliable note is present or input stops. **Mute** fades the output down for quiet tuning while measurement continues; switch it Off before recording or playback that should be heard. Unmuted audio passes through unchanged. This effect measures tuning; it does not correct pitch.
+
+### ML Frequency Shift
+Keywords: frequency shift stereo modulation metallic inharmonic Hz
+
+Add **ML Frequency Shift** for metallic, inharmonic or stereo movement effects. **Shift** adds or subtracts the same number of Hz from each frequency; it does not transpose by semitones. **Stereo: Same** moves both channels in the same direction; **Opposite** moves the right channel in the opposite direction. Blend with **Mix** and trim with **Output**. Start with a small shift and low Mix for subtle movement.
+
+Its analytic filters attenuate frequencies shifted below zero or outside their passband. At zero Shift, the wet path still includes those filters and can sound different; use Mix 0% for exact dry audio at unity output. It adds no fixed audio delay.
+
+### ML Multiband Delay
+Keywords: multiband delay low mid high sync tempo feedback crossover
+
+Add **ML Multiband Delay** to process three frequency bands in one insert. **Low / Mid** and **Mid / High** set the crossover points. Each row has its own Time, Beats, Feedback and Level. With **Sync On**, Beats follows the project tempo and Time is inactive. With **Sync Off**, Time sets milliseconds and Beats is inactive. The small readout shows the effective delay for each band. Maximum delay is four seconds, including tempo-synced values; when no tempo is supplied, Sync uses 120 BPM.
+
+Start with modest **Feedback** and **Mix**, then adjust each band's **Level**. Turning a band's Level fully down shows Off and removes that band's delayed output. Feedback controls repeats up to 90%; high settings produce long tails. Mix blends the delayed bands with dry audio, and Output trims both. Delay-time changes fade between taps to reduce clicks. The crossover sum has a flat magnitude response with phase rotation; use Mix 0% for exact dry audio at unity output. No separate band routing is needed.
+
+These tools are available in the normal Mixer effect picker without a scan or download. Their extra displays follow **Settings > Visibility > Stock plugins > Advanced DSP controls**. Hiding them preserves audio processing and saved settings.
+
+### ML Time Shaper
+Keywords: time shaper rhythmic gate stutter repeat chop pump steps tempo
+
+Add **ML Time Shaper** from a Mixer effect slot. **Gate** follows the sixteen step levels to make rhythmic chops or pumping. **Repeat** replays the first slice of each cycle and also follows those levels. **Cycle** is measured in song beats; four beats means four quarter notes, regardless of time signature. **Repeats** selects two to eight slices. Sync follows 40–300 BPM; stopped transport runs freely at the last supplied tempo (120 BPM when unavailable).
+
+Start with **All on** for repeat effects, **Chop** for alternating gates, or **Pump** for rising levels. **Clear** sets every step to silence. Drag a bar vertically to edit a level; Escape cancels the active drag. Each step is automatable. **Smooth** softens the slice/gate edges; zero gives hard rhythmic cuts. Mode, step level, Mix and Output edits are smoothed. **Mix 0%** is dry; no fixed delay is added. Pattern edits and presets support the host Undo command. Reopening the effect or project restores the pattern. This tool provides gating and stutter repeats, not arbitrary reverse/speed curves.
+
+### ML Vocal Tune
+Keywords: vocal tune automatic pitch correction SnapTune key scale learning voice
+
+Add **ML Vocal Tune** to the vocal track's effect chain. It uses the same SnapTune engine already available in the full mixer. Set **Voice** to Low / mid or High, choose the song's **Key** and **Scale**, and raise **Amount** for faster, stronger correction. **Mix** blends aligned dry and corrected audio; **Output** adjusts the result. Use a single voice rather than a chord or complete mix. Avoid enabling the mixer tuner and this effect together unless you want two stages of correction.
+
+For a key suggestion, press **Learn key**, then play a varied vocal phrase with at least six seconds of voiced notes. It can take longer when the phrase is sparse. Press **Cancel learning** to stop. When a suggestion appears, **Use suggestion** applies it; review the result because relative major/minor keys can be ambiguous. Other scales remain manual choices. Amount 0% and Mix 0% give delay-aligned dry audio. The reported latency stays fixed while these controls change, so timing compensation remains stable. Parameters and the accepted key/scale save in the project; parameter changes and applying a suggestion support Undo.
+
+### ML Amp
+Keywords: amp guitar bass NAM neural amp model cabinet impulse response IR
+
+Add **ML Amp** from a Mixer effect slot, then press **Load .nam…** or drop your own NAM model onto the effect. It starts with no model and passes audio through with delay compensation. No amp model or cabinet capture download is required by ML Studio; obtain models separately under their own terms. Loading happens in the background. Wait for **Ready**, then adjust **Input** to drive the model, **Output** to set its level, and **Mix** for parallel blending.
+
+Use **Load cabinet…** or drop a cabinet WAV to add an impulse response, up to 500 ms long. **Cabinet Off** bypasses that IR while retaining it. A model that already includes a cabinet may not need another IR. **Clear amp** and **Clear cabinet** remove the corresponding asset. Successful loads/clears support Undo, and the accepted model and cabinet audio are embedded in the project so reopening does not depend on the original files. Cancelling a file dialog leaves the current setup unchanged; a rejected file keeps the previous working assets.
+
+Mono LSTM, WaveNet, ConvNet and Linear NAM models run as independent left/right processors. Conditioned, nested and slimmable variants are not supported. Model limit: 8 MiB and one million weights; declared training rates 32–192 kHz. Host rates 8–192 kHz are converted automatically. Some unusually large model structures are rejected with an explanation. Model changes fade over 20 ms; fixed latency is 256 samples, including aligned dry audio. An invalid or excessive model output switches to aligned dry and shows a message; check the model and input gain, then reload it. Input calibration depends on the capture, so follow the model author's recommended recording level.
+
+These three effects are built in and appear in the normal Mixer effect picker. Their extra controls follow **Settings > Visibility > Stock plugins > Advanced DSP controls**. Hiding the controls preserves sound, automation and saved assets.
+
+### ML Patch
+Keywords: patch patcher plugin network cables parallel routing container macros sidechain
+Related: Create an automation clip
+
+Load **ML Patch** into a normal Mixer effect slot. It contains a stereo effect network inside that one slot. Start with **Add plugin**, type a name, and select a stock or installed effect. The first effect replaces the direct input-to-output cable. Further effects go after the selected node; select **From ML Studio** to insert at the beginning. **Play / Stop**, or Space outside the search field, lets you listen while editing.
+
+Connect the right port of a node to a left port by dragging, or by clicking the two ports. The lower left port feeds that effect's first sidechain input; it is useful only when the effect supports one. One output can feed several effects, and several outputs can feed the same input. Those signals are summed, so use each node's **Output** level to avoid accidental gain increases. Click a small dot on a cable to disconnect it. A graph with no cable reaching **To ML Studio** is silent. Feedback loops and nested ML Patch instances are not supported.
+
+Drag nodes to arrange the map. **Arrange** restores a grid, and the minus/plus buttons change map zoom. Select a node to **Open plugin editor**, use its exposed parameters, bypass it or remove it. Removal also removes its cables; reconnect the remaining nodes as needed. **Undo / Redo** restores graph edits. Escape cancels an unfinished cable or node move. Closing the map leaves its sound processing active.
+
+For automation, select a parameter in the inspector and press one of the eight numbered **map** buttons. That macro then controls the selected parameter across its normal range. Use ML Patch's **Browse parameters** command in its Mixer slot menu to create automation for Macro 1-8. The eight controls at the bottom show the assigned parameter names. Each macro controls one parameter. MIDI/event routing, instrument layers and custom control-surface design are not included in this version.
+
+**Save** stores the entire network, node positions, macros and child-plugin states as an ML Studio preset. **Load** reopens it; projects retain the same data automatically. Third-party plugins and externally referenced samples/models must still be installed on the receiving computer. Missing plugins keep their saved settings and silence their affected branch; a message identifies them. Reopen the project after installing or rescanning a missing plugin.
+
+ML Patch aligns parallel audio and sidechain paths and reports the overall delay to the Mixer. Bypassing a node keeps its delay, so parallel paths remain aligned. A plugin changing its delay triggers recalculation without restarting playback; the graph briefly silences while compensation is rebuilt. A patch supports up to 32 effects and 96 cables, with bounded delay memory. Hide its entry under **Settings > Visibility > Stock plugins > ML Patch in plugin menus**; existing patches keep processing and remain accessible from their slots.
+
 ## Automation & controls
 Overview: Automate parameters, map hardware, and edit shortcuts.
 
@@ -1398,12 +1611,14 @@ Customize the face diameter, finish, color and edge, plus the pointer color, wid
 The **Thin value ring** shows the wet/dry amount. The **Unfilled inner track** shows the available range behind it. The **Outer circle** is the separate surround. Choose the colors, show or hide each part, and adjust the inner and outer radius and width. Ring overrides replace the inherited surrounding rings. The live examples show 0%, 50% and 100%. These settings affect the Traditional Mixer appearance only.
 
 ### Customize text, buttons and the Playlist bar
+Keywords: theme text button background playlist ruler color wheel
 
 Open **Settings > Theme > Quick color settings**. **Mixer labels and buttons** edits channel names, numbers, headers, and the **Attach to Playlist** and **Mix Assistant** button colors. **Playlist bar colors** edits the toolbar background, text, tools and overview scrollbar. For the ruler itself, search for **Ruler** in the Theme Editor. **Settings colors** edits section labels, panel backgrounds and tabs. Use **Text** in **Toolbar & shared controls** for the shared text color.
 
 Click **Choose color** for a visual wheel. The wheel sets hue and saturation. Move the brightness slider down to make the color darker, or all the way down for black. Use **Reset** on a row to restore the color inherited from the theme. Choose **Apply theme** to keep the changes, then save or export the theme to reuse it. Icon and cursor colors and custom project swatches also use the wheel.
 
 ### Customize Traditional Mixer peak meters
+Keywords: traditional mixer peak meter theme colors segments clipping
 
 In **Settings > Theme > Traditional Mixer peak meters**, click **Customize peak meters**. Click the preview chips to set separate bottom and top colors for the low, high and clipping bands. Choose gradient, solid or segmented bars. You can also set bar width, stereo spacing, edge shading, gradient strength and corner radius. Set the meter frame, background, scale labels and ticks, moving tip and peak hold colors individually. Hide ticks, the moving tip or the peak hold line from the same editor.
 
@@ -1455,7 +1670,7 @@ Related: Browse or search the User Guide | Show a window or restore your workspa
 Keywords: toolbar presets panels detached tap tempo touch controller plugin performance project picker
 Use View > Toolbars to choose visible panels and access toolbar layout editing. Move or hide sections you rarely use and use Workspace Visibility to expose optional buttons. Save a layout if you switch between recording, arrangement and mixing setups.
 
-Right-click the hint bar and choose **Float hint bar**. Drag its body to move it around the workspace, or drag its bottom-right corner to change its width and height. Press Escape during a drag to cancel. Its position and size are saved in your profile. Right-click it and choose **Dock hint bar** to return it to the toolbar. Settings > Visibility > Toolbar panels > Hint panel controls whether the bar is shown.
+Right-click the hint bar and choose **Float hint bar**. Drag its body to move it around the workspace, or drag its bottom-right corner to change its width and height. Press Escape during a drag to cancel. Its position and size are saved in your profile. Choose **Hint text size** in the same right-click menu for 9, 11, 13, 16, 20 or 24 px. Larger sizes stay at the chosen size; enlarge the floating panel when you need more space. Right-click it and choose **Dock hint bar** to return it to the toolbar. Settings > Visibility > Toolbar panels > Hint panel controls whether the bar is shown.
 Open the Tempo tapper to estimate BPM from taps, the Touch controller for on-screen control, and Plugin performance monitor to inspect processing load. The Project Picker helps locate project patterns, clips and other sources. Plugin Picker opens the installed instrument/effect catalog.
 Related: Show or hide interface features | Build action sequences and toolbar buttons | Read the toolbar and project time
 
@@ -1643,7 +1858,11 @@ Right-click the Mixer number for destination and selected routing options. Right
 Related: Select and edit several channels | Route selected channels to the Mixer | Program steps and patterns
 
 ### Mixer and effect slot menus
-Keywords: mixer options track insert slot FX presets spare state scaling PDC dock to routing layout inspector
+Keywords: mixer options track insert slot FX presets spare state scaling PDC dock to routing layout inspector delete remove all tracks Master only
+You can remove every Mixer insert, leaving only Master. Select the inserts and press Delete while the Mixer is focused. Ctrl+A selects all; Master is always kept. The **+** button remains beside Master, including in Traditional and Full layouts: click it to add an insert back. You can also keep just three or four inserts by deleting the others. Deleted inserts no longer reappear as replacement empty tracks, and saving/reopening preserves the remaining count.
+
+Deleting an insert removes its effects and its insert-specific automation links. Channels assigned to it return to Master; surviving inserts and their controls keep their identities as their numbers change. Undo restores the deleted inserts, effects and routing; Redo removes them again. Stop recording and unlock protected tracks/groups before deleting. Mixer Options > Trim unused tracks can also remove all eligible unused inserts. Use Reset instead when you want to clear a track while retaining its slot.
+
 Open Mixer Options for the inspector, its location and layout, recording-to-Playlist behavior, automatic Plugin delay compensation, View, attachment to Playlist, Detached, unused tracks, Smart Disable and audio editor cleanup. Use the Mixer layout selector to choose Traditional, channel strip, Full and available Vintage views.
 Right-click an insert for rename, color, track insertion, save effect chain, reset, solo, separator and channel layout. Change icon, Dock to and the track-menu Render to wave file entries are unimplemented placeholders in this build. Use the documented export/bounce workflows to render audio. The send controls provide routing actions. Track locks can limit changes on an insert. Choose the insert before opening a menu for its effect list or inputs.
 Right-click an occupied effect slot for Replace, Delete, Browse parameters, Sidechain input, Move up/down, View editor and Rename. Preset/spare-state, per-slot CPU, scaling and several appearance entries in this particular slot menu are placeholders, not working commands. Use the plugin wrapper or its own editor for supported preset operations, and Settings > Audio for global Smart disable. An empty slot opens a different picker context.
@@ -3891,6 +4110,16 @@ These are the control hints shown by this editor. Read modifier instructions as 
 
 - Click waveform to preview from here
 
+### Community Regressions - menu labels 1
+Keywords: community regressions - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Folder [submenu]
+- Nested [submenu]
+- Leaf
+- Sibling
+- Other
+
 ### Harmony - control hints 1
 Keywords: harmony - control hints 1 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
@@ -3992,13 +4221,14 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Rename...
 - Save effect chain…
 - Change color... [submenu]
+- Random color
 - Reset selected track(s) to default
-- Reset selected track(s) routing
 
 ### Mixer - menu labels 2
 Keywords: mixer - menu labels 2 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
+- Reset selected track(s) routing
 - Separator
 - Channel Strip mixer [submenu]
 - Channel layout [submenu]
@@ -4014,12 +4244,12 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Attached inspector layout [submenu]
 - Plugin delay compensation [submenu]
 - View [submenu]
-- Detached
 
 ### Mixer - menu labels 3
 Keywords: mixer - menu labels 3 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
+- Detached
 - Trim unused tracks [submenu]
 - Remove all (audio editor) instances
 - Mix Assistant…
@@ -4035,12 +4265,12 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Rename, color and icon...
 - Scaling [submenu]
 - Export visualizer video...
-- None
 
 ### Mixer - menu labels 4
 Keywords: mixer - menu labels 4 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
+- None
 - Remove
 - Cancel
 
@@ -4074,7 +4304,6 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Store in spare state [not implemented]
 - Flip with spare state [not implemented]
 - Smart disable [not implemented]
-- Random color [not implemented]
 - 100% [not implemented]
 - Help [not implemented]
 
@@ -4808,6 +5037,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Edit or clear this swatch
 - Color wheel: choose hue and saturation
 - Brightness
+- Edit name; drag to select text
 - Name suggestions
 - Use this name
 - Set the colour
@@ -4895,6 +5125,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Collapse / expand the group
 - Drag to resize this Playlist track
 - Type, Enter accepts, Esc cancels
+- Drag to select text; Enter accepts; Esc cancels
 
 ### Project Forms view - control hints 1
 Keywords: project forms view - control hints 1 reference controls options settings

@@ -77,11 +77,6 @@ fn item(e: &Entry, target: Target, effect: bool) -> PItem {
     PItem::new(e.label.clone(), pick(target, effect, e.index))
 }
 
-/// A header with a run-time label.
-fn head(label: String) -> PItem {
-    PItem { head: true, ..PItem::new(label, Cmd::Nothing) }
-}
-
 #[derive(Default)]
 struct Folder { items: Vec<PItem>, children: BTreeMap<String, Folder> }
 impl Folder {
@@ -238,9 +233,8 @@ fn folder_groups(root: &std::path::Path) -> std::io::Result<BTreeMap<String, Vec
     Ok(groups)
 }
 
-/// One section's entries (spec §2): favourites, a separator, then the rest by display mode. `nested`: the list is a
-/// submenu itself, so "By vendor" uses headers instead of submenus (popups open one submenu level).
-fn section(s: &State, effect: bool, target: Target, nested: bool) -> Vec<PItem> {
+/// One section's entries: favourites, then the selected grouping at every popup depth.
+fn section(s: &State, effect: bool, target: Target, _nested: bool) -> Vec<PItem> {
     let list = if effect { &s.plugdb.lists.fx } else { &s.plugdb.lists.gens };
     if list.is_empty() {
         return vec![PItem::new(if effect { "(no effect plugins found)" } else { "(no instruments found)" }, Cmd::Nothing).off()];
@@ -297,12 +291,7 @@ fn section(s: &State, effect: bool, target: Target, nested: bool) -> Vec<PItem> 
             }
             for (_, (vendor, es)) in by {
                 let items: Vec<PItem> = es.iter().map(|e| item(e, target, effect)).collect();
-                if nested {
-                    v.push(head(vendor));
-                    v.extend(items);
-                } else {
-                    v.push(PItem { children: items, ..PItem::new(vendor, Cmd::Nothing) });
-                }
+                v.push(PItem { children: items, ..PItem::new(vendor, Cmd::Nothing) });
             }
         }
     }
@@ -730,5 +719,20 @@ mod tests {
             let index = app.plugins.effects.iter().position(|a| a.desc.name == name).unwrap();
             assert_eq!(entry.cmd, Cmd::Plugin(PlugCmd::Effect { index, slot: Some(4) }));
         }
+    }
+}
+
+#[cfg(test)]
+mod community_vendor_tests {
+    use super::*;
+    #[test]
+    fn community_replace_menu_keeps_vendor_subfolders() {
+        let mut app=App::new(None);
+        app.state.plugdb.prefs.menu_view=MenuView::Vendor;
+        app.state.plugdb.lists.gens=vec![Entry{index:3,name:"Test synth".into(),label:"Test synth".into(),uid:"test".into(),vendor:"Test vendor".into(),format:os_host::Format::Clap,category:"Synth",favorite:false,builtin:false}];
+        let items=section(&app.state,false,Target::Replace(1),true);
+        let vendor=items.iter().find(|x|x.label=="Test vendor").unwrap();
+        assert_eq!(vendor.children.len(),1);
+        assert_eq!(vendor.children[0].cmd,Cmd::Plugin(PlugCmd::Replace{index:3,row:1}));
     }
 }

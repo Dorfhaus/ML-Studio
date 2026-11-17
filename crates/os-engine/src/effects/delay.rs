@@ -242,17 +242,17 @@ fn ftz(x: f32) -> f32 {
 
 /// A power-of-two ring read at fractional delays.
 #[derive(Clone)]
-struct Ring {
+pub struct Ring {
     buf: Vec<f32>,
     pos: usize,
 }
 
 impl Ring {
-    fn new(len: usize) -> Ring {
+    pub fn new(len: usize) -> Ring {
         Ring { buf: vec![0.0; len], pos: 0 }
     }
     #[inline]
-    fn read(&self, d: f32) -> f32 {
+    pub fn read(&self, d: f32) -> f32 {
         let m = self.buf.len() - 1;
         let j = d.trunc() as i64 as u32;
         let f = d - j as f32;
@@ -260,7 +260,7 @@ impl Ring {
         (1.0 - f) * self.buf[i & m] + f * self.buf[i.wrapping_sub(1) & m]
     }
     #[inline]
-    fn read_clean(&self, delay: f32) -> f32 {
+    pub fn read_clean(&self, delay: f32) -> f32 {
         if !(2.0..(self.buf.len() - 2) as f32).contains(&delay) {
             return self.read(delay);
         }
@@ -272,12 +272,12 @@ impl Ring {
     }
 
     #[inline]
-    fn write(&mut self, v: f32) {
+    pub fn write(&mut self, v: f32) {
         let m = self.buf.len() - 1;
         self.buf[self.pos] = ftz(v);
         self.pos = (self.pos + 1) & m;
     }
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.buf.fill(0.0);
     }
 }

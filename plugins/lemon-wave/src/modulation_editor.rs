@@ -27,6 +27,8 @@ pub struct ModEditor {
     connected: Mutex<Option<(usize,std::time::Instant)>>,
     clipboard: Mutex<Option<[f32; POINTS]>>,
     envelope_context: Mutex<Option<Arc<dyn GuiContext>>>,
+    curve_before: Mutex<Option<(String, Option<i32>)>>,
+    state_edits: Mutex<Vec<String>>,
 }
 impl ModEditor {
     pub fn routes_for(&self, id: &str) -> Vec<(usize, &'static str, &'static str)> {
@@ -56,6 +58,8 @@ impl ModEditor {
             connected: Mutex::new(None),
             clipboard: Mutex::new(None),
             envelope_context: Mutex::new(None),
+            curve_before: Mutex::new(None),
+            state_edits: Mutex::new(Vec::new()),
         }
     }
     fn edit(&self, edits: &[(usize, f32)], context: Option<&Arc<dyn GuiContext>>) {
@@ -68,7 +72,30 @@ impl ModEditor {
             v.edit_plain(SETTINGS[*k].id, *x);
         }
     }
+    fn envelope_values(&self, context: Option<&Arc<dyn GuiContext>>) -> os_plugkit::vals::Vals {
+        os_plugkit::vals::Vals::new(&*self.params.base, self.params.base.live.clone(), context.cloned())
+    }
+    fn envelope_value(&self, key: usize, value: f32, context: Option<&Arc<dyn GuiContext>>) {
+        let mut values = self.envelope_values(context);
+        let id = SETTINGS[key].id;
+        values.set(id, values.plain_to_norm(id, value));
+    }
+    pub fn take_state_edits(&self) -> Vec<String> { std::mem::take(&mut *self.state_edits.lock().unwrap()) }
+    fn begin_curve_edit(&self, lfo: usize) {
+        let mut before = self.curve_before.lock().unwrap();
+        if before.is_none() { *before = Some((self.params.curves.read().unwrap().encode(), (lfo == 0).then(|| self.params.base.v(LFO_DRAW)))); }
+    }
     fn commit(&self, context: Option<&Arc<dyn GuiContext>>) {
+        if let Some((before, draw)) = self.curve_before.lock().unwrap().take() {
+            if before != self.params.curves.read().unwrap().encode() {
+                let mut patch = serde_json::json!({"fields": {crate::modulation::FIELD: before}});
+                if let Some(draw) = draw { patch["params"] = serde_json::json!({SETTINGS[LFO_DRAW].id: {"i32": draw}}); }
+                let patch = patch.to_string();
+                let mut edits = self.state_edits.lock().unwrap();
+                if edits.len() >= 128 { edits.remove(0); }
+                edits.push(patch);
+            }
+        }
         if let Some(c) = context {
             // The standalone already owns these persistent curves, and process()
             // picks them up directly. Reloading the entire plugin state here
@@ -149,6 +176,9 @@ impl ModEditor {
             if !view::detail_open(&self.params,5) {if let Some((key,second,_,_))=nodes.into_iter().find(|(_,_,px,py)|(x-px).hypot(y-py)<9.) {
                 let release=if env==0 {RELEASE} else {ENV_RELEASE};
                 *self.envelope_context.lock().unwrap()=context.cloned();
+                let values = self.envelope_values(context);
+                values.begin(SETTINGS[key].id);
+                if let Some(k) = second { values.begin(SETTINGS[k].id); }
                 *self.gesture.lock().unwrap()=Some(Gesture::Envelope {key,second,x,y,start:self.params.base.v(key) as f32,other:second.map(|k|self.params.base.v(k) as f32).unwrap_or(0.),direction:if key==release {-1.} else {1.}});
                 return true;
             }
@@ -159,6 +189,7 @@ impl ModEditor {
             if page==0 && i!=selected {continue;}
             let graph=if page==0 {view::synth_lfo_graph()} else {view::lfo_graph(i)};
             if graph.contains(x, y) && !(page==0 && view::detail_open(&self.params,6)) {
+                self.begin_curve_edit(i);
                 let before = self.params.curves.read().unwrap().samples[i];
                 let point = self.point(i, x, y);
                 self.params.curves.write().unwrap().draw(i, point, point);
@@ -182,6 +213,7 @@ impl ModEditor {
                     }
                     if j==6 {
                         if let Some(copied)=*self.clipboard.lock().unwrap() {
+                            self.begin_curve_edit(i);
                             self.undo.lock().unwrap()[i]=Some(self.params.curves.read().unwrap().samples[i]);
                             self.params.curves.write().unwrap().samples[i]=copied;
                             if i==0 {self.edit(&[(LFO_DRAW,1.)],context);}
@@ -189,6 +221,7 @@ impl ModEditor {
                         }
                         return true;
                     }
+                    self.begin_curve_edit(i);
                     let before = self.params.curves.read().unwrap().samples[i];
                     if j == 4 {
                         if let Some(old) = self.undo.lock().unwrap()[i] {
@@ -225,8 +258,8 @@ impl ModEditor {
                 let range=SETTINGS[key].range;
                 let value=(start+(x-ox)*direction*(range.1-range.0) as f32/240.).clamp(range.0 as f32,range.1 as f32);
                 let context=self.envelope_context.lock().unwrap().clone();
-                self.edit(&[(key,value)],context.as_ref());
-                if let Some(k)=second {self.edit(&[(k,(other-(y-oy)*1000./view::synth_env_graph().h).clamp(0.,1000.))],context.as_ref());}
+                self.envelope_value(key,value,context.as_ref());
+                if let Some(k)=second {self.envelope_value(k,(other-(y-oy)*1000./view::synth_env_graph().h).clamp(0.,1000.),context.as_ref());}
                 true
             }
             Some(Gesture::Draw { lfo, last, before }) => {
@@ -259,9 +292,10 @@ impl ModEditor {
         let g = self.gesture.lock().unwrap().take();
         match g {
             Some(Gesture::Envelope {key,second,..}) => {
-                self.edit(&[(key,self.params.base.v(key) as f32)],context);
-                if let Some(k)=second {self.edit(&[(k,self.params.base.v(k) as f32)],context);}
-                self.envelope_context.lock().unwrap().take();
+                let context = self.envelope_context.lock().unwrap().take();
+                let values = self.envelope_values(context.as_ref());
+                values.end(SETTINGS[key].id);
+                if let Some(k) = second { values.end(SETTINGS[k].id); }
                 true
             }
             Some(Gesture::Draw { lfo, before, .. }) => {
@@ -335,6 +369,19 @@ mod tests {
         }
     }
     #[test]
+    fn native_lfo_undo_restores_the_original_shape_mode() {
+        let params = Arc::new(WaveParams::default());
+        let editor = ModEditor::new(params.clone());
+        params.page.store(1, Ordering::Relaxed);
+        let before = params.base.v(LFO_DRAW);
+        let graph = view::lfo_graph(0);
+        editor.click(graph.x + 1., graph.y + 1., None);
+        editor.moved(graph.right() - 1., graph.bottom() - 1.);
+        editor.release(None);
+        let patch: serde_json::Value = serde_json::from_str(&editor.take_state_edits()[0]).unwrap();
+        assert_eq!(patch["params"][SETTINGS[LFO_DRAW].id]["i32"], before);
+    }
+    #[test]
     fn draw_undo_cross_page_drop_and_state_recall() {
         let params = Arc::new(WaveParams::default());
         let editor = ModEditor::new(params.clone());
@@ -346,6 +393,11 @@ mod tests {
         editor.moved(graph.right() - 1., graph.bottom() - 1.);
         editor.release(None);
         assert_ne!(*params.curves.read().unwrap(), before);
+        let edits = editor.take_state_edits();
+        assert_eq!(edits.len(), 1, "one host undo per completed LFO stroke");
+        let edit: serde_json::Value = serde_json::from_str(&edits[0]).unwrap();
+        assert_eq!(edit["fields"][crate::modulation::FIELD], before.encode());
+        assert!(editor.take_state_edits().is_empty());
         let saved = params.serialize_fields();
         let restored = WaveParams::default();
         restored.deserialize_fields(&saved);

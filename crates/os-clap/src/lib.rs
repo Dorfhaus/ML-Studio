@@ -509,6 +509,7 @@ enum Kind {
     Tune,
     /// A named voice's gain (note expression); `velocity` holds the gain.
     Gain,
+    Slide,
 }
 
 /// One entry of a chunk's event order: an index into `notes`, `mods` or `exprs`.
@@ -523,6 +524,7 @@ enum Seq {
 /// One queued note event.
 #[derive(Clone, Copy)]
 struct Ev {
+    slide_velocity: f32,
     time: u32,
     kind: Kind,
     key: u8,
@@ -538,7 +540,7 @@ struct Ev {
 
 impl Ev {
     fn new(time: u32, kind: Kind, key: u8, velocity: f32) -> Ev {
-        Ev { time, kind, key, velocity, start: 0.0, levels: os_engine::NoteLevels::default(), voice: None }
+        Ev { slide_velocity:0., time, kind, key, velocity, start: 0.0, levels: os_engine::NoteLevels::default(), voice: None }
     }
 }
 
@@ -557,6 +559,8 @@ struct NoteParams {
 /// A voice started with note levels: its note id and key, the note's mod X / Y, the modulation amounts it was sent.
 #[derive(Clone, Copy)]
 struct LevelVoice {
+    color: u8,
+    velocity: f32,
     id: i32,
     key: u8,
     mods: [f32; 2],
@@ -592,6 +596,7 @@ pub struct Plugin {
     plugin: *const clap_plugin,
     gui: *const clap_plugin_gui,
     state: *const clap_plugin_state,
+    state_undo: *const StateUndoExtension,
     params: *const clap_plugin_params,
     latency: *const clap_plugin_latency,
     /// The delay it reports, read on the UI thread after each activation and when it says it changed (the extension
@@ -782,6 +787,11 @@ fn debug() -> bool {
     *ON.get_or_init(|| std::env::var_os("OS_DEBUG").is_some())
 }
 
+#[repr(C)]
+struct StateUndoExtension {
+    take: Option<unsafe extern "C" fn(*const clap_plugin, *const clap_ostream) -> bool>,
+}
+
 impl Plugin {
     /// Creates and initialises plugin `id` from `lib` (UI thread).
     pub fn new(lib: &Arc<Library>, id: &str) -> Result<Plugin, String> {
@@ -835,6 +845,7 @@ impl Plugin {
             let ext = |name: &CStr| (*plugin).get_extension.map_or(ptr::null(), |g| g(plugin, name.as_ptr()));
             let gui = ext(CLAP_EXT_GUI) as *const clap_plugin_gui;
             let state = ext(CLAP_EXT_STATE) as *const clap_plugin_state;
+            let state_undo = ext(c"org.ml-studio.state-undo/1") as *const StateUndoExtension;
             let params = ext(CLAP_EXT_PARAMS) as *const clap_plugin_params;
             let latency = ext(CLAP_EXT_LATENCY) as *const clap_plugin_latency;
             let render = ext(CLAP_EXT_RENDER) as *const clap_plugin_render;
@@ -847,6 +858,7 @@ impl Plugin {
                 plugin,
                 gui,
                 state,
+                state_undo,
                 params,
                 _host: host,
                 host_data,
@@ -1178,9 +1190,9 @@ impl Plugin {
                         continue;
                     }
                     if n=="Per-note drive"{np.drive=Some(info.id);continue;}
-                    let k = if n == os_host::NOTE_MOD_X {
+                    let k = if n == os_host::NOTE_MOD_X || n == "Mod X" {
                         0
-                    } else if n == os_host::NOTE_MOD_Y {
+                    } else if n == os_host::NOTE_MOD_Y || n == "Mod Y" {
                         1
                     } else {
                         continue;
@@ -1457,6 +1469,18 @@ impl Plugin {
                     value: f64::from(e.velocity),
                 });
                 seq.push(Seq::Expr(self.exprs.len() - 1));
+            } else if e.time < n && e.kind == Kind::Slide {
+                for v in self.level_voices.iter().filter(|v| v.key == e.key && v.color == e.levels.color) {
+                    let initial = os_engine::laws::volume_curve(f64::from(v.velocity) * 1.28);
+                    let gain = if initial > 1e-12 { os_engine::laws::volume_curve(f64::from(e.slide_velocity) * 1.28) / initial } else { 0. };
+                    for (expression_id, value) in [(CLAP_NOTE_EXPRESSION_TUNING, f64::from(e.velocity)), (CLAP_NOTE_EXPRESSION_VOLUME, gain.clamp(0., 4.)), (CLAP_NOTE_EXPRESSION_PAN, f64::from((e.levels.pan + 1.) * 0.5).clamp(0., 1.))] {
+                        self.exprs.push(clap_event_note_expression {
+                            header: clap_event_header { size: std::mem::size_of::<clap_event_note_expression>() as u32, time:e.time, space_id:CLAP_CORE_EVENT_SPACE_ID, type_:CLAP_EVENT_NOTE_EXPRESSION, flags:0 },
+                            expression_id, note_id:v.id, port_index:0, channel:0, key:i16::from(e.key), value,
+                        });
+                        seq.push(Seq::Expr(self.exprs.len()-1));
+                    }
+                }
             } else if e.time < n && e.kind == Kind::Gain {
                 // A named voice's gain (`use_voice_gains`): CLAP volume expression with its note id; a voice that has
                 // ended is not sent one.
@@ -1501,7 +1525,7 @@ impl Plugin {
                     Kind::Off if id >= 0 => self.ledger.release_voice(id),
                     Kind::Off => self.ledger.release(e.key),
                     Kind::Choke if id >= 0 => self.ledger.choke_voice(id),
-                    Kind::Choke | Kind::Tune | Kind::Gain => self.ledger.choke(e.key),
+                    Kind::Choke | Kind::Tune | Kind::Gain | Kind::Slide => self.ledger.choke(e.key),
                 }
                 self.notes.push(clap_event_note {
                     header: clap_event_header {
@@ -1511,7 +1535,7 @@ impl Plugin {
                         type_: match e.kind {
                             Kind::On => CLAP_EVENT_NOTE_ON,
                             Kind::Off => CLAP_EVENT_NOTE_OFF,
-                            Kind::Choke | Kind::Tune | Kind::Gain => CLAP_EVENT_NOTE_CHOKE,
+                            Kind::Choke | Kind::Tune | Kind::Gain | Kind::Slide => CLAP_EVENT_NOTE_CHOKE,
                         },
                         flags: 0,
                     },
@@ -1566,11 +1590,11 @@ impl Plugin {
                             seq.push(Seq::Mod(self.mods.len() - 1));
                         }
                     }
-                    if np.mods.iter().any(Option::is_some) {
+                    if e.kind == Kind::On {
                         if self.level_voices.len() >= LEVEL_VOICES {
                             self.level_voices.remove(0);
                         }
-                        self.level_voices.push(LevelVoice { id, key: e.key, mods: own, sent });
+                        self.level_voices.push(LevelVoice { color:e.levels.color, velocity:e.velocity, id, key: e.key, mods: own, sent });
                     }
                 }
             } else {
@@ -1776,6 +1800,25 @@ impl os_host::Plugin for Plugin {
         Plugin::close_editor(self)
     }
 
+    fn state_undo_supported(&self) -> bool { !self.state_undo.is_null() }
+    fn take_state_edits(&mut self) -> Vec<String> {
+        if self.state_undo.is_null() { return Vec::new(); }
+        let Some(take) = (unsafe { (*self.state_undo).take }) else { return Vec::new() };
+        unsafe extern "C" fn write(stream: *const clap_ostream, bytes: *const c_void, size: u64) -> i64 {
+            let data = unsafe { &mut *((*stream).ctx as *mut Vec<u8>) };
+            if size > (128 * 1024 * 1024usize).saturating_sub(data.len()) as u64 { return -1; }
+            data.extend_from_slice(unsafe { std::slice::from_raw_parts(bytes.cast(), size as usize) });
+            size as i64
+        }
+        let mut out = Vec::new();
+        for _ in 0..128 {
+            let mut data = Vec::new();
+            let stream = clap_ostream { ctx: (&mut data as *mut Vec<u8>).cast(), write: Some(write) };
+            if !unsafe { take(self.plugin, &stream) } { break; }
+            if let Ok(edit) = String::from_utf8(data) { out.push(edit); }
+        }
+        out
+    }
     fn take_state_changed(&mut self)->bool {self.host_data.state_dirty.swap(false,Ordering::AcqRel)}
     fn save_state(&self) -> Option<Vec<u8>> {
         Plugin::save_state(self)
@@ -1811,7 +1854,9 @@ impl os_host::Plugin for Plugin {
     }
 
     fn param_info(&self, index: usize) -> Option<os_host::ParamInfo> {
-        if self.params.is_null() {
+        // Parameterless meters and stale automation indices must never reach a
+        // plugin's get_info with an out-of-range index (some wrappers panic).
+        if self.params.is_null() || index >= self.param_count() {
             return None;
         }
         unsafe {
@@ -1988,6 +2033,12 @@ impl os_engine::Instrument for Plugin {
             }
             None => self.queue.push(Ev::new(offset, Kind::Tune, key, semitones)),
         }
+    }
+
+    fn slide(&mut self, offset:u32, key:u8, color:u8, semitones:f32, velocity:f32, pan:f32) {
+        if self.note_levels.is_some() && self.bend.is_none() {
+            self.queue.push(Ev { slide_velocity:velocity, levels:os_engine::NoteLevels { color, pan, ..Default::default() }, ..Ev::new(offset, Kind::Slide, key, semitones) });
+        } else { self.tune(offset, key, semitones); }
     }
 
     fn set_bend_range(&mut self, semitones: u32) {
@@ -2380,7 +2431,7 @@ mod tests {
         let mut p = Plugin::new(&lib, &lib.plugins[0].id).unwrap();
         assert!(os_host::Plugin::activate(&mut p, 48000));
         let (mut l, mut r) = (vec![0.0f32; 64], vec![0.0f32; 64]);
-        let own = os_engine::NoteLevels { echo_pitch: 0., drive:0., pan: 0.5, mod_x: 0.25, mod_y: -0.5 };
+        let own = os_engine::NoteLevels { color:0, echo_pitch: 0., drive:0., pan: 0.5, mod_x: 0.25, mod_y: -0.5 };
         // Off: a plain note.
         p.note_start(3, 60, 0.8, 0.0, own);
         p.process_fx(48000, &mut l, &mut r);
@@ -2414,6 +2465,30 @@ mod tests {
         p.take_note_ends(0);
         p.channel_levels(os_engine::ChannelLevels { mod_x: 0.5, ..Default::default() });
         assert!(p.mod_resend.is_empty());
+    }
+
+    #[test]
+    fn slide_expressions_keep_note_color_and_voice_identity() {
+        use os_engine::HostedEffect as _;
+        let entry = &lemon_parametric_eq_2::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void;
+        let lib = unsafe { Library::from_entry(entry, Path::new("Lemon Parametric EQ.clap")) }.unwrap();
+        let mut p = Plugin::new(&lib, &lib.plugins[0].id).unwrap();
+        assert!(os_host::Plugin::activate(&mut p,48000));
+        assert!(p.use_note_levels());
+        let (mut l,mut r)=(vec![0.;64],vec![0.;64]);
+        for color in [2,3] { p.note_start(0,60,0.8,0.,os_engine::NoteLevels { color, ..Default::default() }); }
+        p.process_fx(48000,&mut l,&mut r);
+        let id = p.level_voices.iter().find(|v|v.color==2).unwrap().id;
+        p.slide(7,60,2,12.,0.4,-1.);
+        p.process_fx(48000,&mut l,&mut r);
+        assert_eq!(p.exprs.len(),3);
+        assert!(p.exprs.iter().all(|e| e.note_id==id && e.header.time==7));
+        assert_eq!(p.exprs[0].value,12.);
+        assert!(p.exprs[1].value>0. && p.exprs[1].value<1.);
+        assert_eq!(p.exprs[2].value,0.);
+        p.param_out.push(OutEv::NoteEnd(60,id));p.take_note_ends(0);
+        p.slide(0,60,2,0.,0.8,0.);p.process_fx(48000,&mut l,&mut r);
+        assert!(p.exprs.is_empty());
     }
 
     /// The UI locks an instance only when it has work (spec: audio/implementing.md "Playing live"): host edits waiting
@@ -2993,6 +3068,23 @@ mod tests {
         assert!(p.load_state(&blob));
         assert!(p.activate(48000));
         p
+    }
+
+    #[test]
+    fn colored_slide_volume_changes_real_sampler_audio() {
+        let wav=dc_wav("colored-slide");let mut p=sampler_of(&wav);assert!(p.use_note_levels());
+        for (key,color) in [(60,2),(61,3)] {p.note_start(0,key,0.8,0.,os_engine::NoteLevels { color, ..Default::default() });}
+        let (mut l,mut r)=([0.;256],[0.;256]);
+        for _ in 0..8 {p.process(48000,&mut l,&mut r);}
+        let level=|x:&[f32]|x.iter().map(|x|x.abs()).sum::<f32>()/x.len() as f32;
+        let before=level(&l);assert!(before>0.01);
+        p.slide(0,60,2,0.,0.,0.);
+        for _ in 0..8 {p.process(48000,&mut l,&mut r);}
+        assert!((level(&l)/before-0.5).abs()<0.02,"only the matching colored voice is silent");
+        p.slide(0,61,3,0.,0.,0.);
+        for _ in 0..8 {p.process(48000,&mut l,&mut r);}
+        assert!(level(&l)<1e-6 && level(&r)<1e-6);
+        let _=std::fs::remove_file(wav);
     }
 
     /// Glides (spec: audio/channel-voices.md): a plugin whose note port takes CLAP notes (Lemon Sampler) gets tuning

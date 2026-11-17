@@ -165,7 +165,27 @@ pub fn act(app:&mut App,cmd:u8) {
     }
     app.invalidate();
 }
-fn panel_rect(s:&State)->Rect {Rect::new(0.,s.screen.1-view::FOOTER_H-HEIGHT,s.browser_w.min(s.screen.0/2.).max(crate::views::BROWSER_W),HEIGHT)}
+fn panel_rect(s:&State)->Rect {let r=crate::views::browser_content(s);Rect::new(r.x,s.screen.1-view::FOOTER_H-HEIGHT,r.w,HEIGHT)}
+
+#[test]
+fn dock_browser_preview_seek_matches_waveform_on_both_sides() {
+    let mut app=App::new(None);
+    let mut c=os_ui::Canvas::new(1280,800,1.).unwrap();
+    app.state.show_browser=true;
+    app.state.browser_tab=0;
+    app.state.browser_opts.insert(view::OPT_PANEL);
+    app.state.browser_preview.path=Some("synthetic-preview.wav".into());
+    app.state.browser_preview.duration=2.;
+    app.state.browser_preview.peaks=vec![(-0.1,0.1);100];
+    for right in [false,true] {
+        if right {app.state.browser_opts.insert(view::OPT_RIGHT);} else {app.state.browser_opts.remove(view::OPT_RIGHT);}
+        app.paint(&mut c,None);
+        let wave=app.hits.iter().find(|h|h.action==Action::BrowserPreview(2)).unwrap().rect;
+        app.mouse=(wave.cx(),wave.cy());
+        act(&mut app,2);
+        assert!((app.state.browser_preview.position-1.).abs()<0.01,"seeking must match the painted waveform on either side");
+    }
+}
 fn wave_rect(r:Rect)->Rect {Rect::new(r.x+8.,r.y+25.,r.w-16.,48.)}
 fn time(seconds:f64)->String {let n=seconds.max(0.) as u64;format!("{}:{:02}",n/60,n%60)}
 pub fn paint(ui:&mut Ui,s:&State,r:Rect) {

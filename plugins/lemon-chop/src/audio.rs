@@ -2,6 +2,16 @@
 //! Background source analysis. No decoding or inference on the audio callback.
 use os_engine::Sample;
 use std::{path::Path, sync::Arc};
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires ML_REX_FIXTURES"]
+fn rex_chop_keeps_authored_slices() {
+    let path=std::path::PathBuf::from(std::env::var_os("ML_REX_FIXTURES").expect("fixtures")).join("120FourBeats.rx2");
+    let a=Audio::load(path.to_str().unwrap(),&Default::default()).unwrap();
+    let meta=os_engine::rex::metadata(&path).unwrap();
+    assert_eq!(a.onsets,meta.slices);assert_eq!(a.onsets.len(),10);assert_eq!(a.bpm,120.);
+}
 pub struct Audio {
     pub path: String,
     pub source: Arc<Sample>,
@@ -119,6 +129,10 @@ impl Audio {
                 prev = x;
             }
             peaks.push((amp, (diff / (b - a) as f32 * 3.).clamp(0., 1.)));
+        }
+        if let Some(meta)=os_engine::rex::metadata(Path::new(path)) {
+            if !meta.slices.is_empty(){onsets=meta.slices;}
+            best.1=meta.bpm;
         }
         Ok(Self {
             path: path.into(),

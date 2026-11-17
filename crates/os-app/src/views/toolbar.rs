@@ -115,6 +115,7 @@ pub enum Switch {
     Flat,
     HintBar,
     FloatHint,
+    HintText(u8),
     Tesla,
     CpuMemory,
     Hide,
@@ -629,7 +630,7 @@ fn hint_panel(ui: &mut Ui, c: &Ctx) {
     let mut hp = a.span(72.0, 72.0+Panel::Hint.width()-7., 4.0, 36.0);
     hp.w=hp.w.min((c.fit-hp.x-2.).max(0.));
     ui.hit(hp, Action::DragWindow, "Hint bar");
-    if s.vintage_2005 && hp.x < 150.0 {
+    if s.vintage_2005 && hp.x < 150.0 && s.bar.hint_font_size() == 11 {
         let lamps = shown("visible_vintage_activity") && hp.w >= 100.0;
         let info = Rect::new(hp.x, hp.y, hp.w - if lamps { 29.0 } else { 0.0 }, hp.h);
         super::vintage_toolbar::compact_info(ui, s, f, info);
@@ -666,10 +667,13 @@ fn hint_content(ui: &mut Ui, s: &State, f: &FrameInfo, hp: Rect) {
         ui.c.text_center(Font::new(8), Rect::new(bounds.x, cy + 6.0, bounds.w, 9.0), t.text_dim.mix(light, level), "MIDI");
     }
     let hint: &str = if !f.hint.is_empty() { &f.hint } else { s.message.as_deref().unwrap_or(if t.style.vintage_2005 { "ML STUDIO  /  2005" } else { "" }) };
-    let mut font=Font::new(11);
-    for size in (9..=11).rev() {
-        font=Font::new(size);
-        if ui.c.line_height(font)*2.<=hp.h-4. {break;}
+    let requested = s.bar.hint_font_size();
+    let mut font=Font::new(u16::from(requested));
+    if requested == 11 {
+        for size in (9..=11).rev() {
+            font=Font::new(size);
+            if ui.c.line_height(font)*2.<=hp.h-4. {break;}
+        }
     }
     let line_height=ui.c.line_height(font);
     ui.c.push_clip(hp.inset(2.));

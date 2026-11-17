@@ -1,0 +1,18 @@
+[package]
+name = "ml-utility-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
+lemon-small-fx = { path = "../lemon-small-fx" }
+os-plugkit = { path = "../../crates/os-plugkit" }
+os-ui = { path = "../../crates/os-ui" }
+os-dsp = { path = "../../crates/os-dsp" }
+ml-mix-core = { path = "../ml-mix-core" }
+os-engine = { path = "../../crates/os-engine" }
+
+[dev-dependencies]
+os-clap = { path = "../../crates/os-clap" }
+os-host = { path = "../../crates/os-host" }
+os-theme = { path = "../../crates/os-theme" }

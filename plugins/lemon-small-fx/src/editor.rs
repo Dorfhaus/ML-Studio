@@ -26,6 +26,9 @@ use crate::{Shared, Spec};
 
 /// Optional non-parameter instrument controls, called only on the editor thread.
 pub trait Extension: Send + Sync {
+    /// Animation polling is separate from immediate mouse/keyboard/parameter updates.
+    fn animation_interval(&self) -> std::time::Duration { std::time::Duration::from_millis(30) }
+    fn take_state_edits(&self) -> Vec<String> { Vec::new() }
     /// (Route id, source label, automatable depth parameter id).
     fn modulation_routes(&self, _id: &str) -> Vec<(usize, &'static str, &'static str)> { Vec::new() }
     fn remove_modulation(&self, _id: &str, _route: usize, _context: Option<&Arc<dyn GuiContext>>) {}
@@ -195,6 +198,7 @@ struct Drag {
 
 pub struct Logic {
     context: Option<Arc<dyn GuiContext>>,
+    state_edits: Arc<crate::state_undo::Edits>,
     pub spec: &'static Spec,
     pub vals: Vals,
     pub params: Arc<FxParams>,
@@ -213,10 +217,17 @@ impl Drop for Logic {
 }
 impl Logic {
     pub fn new(spec: &'static Spec, params: Arc<FxParams>, shared: Arc<Shared>, ctx: Option<Arc<dyn GuiContext>>) -> Self {
+        let state_edits = Arc::new(crate::state_undo::Edits::default());
+        let ctx = ctx.map(|context| crate::state_undo::wrap(context, state_edits.clone()));
         let vals = Vals::new(&*params, params.live.clone(), ctx.clone());
-        Logic { context: ctx, spec, vals, params, shared, view: ViewState::default(), hits: Vec::new(), drag: None, hint: String::new(), copied: None, hosted: false }
+        Logic { state_edits, context: ctx, spec, vals, params, shared, view: ViewState::default(), hits: Vec::new(), drag: None, hint: String::new(), copied: None, hosted: false }
     }
 
+    fn take_state_edits(&self) -> Vec<String> {
+        let mut edits = self.state_edits.take();
+        if let Some(extension) = &self.shared.extension { edits.extend(extension.take_state_edits()); }
+        edits
+    }
     pub fn dragging(&self) -> bool {
         self.drag.is_some() || self.shared.extension.as_ref().is_some_and(|e|e.dragging())
     }
@@ -463,6 +474,8 @@ mod win32 {
         lock: CursorLock,
         tracking: bool,
         slot: Arc<AtomicIsize>,
+        dirty: std::cell::Cell<bool>,
+        next_animation: std::time::Instant,
     }
 
     /// Owns the window; dropping it closes the editor.
@@ -519,6 +532,8 @@ mod win32 {
                 lock: CursorLock::default(),
                 tracking: false,
                 slot: slot.clone(),
+                dirty: std::cell::Cell::new(true),
+                next_animation: std::time::Instant::now(),
             });
             let title = pw::wide(spec.name);
             let hwnd = CreateWindowExW(
@@ -579,7 +594,7 @@ mod win32 {
                 }
                 WM_ERASEBKGND => 1,
                 WM_TIMER | WM_CHANGED => {
-                    w.poll();
+                    w.poll(msg == WM_CHANGED);
                     0
                 }
                 WM_DROPFILES => {
@@ -691,13 +706,15 @@ mod win32 {
         }
 
         fn invalidate(&self) {
+            self.dirty.set(true);
             unsafe { InvalidateRect(self.hwnd, std::ptr::null(), 0) };
         }
 
         /// Timer / parameter change: expire confirmed overlay values and repaint.
-        fn poll(&mut self) {
-            self.logic.vals.expire();
-            self.invalidate();
+        fn poll(&mut self, changed: bool) {
+            self.send_edits();
+            let expired = self.logic.vals.expire();
+            if changed || expired || std::time::Instant::now() >= self.next_animation { self.invalidate(); }
             if self.logic.hint != self.last_hint {
                 self.last_hint = self.logic.hint.clone();
                 if self.logic.hosted {
@@ -706,6 +723,11 @@ mod win32 {
             }
         }
 
+        fn send_edits(&mut self) {
+            for edit in self.logic.take_state_edits() {
+                if self.logic.hosted { os_hostlink::send_state_edit(self.hwnd as isize, edit); }
+            }
+        }
         fn run(&mut self, acts: Vec<Act>) {
             let mut repaint = false;
             for a in acts {
@@ -734,6 +756,7 @@ mod win32 {
                     }
                 }
             }
+            self.send_edits();
             if repaint {
                 self.invalidate();
             }
@@ -760,15 +783,21 @@ mod win32 {
                     }
                     1
                 }
-                Cmd::SampleFit | Cmd::BrowseSample | Cmd::Changed | Cmd::Note | Cmd::Automate | Cmd::Audio | Cmd::Resizable | Cmd::SetSize => 0,
+                Cmd::StateEdit | Cmd::SampleFit | Cmd::BrowseSample | Cmd::Changed | Cmd::Note | Cmd::Automate | Cmd::Audio | Cmd::Resizable | Cmd::SetSize => 0,
             }
         }
 
         fn paint(&mut self) {
             let (hdc, ps) = pw::begin_paint(self.hwnd);
-            self.logic.paint(&mut self.canvas, &self.palette);
-            self.buf.resize((self.size.0 * self.size.1) as usize, 0);
-            self.canvas.copy_to_xrgb(&mut self.buf);
+            // Exposing/moving a window can reuse the last complete frame.
+            if self.dirty.replace(false) {
+                let started = std::time::Instant::now();
+                self.logic.paint(&mut self.canvas, &self.palette);
+                self.buf.resize((self.size.0 * self.size.1) as usize, 0);
+                self.canvas.copy_to_xrgb(&mut self.buf);
+                let interval = self.logic.shared.extension.as_ref().map_or(std::time::Duration::from_millis(30), |e| e.animation_interval());
+                self.next_animation = std::time::Instant::now() + interval.max(started.elapsed().saturating_mul(3));
+            }
             pw::blit(hdc, &self.buf, self.size.0, self.size.1);
             pw::end_paint(self.hwnd, &ps);
         }
@@ -952,6 +981,12 @@ mod gui {
                     }
                 }
             }
+            for edit in self.logic.take_state_edits() {
+                if self.link.hosted() {
+                    if let Some(token) = os_hostlink::post_state_edit(edit) { self.link.to_host(Cmd::StateEdit, token as isize); }
+                }
+            }
+
         }
 
         fn paint(&mut self) {

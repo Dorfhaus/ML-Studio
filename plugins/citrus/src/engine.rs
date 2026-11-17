@@ -148,8 +148,8 @@ impl Citrus {
     pub fn set_tempo(&mut self, bpm: f64) {
         if bpm > 0.0 && bpm != self.tempo {
             self.tempo = bpm;
-            if let Some(p) = &self.patch {
-                self.section = Some(Section::new(&p.st, self.host_rate, self.v, self.tempo as f32));
+            if let (Some(p), Some(section)) = (&self.patch, &mut self.section) {
+                section.set_tempo(&p.st, self.tempo as f32);
             }
         }
     }

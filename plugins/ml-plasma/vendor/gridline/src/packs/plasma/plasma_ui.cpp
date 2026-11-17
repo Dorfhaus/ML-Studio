@@ -247,8 +247,13 @@ std::string ptext(const Ctx& c, int k) { return paramText(k, val(c, k), &c.st.pa
 // J-202: nothing smaller than 8 px (the caption size at 100 %).
 // The editor's type is set 15 % above its form sizes, so labels and values read at a glance at
 // the editor's usual sizes (one place: every text, measure and layout check goes through here).
-constexpr float kTypeScale = 1.25f;
-float font(const Ctx& c, float px) { return std::max(9.5f, std::round(px * kTypeScale * c.F.s * 2.0f) * 0.5f); }
+constexpr float kTypeScale = 1.4f;
+float font(const Ctx& c, float px) {
+  // Keep small captions legible after the plugin wrapper scales the complete
+  // editor to fit. Text measurement uses this same size, so clipping stays aligned.
+  const float displayScale = std::max(0.25f, ImGui::GetIO().DisplayFramebufferScale.x);
+  return std::max(12.f / displayScale, std::round(px * kTypeScale * c.F.s * 2.0f) * 0.5f);
+}
 float ctlPx(float h) { return std::clamp(h * 0.44f, 10.0f, 12.0f); }
 namespace {
 int gMono = 0;  // MonoText scopes open: values are set in the mono face
@@ -1708,6 +1713,12 @@ int tabs(Ctx& c, const char* id, float x, float y, float w, float h, const std::
 }
 
 // Popup rows (inside BeginPopup): one ImGui control per parameter.
+bool popupParameterSlider(const char* label, float* normalized, const char* shown) {
+  std::string format;
+  for (const char* ch = shown; *ch; ++ch) { format += *ch; if (*ch == '%') format += '%'; }
+  return ImGui::SliderFloat(label, normalized, 0.f, 1.f, format.c_str(), ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_NoInput);
+}
+
 void paramRows(Ctx& c, const std::vector<int>& ks) {
   for (int k : ks) {
     const ParamDesc* d = desc(k);
@@ -1729,11 +1740,19 @@ void paramRows(Ctx& c, const std::vector<int>& ks) {
     } else {
       float n = static_cast<float>(d->toNormalized(v));
       const std::string shown = paramText(k, v, &c.st.params);
-      ImGui::SetNextItemWidth(c.s(150));
-      if (ImGui::SliderFloat(nm.c_str(), &n, 0.f, 1.f, shown.c_str())) {
+      // This is already-formatted text, not a printf numeric format. Escape percent
+      // signs and never round the normalized value through a literal like "0%".
+      ImGui::SetNextItemWidth(c.s(180));
+      if (popupParameterSlider(nm.c_str(), &n, shown.c_str())) {
         double nv = d->fromNormalized(n);
         if (integerParam(k)) nv = std::round(nv);
         setv(c, k, nv, true);
+      }
+      if (ImGui::IsItemHovered() && !ImGui::IsItemActive() && ImGui::GetIO().MouseWheel != 0) {
+        const double step = ImGui::GetIO().KeyShift ? 0.005 : 0.025;
+        double nv = d->fromNormalized(std::clamp(static_cast<double>(n) + ImGui::GetIO().MouseWheel * step, 0.0, 1.0));
+        if (integerParam(k)) nv = std::round(nv);
+        setv(c, k, nv);
       }
       if (ImGui::IsItemDeactivatedAfterEdit()) c.a.doc.endGesture();
     }

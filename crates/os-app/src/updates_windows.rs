@@ -1,5 +1,5 @@
 //! Windows' consent-based fallback for a helper rejected with ERROR_ELEVATION_REQUIRED.
-use std::{ffi::OsStr, os::windows::{ffi::OsStrExt, io::{FromRawHandle, AsRawHandle, OwnedHandle}, process::ExitStatusExt}, process::{ExitStatus, Command}};
+use std::{ffi::OsStr, os::windows::{ffi::OsStrExt, io::{FromRawHandle, AsRawHandle, OwnedHandle}, process::{ExitStatusExt,CommandExt}}, process::{ExitStatus, Command}};
 use windows_sys::Win32::UI::{Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOCLOSEPROCESS, SEE_MASK_NOASYNC, SEE_MASK_FLAG_NO_UI}, WindowsAndMessaging::SW_HIDE};
 use windows_sys::Win32::{Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT}, System::Threading::{WaitForSingleObject, GetExitCodeProcess, TerminateProcess, GetProcessId, OpenProcess, PROCESS_SYNCHRONIZE}};
 
@@ -134,4 +134,30 @@ mod tests {
         unsafe { LocalFree(args.cast()); }
         assert_eq!(decoded, values);
     }
+}
+
+/// Only repair an existing installer-managed copy. Portable and Development
+/// executables never acquire public shortcuts through an update.
+pub(super) fn repair_start_menu(target: &std::path::Path) -> std::io::Result<()> {
+    let script = r#"
+$ErrorActionPreference='Stop'
+$install=(Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\LemonStudio-MichaelLane' -ErrorAction SilentlyContinue).InstallLocation
+if (!$install) { exit 0 }
+$expected=[IO.Path]::GetFullPath([IO.Path]::Combine($install,'lemonstudio.exe'))
+if (![string]::Equals($expected,[IO.Path]::GetFullPath($env:ML_SHORTCUT_TARGET),[StringComparison]::OrdinalIgnoreCase)) { exit 0 }
+$folder=[IO.Path]::Combine([Environment]::GetFolderPath('Programs'),'ML Studio')
+$path=[IO.Path]::Combine($folder,'ML Studio.lnk')
+if (!(Test-Path -LiteralPath $path)) {
+    [IO.Directory]::CreateDirectory($folder) | Out-Null
+    $link=(New-Object -ComObject WScript.Shell).CreateShortcut($path)
+    $link.TargetPath=$env:ML_SHORTCUT_TARGET
+    $link.WorkingDirectory=$install
+    $link.Save()
+}
+"#;
+    let status=Command::new("powershell.exe")
+        .args(["-NoProfile","-NonInteractive","-Command",script])
+        .env("ML_SHORTCUT_TARGET",target)
+        .creation_flags(0x08000000).status()?;
+    if status.success(){Ok(())}else{Err(std::io::Error::other("Could not repair the Start menu shortcut"))}
 }

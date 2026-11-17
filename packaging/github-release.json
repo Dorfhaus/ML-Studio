@@ -1,28 +1,62 @@
 {
-  "tag": "v2026.11.16.4",
-  "title": "ML Studio 2026.11.16.4 for macOS",
-  "notes": "- Find installed AUv2 instruments and effects in Plugin Manager, then load instruments in the Channel Rack and effects in the Mixer.\n- Audio Unit parameter automation and plug-in settings are saved with the project. Plug-ins that provide a compatible Cocoa editor can open their own controls.\n- Available in the Apple silicon and Intel macOS builds.\n\nhttps://michaellanemusic.de/ml-studio/",
+  "tag": "v2026.11.17.1",
+  "title": "ML Studio 2026.11.17.1",
+  "notes": "- ML Patch brings visual effect routing to one Mixer slot. Connect stock or installed effects in series or parallel, route sidechains, assign eight automatable controls, and save the whole patch as a preset. Parallel paths stay aligned when you bypass a node. This release supports stereo effects.\n- Added 15 more stock effects: ML Phase, De-Esser, Meter, Pitch Shift, Convolver, Vocoder, Reference, Split, Waveshaper, Tuner, Frequency Shift, Multiband Delay, Time Shaper, Amp and Vocal Tune. ML Amp loads your own NAM models and cabinet impulse responses. ML Vocal Tune uses the existing Mixer tuning engine.\n- Added REX loop import and colored slide-note editing and playback for supported instruments. Improved project recall for replaced instruments and queued sampler changes.\n- The Browser can dock on either side. Browser preview follows the Master level, and nested menus and folder navigation are easier to use.\n- You can delete every Mixer insert, undo the deletion, and add a fresh insert from a Master-only Mixer. Surviving routes and automation stay with their tracks.\n- Standard Undo and Redo now cover supported editor changes in ML Plasma, ML Wave and Citrus. Fixed Wave LFO shape recall and improved Plasma editor controls and responsiveness.\n- Fixed Playlist and Piano Roll editing issues involving loop boundaries, Alt resizing, zoom-to-fit, text and numeric entry, and random colors. Fixed live pitch after seeking or looping, Citrus effect state after tempo changes, and clicks passing through Tune Vocals.\n- Windows installer and updater now create or repair the registered installation shortcut. This full release also carries forward the recent Playlist hover fix and macOS AUv2 support.\n\nhttps://michaellanemusic.de/ml-studio/",
   "assets": [
     {
-      "name": "ML-Studio-Mac-arm64-2026111604.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111604/ML-Studio-Mac-arm64-2026111604.dmg",
-      "sha256": "b917bdb499657d11951d218834f2431378d70068f5c4204900d0146ce069c65e"
+      "name": "ML-Studio-Windows-Setup-2026.11.17.1.exe",
+      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111701/ML-Studio-Windows-Setup-2026.11.17.1.exe",
+      "sha256": "0d4ff928d8c0e33a7c5db04791f471b03ef5665a58596678f0f33503393623ba"
     },
     {
-      "name": "ML-Studio-Source-Mac-arm64-2026111604.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111604/ML-Studio-Source-Mac-arm64-2026111604.zip",
-      "sha256": "34014a92728b0a0e97d1aab3c9cc9f525672c5c35b6f3866222516c2c3bd09e6"
+      "name": "ML-Studio-Source-2026111701.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111701/Lemon%20Studio%20Source.zip",
+      "sha256": "bbc7e6eba6d7b661b0d9233df72ec015cab3584cb9b7c9f5cb5276bf41865e9b"
     },
     {
-      "name": "ML-Studio-Mac-x86_64-2026111604.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111604/ML-Studio-Mac-x86_64-2026111604.dmg",
-      "sha256": "071e3eb063ebea30e337496088d87156b87811a571846510e52912f7978c295c"
+      "name": "ML-Studio-Linux-x86_64-2026111701.tar.gz",
+      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111701/ML-Studio-Linux-x86_64-2026111701.tar.gz",
+      "sha256": "3defc208d31491a286e9c26dc0b5b486277b9b5eb8baa9c23f133a4b083b5fb2"
     },
     {
-      "name": "ML-Studio-Source-Mac-x86_64-2026111604.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111604/ML-Studio-Source-Mac-x86_64-2026111604.zip",
-      "sha256": "df1177188d5abe0e50702baa12400215d4ba1911f8013de53051cc51b190195c"
+      "name": "ML-Studio-Mac-arm64-2026111701.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111701/ML-Studio-Mac-arm64-2026111701.dmg",
+      "sha256": "a3e06a421a3e5ad5dfafc7f911fe76acb1ed0712ba6ef52b9ebee42ac3f4ec48"
+    },
+    {
+      "name": "ML-Studio-Source-Mac-arm64-2026111701.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111701/ML-Studio-Source-Mac-arm64-2026111701.zip",
+      "sha256": "b0c09d2d86c361a97c8c5e75e07a712f64a82f339c47936346567a55aab3fa7a"
+    },
+    {
+      "name": "ML-Studio-Mac-x86_64-2026111701.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111701/ML-Studio-Mac-x86_64-2026111701.dmg",
+      "sha256": "52cdc701a4ab559e1018930ad2c6c0fa6204de2217ffd1ab9a689b7f36520f55"
+    },
+    {
+      "name": "ML-Studio-Source-Mac-x86_64-2026111701.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111701/ML-Studio-Source-Mac-x86_64-2026111701.zip",
+      "sha256": "955d038ef832eadec4aacdcdccdb32cff289703555c6e199ed858662a942f6cf"
+    },
+    {
+      "name": "melli-linux-v4.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/4/melli-linux-v4.zip",
+      "sha256": "96ab349c56dc53fb06ad208dafa244d9cd22a811f71781e39815903ebe88137e"
+    },
+    {
+      "name": "melli-mac-arm64-v4.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/4/melli-mac-arm64-v4.zip",
+      "sha256": "37b236d930dfa6b6b2c97d3d7f1ccf547e67da0aa1a23fb49c1579065bc56ae1"
+    },
+    {
+      "name": "melli-mac-x86_64-v4.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/4/melli-mac-x86_64-v4.zip",
+      "sha256": "d1384657be36efa328c00477e098e423b7151f62bf0e66218a82d0b3f2607913"
+    },
+    {
+      "name": "melli-windows-v4.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/helper/4/melli-windows-v4.zip",
+      "sha256": "71a11ba0f52dba034dfc218ccdb1da818747f729fb1bd934697ac2ec9d1c90d2"
     }
-  ],
-  "latest": false
+  ]
 }

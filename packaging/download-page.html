@@ -132,7 +132,17 @@
 <p>The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Original Lemon Studio development predates this edition.</p>
 <label for="change-search">Search changes</label><input id="change-search" type="search" placeholder="Try Chop, mixer or recording">
 <p id="change-empty" hidden>No changes match your search.</p>
-<details class="change-entry" open><summary>2026-11-16</summary><ul>
+<details class="change-entry" open><summary>2026-11-17</summary><ul>
+<li>ML Patch brings visual effect routing to one Mixer slot. Connect stock or installed effects in series or parallel, route sidechains, assign eight automatable controls, and save the whole patch as a preset. Parallel paths stay aligned when you bypass a node. This release supports stereo effects.</li>
+<li>Added 15 more stock effects: ML Phase, De-Esser, Meter, Pitch Shift, Convolver, Vocoder, Reference, Split, Waveshaper, Tuner, Frequency Shift, Multiband Delay, Time Shaper, Amp and Vocal Tune. ML Amp loads your own NAM models and cabinet impulse responses. ML Vocal Tune uses the existing Mixer tuning engine.</li>
+<li>Added REX loop import and colored slide-note editing and playback for supported instruments. Improved project recall for replaced instruments and queued sampler changes.</li>
+<li>The Browser can dock on either side. Browser preview follows the Master level, and nested menus and folder navigation are easier to use.</li>
+<li>You can delete every Mixer insert, undo the deletion, and add a fresh insert from a Master-only Mixer. Surviving routes and automation stay with their tracks.</li>
+<li>Standard Undo and Redo now cover supported editor changes in ML Plasma, ML Wave and Citrus. Fixed Wave LFO shape recall and improved Plasma editor controls and responsiveness.</li>
+<li>Fixed Playlist and Piano Roll editing issues involving loop boundaries, Alt resizing, zoom-to-fit, text and numeric entry, and random colors. Fixed live pitch after seeking or looping, Citrus effect state after tempo changes, and clicks passing through Tune Vocals.</li>
+<li>Windows installer and updater now create or repair the registered installation shortcut. This full release also carries forward the recent Playlist hover fix and macOS AUv2 support.</li>
+</ul></details>
+<details class="change-entry"><summary>2026-11-16</summary><ul>
 <li>Find installed AUv2 instruments and effects in Plugin Manager, then load instruments in the Channel Rack and effects in the Mixer.</li>
 <li>Audio Unit parameter automation and plug-in settings are saved with the project. Plug-ins that provide a compatible Cocoa editor can open their own controls.</li>
 <li>Available in the Apple silicon and Intel macOS builds.</li>

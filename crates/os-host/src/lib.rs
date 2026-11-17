@@ -231,6 +231,8 @@ pub type ParamValuesJob = Box<dyn FnOnce() -> Vec<(u32, f64)>>;
 /// A plugin instance, whatever its format.
 /// Main-thread calls (everything except the `Instrument` / `HostedEffect` methods) come from the UI thread only.
 pub trait Plugin: Instrument + HostedEffect + Send {
+    /// Optional host-native editor model. Audio processing never inspects it.
+    fn host_extension(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> { None }
     /// Finite tail in frames for Smart Disable, queried on the processing thread.
     /// None keeps processing: unknown/infinite tails, autonomous playback, an open
     /// editor, queued events or reconfiguration. This query must never block.
@@ -254,6 +256,10 @@ pub trait Plugin: Instrument + HostedEffect + Send {
     /// Detach pending display updates from the audio state when the format permits.
     /// Other formats continue to deliver their updates through `idle`.
     fn take_ui_job(&mut self) -> Option<UiJob> { None }
+    /// Native editor transactions include persistent assets and grouped parameter changes.
+    /// When supported these replace per-parameter undo, but not automation recording.
+    fn state_undo_supported(&self) -> bool { false }
+    fn take_state_edits(&mut self) -> Vec<String> { Vec::new() }
     /// Formats with an independent UI controller can snapshot parameter values
     /// outside the audio lock. None uses the serialized parameter API instead.
     fn param_values_job(&self) -> Option<ParamValuesJob> { None }

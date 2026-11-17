@@ -1574,13 +1574,53 @@ fn mpe_installed_instrument_pitch_and_release() {
     use os_engine::Instrument;use os_host::Plugin as _;
     let path=std::env::var_os("OS_VST3_PLUGIN").expect("instrument path");let m=Module::load(Path::new(&path)).expect("load");let d=m.plugins().iter().find(|d|d.is_instrument()).unwrap();
     let mut p=Plugin::new(&m,&d.id).unwrap();assert!(p.activate(48000));eprintln!("{}: native expression IDs {:?}, MPE capability {}",d.name,p.mpe_map,p.mpe_support());
+    // The stock Vital patch disables MPE. Configure this isolated test instance,
+    // just as a user must enable MPE in their instrument; never edit a user preset.
+    let mpe_switch=(d.name=="Vital").then(||(0..p.param_count()).filter_map(|i|p.param_info(i)).find(|v|v.name=="MPE Enabled").expect("Vital MPE switch").id);
+    let bend_range=(d.name=="Vital").then(||(0..p.param_count()).filter_map(|i|p.param_info(i)).find(|v|v.name=="Pitch Bend Range").expect("Vital bend range").id);
     let(mut l,mut r)=(vec![0.;480],vec![0.;480]);let mut rates=vec![];
     for bend in [8192u16,10240] {
-        p.reset();for b in os_model::mpe::Config::default().setup(){p.midi(0,b);}p.midi(0,[0x91,60,100]);p.midi(0,[0xe1,(bend&127)as u8,(bend>>7)as u8]);
+        p.reset();
+        if let Some(id)=mpe_switch {assert!(p.set_param(id,1.));p.process(48000,&mut l,&mut r);}
+        if let Some(id)=bend_range {assert!(p.set_param(id,1.));p.process(48000,&mut l,&mut r);}
+        let mut playback=os_engine::mpe::Playback::new(Default::default(),vec![os_engine::mpe::Scheduled {
+            start:0,end:96,key:60,color:2,velocity:100,release:64,expression:Default::default(),fine:0.
+        }]).with_pitch_slides(if bend==8192 {vec![]} else {vec![os_engine::mpe::PitchSlide {start:4,len:3,key:72,color:2}]});
+        for tick in 0..8 {for b in playback.tick(tick,true){p.midi(0,b);}p.process(48000,&mut l,&mut r);}
         let mut samples=vec![];for block in 0..100{p.process(48000,&mut l,&mut r);if block>=50{samples.extend_from_slice(&l);}}
         assert!(samples.iter().all(|v|v.is_finite()));assert!(peak(&samples)>0.001);
-        let crossings=samples.windows(2).filter(|v|v[0]<=0.&&v[1]>0.).count();rates.push(crossings as f64*2.);
-        p.midi(0,[0x81,60,64]);let mut tail=0.0f32;for block in 0..300{p.process(48000,&mut l,&mut r);if block>250{tail=tail.max(peak(&l)).max(peak(&r));}}assert!(tail<0.0001,"released peak {tail}");
+        // Band-limited waveform ringing can create extra zero crossings. Measure
+        // the dominant spectral pitch, using a Hann window over the settled tail.
+        let rate=(200..=700).map(|hz| {
+            let (mut re,mut im)=(0f64,0f64);
+            for (i,&v) in samples.iter().enumerate() {
+                let phase=std::f64::consts::TAU*hz as f64*i as f64/48000.;
+                let win=0.5-0.5*(std::f64::consts::TAU*i as f64/(samples.len()-1) as f64).cos();
+                re+=f64::from(v)*win*phase.cos();im+=f64::from(v)*win*phase.sin();
+            }
+            (hz,re*re+im*im)
+        }).max_by(|a,b|a.1.total_cmp(&b.1)).unwrap().0;
+        rates.push(rate as f64);
+        for b in playback.tick(96,true){p.midi(0,b);}let mut tail=0.0f32;for block in 0..300{p.process(48000,&mut l,&mut r);if block>250{tail=tail.max(peak(&l)).max(peak(&r));}}assert!(tail<0.0001,"released peak {tail}");
     }
-    eprintln!("MPE baseline/bent crossing rates: {rates:?}");assert!((rates[1]/rates[0]-2.).abs()<0.08,"independent note pitch must rise one octave");
+    eprintln!("MPE baseline/bent spectral pitches: {rates:?}");assert!((rates[1]/rates[0]-2.).abs()<0.02,"note pitch must rise one octave");
+    p.reset();
+    for id in [mpe_switch,bend_range].into_iter().flatten(){assert!(p.set_param(id,1.));}
+    p.process(48000,&mut l,&mut r);
+    let mut playback=os_engine::mpe::Playback::new(Default::default(),[2,3].into_iter().map(|color|os_engine::mpe::Scheduled {
+        start:0,end:96,key:60,color,velocity:100,release:64,expression:Default::default(),fine:0.
+    }).collect()).with_pitch_slides(vec![os_engine::mpe::PitchSlide{start:4,len:3,key:72,color:2}]);
+    for tick in 0..8 {for b in playback.tick(tick,true){p.midi(0,b);}p.process(48000,&mut l,&mut r);}
+    let mut samples=vec![];for block in 0..100{p.process(48000,&mut l,&mut r);if block>=50{samples.extend_from_slice(&l);}}
+    let power=|hz:f64| {
+        let(mut re,mut im)=(0f64,0f64);
+        for(i,&v)in samples.iter().enumerate(){let phase=std::f64::consts::TAU*hz*i as f64/48000.;let win=0.5-0.5*(std::f64::consts::TAU*i as f64/(samples.len()-1)as f64).cos();re+=f64::from(v)*win*phase.cos();im+=f64::from(v)*win*phase.sin();}
+        (re*re+im*im)/(samples.len()*samples.len())as f64
+    };
+    // The held unison must remain audible at C4 while the other color reaches C5.
+    // C5 alone has no C4 subharmonic, so this rejects a global bend of both notes.
+    assert!(power(261.63)>1e-6,"unrelated colored note lost its original pitch");
+    assert!(power(523.25)>1e-6,"sliding colored note did not reach the target");
+    for b in playback.tick(96,true){p.midi(0,b);}for _ in 0..300{p.process(48000,&mut l,&mut r);}
+    assert!(peak(&l).max(peak(&r))<0.0001,"both unisons must release");
 }

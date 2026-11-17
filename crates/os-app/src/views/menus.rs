@@ -1250,6 +1250,9 @@ pub fn toolbar_items(s: &State) -> Vec<crate::playlist::PItem> {
     if o.hint_bar && crate::workspace_visibility::shown("visible_hint") {
         let label = if s.bar.floating_hint.is_some() { "Dock hint bar" } else { "Float hint bar" };
         items.push(PItem::new(label, Cmd::Toolbar(Switch::FloatHint)));
+        items.push(PItem::sub("Hint text size", [9,11,13,16,20,24].into_iter().map(|size|
+            PItem::new(format!("{size} px"), Cmd::Toolbar(Switch::HintText(size)))
+                .mark(Mark::Radio(s.bar.hint_font_size() == size))).collect()));
     }
     items.push(PItem::sub("Layout presets",preset_items(s)));
     items

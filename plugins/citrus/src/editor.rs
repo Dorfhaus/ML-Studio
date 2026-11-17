@@ -307,6 +307,7 @@ pub struct Logic {
     pub st: State,
     /// The unpacked stream `st` was read from (what an edited state carries over).
     body: Option<Vec<u8>>,
+    undo_before: Option<Vec<u8>>,
     /// The state version `st` was read at.
     version: u64,
     used: [bool; 9],
@@ -363,6 +364,7 @@ impl Logic {
             wave: None,
             tables: patch::Tables::default(),
             pending: false,
+            undo_before: None,
             level_clip: None,
             curve_clip: None,
             harm_clip: None,
@@ -384,6 +386,7 @@ impl Logic {
 
     /// Reads the plugin's state again: the default patch for none, or for one that does not read.
     fn reload(&mut self) {
+        self.undo_before = None;
         self.version = self.params.state_version.load(Ordering::Acquire);
         let bytes = self.params.state.read().map(|s| s.0.clone()).unwrap_or_default();
         let read = (!bytes.is_empty()).then(|| State::from_bytes(&bytes).zip(State::unpack(&bytes))).flatten();
@@ -413,6 +416,9 @@ impl Logic {
     fn commit(&mut self) {
         self.used = patch::usage(&self.st).0;
         let bytes = self.st.to_bytes(self.body.as_deref());
+        if self.undo_before.is_none() {
+            self.undo_before = self.params.state.read().ok().map(|s| s.0.clone());
+        }
         if !self.params.stored(self.version, bytes) {
             // The state was replaced meanwhile: show that one.
             self.pending = false;
@@ -423,6 +429,15 @@ impl Logic {
         if self.drag.is_none() {
             self.flush();
         }
+    }
+
+    /// One history entry per completed drag/menu/type-in edit; no serialization on idle.
+    pub fn take_state_edit(&mut self) -> Option<String> {
+        if self.drag.is_some() { return None; }
+        let before = self.undo_before.take()?;
+        if self.params.state.read().ok()?.0 == before { return None; }
+        let field = serde_json::to_string(&crate::StateBytes(before)).ok()?;
+        Some(serde_json::json!({"fields": {crate::STATE_FIELD: field}}).to_string())
     }
 
     /// The audio thread gets the patch of the last edit, if it has not yet.
@@ -1731,6 +1746,12 @@ mod win32 {
             }
         }
 
+        fn send_edit(&mut self) {
+            if let Some(edit) = self.logic.take_state_edit() {
+                if self.logic.hosted { os_hostlink::send_state_edit(self.hwnd as isize, edit); }
+            }
+        }
+
         fn run(&mut self, acts: Vec<Act>) {
             let mut repaint = false;
             for a in acts {
@@ -1771,6 +1792,7 @@ mod win32 {
                     }
                 }
             }
+            self.send_edit();
             if repaint {
                 self.invalidate();
             }
@@ -1810,7 +1832,7 @@ mod win32 {
                     }
                     1
                 }
-                Cmd::SampleFit | Cmd::BrowseSample | Cmd::Changed | Cmd::Note | Cmd::Automate | Cmd::Audio | Cmd::Resizable | Cmd::SetSize => 0,
+                Cmd::StateEdit | Cmd::SampleFit | Cmd::BrowseSample | Cmd::Changed | Cmd::Note | Cmd::Automate | Cmd::Audio | Cmd::Resizable | Cmd::SetSize => 0,
             }
         }
 
@@ -2012,6 +2034,14 @@ mod gui {
                     }
                 }
             }
+            if let Some(edit) = self.logic.take_state_edit() {
+                if self.link.hosted() {
+                    if let Some(token) = os_hostlink::post_state_edit(edit) {
+                        self.link.to_host(Cmd::StateEdit, token as isize);
+                    }
+                }
+            }
+
         }
 
         fn paint(&mut self) {
@@ -2091,6 +2121,26 @@ mod tests {
         // Outside a drag an edit plays at once.
         l.wheel(x, y, 1.0, Mods::default());
         assert!(edit(&l).is_some());
+    }
+
+    #[test]
+    fn native_undo_coalesces_drag_and_ignores_host_reload() {
+        let mut l = logic();
+        let before = l.params.state.read().unwrap().0.clone();
+        let (x, y) = centre(&l, &Target::Knob(Field::Soften));
+        l.down(x, y, Btn::Left, Mods::default(), false);
+        for _ in 0..50 {
+            l.delta(0., -1., Mods::default());
+            assert!(l.take_state_edit().is_none(), "drag is one edit, not 50");
+        }
+        l.up(Btn::Left);
+        let edit: serde_json::Value = serde_json::from_str(&l.take_state_edit().unwrap()).unwrap();
+        let old: crate::StateBytes = serde_json::from_str(edit["fields"][crate::STATE_FIELD].as_str().unwrap()).unwrap();
+        assert_eq!(old.0, before);
+        assert!(l.take_state_edit().is_none());
+        l.params.set_state(before);
+        l.poll();
+        assert!(l.take_state_edit().is_none(), "host undo is not a new edit");
     }
 
     /// A knob drag: 250 px for the range, Ctrl 20 times finer; the wheel 1/32; Alt resets; each edit is saved.

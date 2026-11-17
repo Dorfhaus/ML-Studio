@@ -1343,7 +1343,7 @@ mod win32 {
                     }
                     1
                 }
-                Cmd::SampleFit | Cmd::BrowseSample | Cmd::Changed | Cmd::Note | Cmd::Automate | Cmd::Audio => 0,
+                Cmd::StateEdit | Cmd::SampleFit | Cmd::BrowseSample | Cmd::Changed | Cmd::Note | Cmd::Automate | Cmd::Audio => 0,
             }
         }
 

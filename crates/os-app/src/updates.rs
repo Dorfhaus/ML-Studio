@@ -9,7 +9,7 @@ pub(crate) mod retention;
 
 pub(crate) const SETTINGS_VISIBILITY: &str = "visible_update-preferences";
 
-pub const VERSION: u64 = 2026111604;
+pub const VERSION: u64 = 2026111701;
 #[cfg(windows)]
 pub const FEED: &str = "https://michaellanemusic.de/lemon-studio/updates/stable.json";
 #[cfg(windows)]
@@ -544,6 +544,8 @@ pub fn helper(args: &[String]) -> i32 {
         parent_closed=true;
         install(&stage,&target,&manifest)?;
         installed=true;
+        #[cfg(windows)]
+        if let Err(error)=windows_launch::repair_start_menu(&target){eprintln!("Start menu shortcut: {error}");}
         let _=retention::run(&target,manifest.version,Some(&stage));
         let _=fs::write(stage.join("result.txt"),format!("Installed {}",manifest.label));
         report_result(&format!("ML Studio updated to {}.",manifest.label));

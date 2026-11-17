@@ -770,7 +770,7 @@ impl Frame {
         match e {
             Event::Expose(_) => self.dirty.set(true),
             Event::KeyPress(e) if e.event==self.win=>{
-                self.state.borrow_mut().events.push(FrameEvent::Undo(u16::from(e.state)&9!=0));os_clap::wake();
+                self.state.borrow_mut().events.push(FrameEvent::Undo(u16::from(e.state)&8!=0, u16::from(e.state)&1!=0));os_clap::wake();
             }
             // A click in the plugin's editor (the grab on the area; `pump` lets the editor have it).
             Event::ButtonPress(e) if e.event == self.area => self.clicked(),

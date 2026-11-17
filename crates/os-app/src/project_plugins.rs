@@ -974,7 +974,7 @@ mod tests {
     fn every_lemon_effect_is_built_in() {
         let fx = crate::plugins::builtin_effects();
         let names: Vec<&str> = fx.iter().map(|a| a.desc.name.as_str()).collect();
-        let want: Vec<&str> = crate::plugins::FILE_MAPPED.into_iter().chain(crate::plugins::LINKED_EFFECTS).collect();
+        let want: Vec<&str> = crate::plugins::FILE_MAPPED.into_iter().chain(crate::plugins::LINKED_EFFECTS).chain(std::iter::once(crate::ml_patch::core::NAME)).collect();
         assert_eq!(names, want);
         for a in &fx {
             assert!(is_builtin(&a.desc), "{}", a.desc.name);
@@ -1137,7 +1137,8 @@ mod tests {
         assert_eq!(a.state.project.mixer[n + 1], os_model::MixerTrack { index: (n + 1) as u16, ..hidden.clone() });
         // Deleting an insert keeps the hidden track last.
         crate::mixer::run(&mut a, crate::mixer::MCmd::Delete(1));
-        assert_eq!(a.state.project.mixer[n + 1], os_model::MixerTrack { index: (n + 1) as u16, ..hidden.clone() });
+        assert_eq!(a.state.project.mixer.len(),n+1);
+        assert_eq!(a.state.project.mixer[n], os_model::MixerTrack { index: n as u16, ..hidden.clone() });
         a.save_to(path.clone());
         assert!(a.state.message.as_deref().is_some_and(|m| m.starts_with("Saved") && !m.contains("not stored")), "{:?}", a.state.message);
         let mut b = App::new(None);

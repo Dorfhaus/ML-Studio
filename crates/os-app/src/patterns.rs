@@ -108,6 +108,7 @@ pub enum Hit {
     /// The confirmation's Remember my choice check.
     ConfirmRemember,
     Inside,
+    Text(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +127,7 @@ pub struct NameBox {
     pub text: String,
     /// The text is selected: the first typed character replaces it.
     pub fresh: bool,
+    pub editor: crate::dialog::Field,
     /// Top-left on screen.
     pub at: (f32, f32),
     pub suggestions: bool,
@@ -325,7 +327,7 @@ pub fn open_name_box(s: &mut State, target: BoxTarget, at: (f32, f32)) {
         BoxTarget::Transpose(_) => String::new(),
         BoxTarget::Rack(b) => crate::rack::box_text(s, b),
     };
-    s.pat_ui.name_box = Some(NameBox { target, text, fresh: true, at, suggestions: false, palette: false, custom: None, created: false });
+    s.pat_ui.name_box = Some(NameBox { target, editor: { let mut f = crate::dialog::Field::default(); f.set(&text); f.select_all(); f }, text, fresh: true, at, suggestions: false, palette: false, custom: None, created: false });
 }
 
 /// Where a box opened from a menu / key goes: the mouse over its colour tab (§4).
@@ -385,7 +387,13 @@ pub fn run(s: &mut State, cmd: Cmd, at: (f32, f32)) -> Option<String> {
         }
         Cmd::RandomColor => {
             let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
-            pat_mut(s, cur).color = Some(random_color(seed ^ u64::from(cur)));
+            let selected = &s.playlist.picker_ui.selected;
+            let targets: Vec<_> = if selected.contains(&ClipSource::Pattern(cur)) {
+                selected.iter().filter_map(|src| if let ClipSource::Pattern(n) = src { Some(*n) } else { None }).collect()
+            } else { vec![cur] };
+            let snaps=targets.iter().map(|&n|crate::history::Snap::source_color(s,ClipSource::Pattern(n))).collect();
+            crate::history::record(s,"Random pattern colors",crate::history::Snap::Several(snaps));
+            for n in targets { pat_mut(s, n).color = Some(random_color(seed ^ u64::from(n))); }
             s.piano.dirty = true;
         }
         Cmd::Transpose => open_name_box(s, BoxTarget::Transpose(cur), at),
@@ -820,12 +828,13 @@ pub fn hit(s: &mut State, h: Hit) {
         Hit::ConfirmOk => delete_current(s),
         Hit::ConfirmCancel => cancel_confirm(s),
         Hit::ConfirmRemember => s.pat_ui.remember = !s.pat_ui.remember,
-        Hit::Inside | Hit::SwatchWheel | Hit::SwatchBrightness => {}
+        Hit::Text(_) | Hit::Inside | Hit::SwatchWheel | Hit::SwatchBrightness => {}
     }
 }
 
 /// Typing into the name box. Returns whether the key was taken.
-pub fn key(s: &mut State, key: &winit::keyboard::Key, ctrl: bool) -> bool {
+pub fn key(s: &mut State, key: &winit::keyboard::Key, ctrl: bool) -> bool { key_mod(s,key,ctrl,false) }
+pub fn key_mod(s: &mut State, key: &winit::keyboard::Key, ctrl: bool, shift: bool) -> bool {
     use winit::keyboard::{Key, NamedKey};
     if s.pat_ui.confirm {
         match key {
@@ -844,27 +853,15 @@ pub fn key(s: &mut State, key: &winit::keyboard::Key, ctrl: bool) -> bool {
         }
         return true;
     }
-    let typed = |b: &mut NameBox, t: &str| {
-        if b.fresh {
-            b.text.clear();
-            b.fresh = false;
-        }
-        b.text.push_str(t);
-    };
+    if b.editor.text != b.text { b.editor.set(&b.text); if b.fresh { b.editor.select_all(); } }
     match key {
         Key::Named(NamedKey::Enter) => accept(s),
         Key::Named(NamedKey::Escape) => s.pat_ui.name_box = None,
-        Key::Named(NamedKey::Backspace) => {
-            if b.fresh {
-                b.text.clear();
-                b.fresh = false;
-            } else {
-                b.text.pop();
-            }
+        _ => {
+            b.editor.key_mod(key, ctrl, false, shift);
+            b.text.clone_from(&b.editor.text);
+            b.fresh = b.editor.all;
         }
-        Key::Named(NamedKey::Space) => typed(b, " "),
-        Key::Character(c) if !ctrl => typed(b, c),
-        _ => {}
     }
     true
 }

@@ -198,6 +198,57 @@ mod tests {
         }
     }
     #[test]
+    fn stock_engine_follows_host_note_tuning() {
+        use os_host::Library as _;
+        let library = library().unwrap();
+        let plugin = library.create(ID).unwrap();
+        let mut plugin = plugin.lock().unwrap();
+        assert!(plugin.activate(48000));
+        plugin.note_on(0, 60, 0.8);
+        let mut left = [0.; 4096];
+        let mut right = [0.; 4096];
+        for _ in 0..8 { plugin.process(48000, &mut left, &mut right); }
+        let crossings = |samples: &[f32]| samples.windows(2).filter(|p| p[0] <= 0. && p[1] > 0.).count();
+        let base = crossings(&left);
+        plugin.tune(0, 60, 12.);
+        for _ in 0..3 { plugin.process(48000, &mut left, &mut right); }
+        let raised = crossings(&left);
+        assert!(base > 10 && raised > base * 3 / 2 && raised < base * 5 / 2, "one-octave host tuning: {base} -> {raised}");
+        plugin.tune(0, 60, 0.);
+        for _ in 0..3 { plugin.process(48000, &mut left, &mut right); }
+        assert!(crossings(&left).abs_diff(base) <= 3, "tuning returns to the original key");
+        assert_reset_silence(&mut *plugin, 48000);
+    }
+
+    #[test]
+    fn stock_engine_slide_volume_and_pan_reach_the_native_voice() {
+        use os_host::Library as _;
+        let library=library().unwrap();let plugin=library.create(ID).unwrap();let mut plugin=plugin.lock().unwrap();
+        assert!(plugin.activate(48000));assert!(plugin.use_note_levels());
+        plugin.note_start(0,60,0.8,0.,os_engine::NoteLevels { color:2, ..Default::default() });
+        let (mut l,mut r)=([0.;4096],[0.;4096]);
+        for _ in 0..8 {plugin.process(48000,&mut l,&mut r);}
+        let energy=|x:&[f32]|x.iter().map(|x|f64::from(x*x)).sum::<f64>();
+        let before=energy(&l)+energy(&r);assert!(before>0.001);
+        plugin.slide(0,60,2,0.,0.,0.);
+        for _ in 0..12 {plugin.process(48000,&mut l,&mut r);}
+        assert!(energy(&l)+energy(&r)<before*1e-5,"slide to zero is silent");
+        plugin.slide(0,60,2,0.,0.8,-1.);
+        for _ in 0..12 {plugin.process(48000,&mut l,&mut r);}
+        assert!(energy(&l)>before*0.05,"same voice becomes audible again");
+        assert!(energy(&r)<energy(&l)*0.01,"per-note pan reaches the native output");
+    }
+
+    #[test]
+    fn bundled_native_undo_extension_available() {
+        use os_host::Library as _;
+        let library = library().unwrap();
+        let plugin = library.create(ID).unwrap();
+        let mut plugin = plugin.lock().unwrap();
+        assert!(plugin.state_undo_supported(), "the shipped engine exposes native history through the normal guarded host");
+        assert!(plugin.take_state_edits().is_empty(), "opening an instrument is not an edit");
+    }
+    #[test]
     fn payload_paths_and_integrity() {
         for path in [
             "../escape",

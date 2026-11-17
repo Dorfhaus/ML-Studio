@@ -133,6 +133,10 @@ impl<P: Plugin> Instrument for Guarded<P> {
     fn takes_tuning(&self) -> bool {
         self.look(false, |p| p.takes_tuning())
     }
+    fn slide(&mut self, offset: u32, key: u8, color: u8, semitones: f32, velocity: f32, pan: f32) {
+        self.sleep.wake();
+        self.run((), |p| p.slide(offset, key, color, semitones, velocity, pan));
+    }
     fn set_bend_range(&mut self, semitones: u32) {
         self.sleep.wake();
         self.run((), |p| p.set_bend_range(semitones))
@@ -391,6 +395,13 @@ impl<P: Plugin> Plugin for Guarded<P> {
     fn set_param(&mut self, id: u32, value: f64) -> bool {
         self.sleep.wake();
         self.run(false, |p| p.set_param(id, value))
+    }
+    fn host_extension(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> { self.look(None, |p| p.host_extension()) }
+    fn state_undo_supported(&self) -> bool { self.look(false, |p| p.state_undo_supported()) }
+    fn take_state_edits(&mut self) -> Vec<String> {
+        let edits = self.run(Vec::new(), |p| p.take_state_edits());
+        if !edits.is_empty() { self.sleep.wake(); }
+        edits
     }
     fn take_state_changed(&mut self) -> bool { let changed = self.run(false, |p|p.take_state_changed()); if changed { self.sleep.wake(); } changed }
     fn take_playback_requests(&mut self)->Vec<crate::PlaybackRequest> {self.run(Vec::new(),|p|p.take_playback_requests())}

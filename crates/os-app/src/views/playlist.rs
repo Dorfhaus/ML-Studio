@@ -1857,9 +1857,7 @@ pub fn paint_overlays(ui: &mut Ui, s: &State) {
         ui.hit(r, Action::Swallow, "Type, Enter accepts, Esc cancels");
         ui.c.fill_rect(r, ui.t.s(0x0e1214));
         ui.c.stroke_rrect(r, 0.0, 1.0, t.glyph);
-        ui.c.text_clip(Font::new(14), r.x + 4.0, r.y + 2.0, r.w - 8.0, t.text, &e.text);
-        let cw = ui.c.text_width(Font::new(14), &e.text).min(r.w - 10.0);
-        ui.c.fill_rect(Rect::new(r.x + 5.0 + cw, r.y + 3.0, 1.0, 14.0), t.text);
+        inline_text(ui,e,r,Font::new(14),t.text);
     }
 }
 
@@ -2044,4 +2042,28 @@ fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f3
         super::scrollbar(ui, track, false, first as f32, shown as f32, cols as f32, target);
     }
     (r, rows)
+}
+
+
+pub(crate) fn inline_text(ui:&mut Ui,e:&pl::TextEdit,field:Rect,font:Font,color:Color) {
+    let mut editor=e.editor.clone();
+    if editor.text!=e.text {editor.set(&e.text);}
+    if e.sel {editor.select_all();}
+    let caret=ui.c.text_width(font,editor.before_caret());
+    let left=field.x+4.-(caret-field.w+12.).max(0.);
+    ui.c.push_clip(field.inset(2.));
+    if let Some((a,b))=editor.selection(){
+        let x=left+ui.c.text_width(font,&editor.text[..editor.at(a)]);
+        let end=left+ui.c.text_width(font,&editor.text[..editor.at(b)]);
+        ui.c.fill_rect(Rect::new(x,field.y+2.,end-x,field.h-4.),ui.t.s(0x315d8a));
+    }
+    ui.c.text(font,left,field.y+2.,color,&editor.text);
+    ui.c.fill_rect(Rect::new(left+caret,field.y+2.,1.,field.h-4.),color);
+    ui.c.pop_clip();
+    for i in 0..=editor.len(){
+        let at=left+ui.c.text_width(font,&editor.text[..editor.at(i)]);
+        let before=if i==0 {field.x}else{(at+left+ui.c.text_width(font,&editor.text[..editor.at(i-1)]))/2.};
+        let after=if i==editor.len(){field.right()}else{(at+left+ui.c.text_width(font,&editor.text[..editor.at(i+1)]))/2.};
+        ui.hit(Rect::new(before,field.y,(after-before).max(0.),field.h).intersect(&field),Action::InlineText(i),"Drag to select text; Enter accepts; Esc cancels");
+    }
 }

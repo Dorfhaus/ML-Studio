@@ -545,6 +545,37 @@ pub struct Section {
 }
 
 impl Section {
+    /// Tempo changes retime future echoes without discarding running filters,
+    /// oversampling history, chorus phase, or the reverb tail.
+    pub fn set_tempo(&mut self, st: &State, tempo: f32) {
+        if !tempo.is_finite() || tempo <= 0. { return; }
+        let rate = self.host_rate << self.e;
+        for (k, line) in &mut self.delays {
+            if !st.delays[*k].synced { continue; }
+            let d = round(f64::from(st.delays[*k].time) * f64::from(rate) * 0.3125 / f64::from(tempo)).max(1) as usize;
+            if d == line.d { continue; }
+            let required=d+line.offset[0].max(line.offset[1])+HOST_BLOCK*4+2;
+            if required > line.ring.len() {
+                let mut ring=vec![[0.;2];required];
+                for (i, dst) in ring.iter_mut().take(line.ring.len()).enumerate() { *dst=line.ring[(line.r+i)%line.ring.len()]; }
+                line.ring=ring; line.r=0;
+            }
+            line.d=d;
+        }
+        if st.reverb.tempo && let Some(plate)=&mut self.plate {
+            let delay=round(f64::from(st.reverb.knobs[2])*f64::from(rate)*0.3125/f64::from(tempo)).max(1) as usize;
+            if delay != plate.predelay {
+                let required=delay+1;
+                if required>plate.pre.len() {
+                    let mut pre=vec![0.;required];
+                    for age in 1..=plate.pre.len() { pre[required-age]=plate.pre[(plate.pre_w+plate.pre.len()-age)%plate.pre.len()]; }
+                    plate.pre=pre;plate.pre_w=0;
+                }
+                plate.predelay=delay;
+            }
+        }
+    }
+
     pub fn new(st: &State, host_rate: u32, v: usize, tempo: f32) -> Section {
         let e = v.min(2);
         let rate = host_rate << e;
@@ -674,5 +705,40 @@ impl Section {
                 dc.v[ch] = f(v);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod community_tests {
+    use super::*;
+    #[test]
+    fn community_tempo_change_preserves_dry_filter_history() {
+        let st=State::default();
+        let mut a=Section::new(&st,48000,3,120.);
+        let mut b=Section::new(&st,48000,3,120.);
+        for block in 0..6 {
+            if block==2 { a.set_tempo(&st,87.); }
+            let input:Bus=std::array::from_fn(|ch|(0..512).map(|i|((i+block*512+ch) as f32*0.1).sin()*0.1).collect());
+            let mut da=input.clone(); let mut db=input;
+            let mut fa=[vec![0.;512],vec![0.;512]];let mut fb=fa.clone();
+            a.process(&mut da,&mut fa,64,true);b.process(&mut db,&mut fb,64,true);
+            assert_eq!(da,db,"tempo must not restart the dry decimator");
+        }
+    }
+    #[test]
+    fn community_tempo_change_keeps_pending_echo() {
+        let mut st=State::default();
+        st.delays[0]=crate::state::Delay{synced:true,time:16,level:128,on:true,..Default::default()};
+        let mut fx=Section::new(&st,48000,0,120.);
+        let line=&mut fx.delays[0].1;
+        let before=line.d;
+        let impulse=[vec![1.],vec![1.]];
+        line.run(Some(&impulse),&mut [vec![0.],vec![0.]],1);
+        fx.set_tempo(&st,60.);
+        assert_eq!(fx.delays[0].1.d,before*2);
+        let mut tail=[vec![0.;before],vec![0.;before]];
+        fx.delays[0].1.run(None,&mut tail,before);
+        assert_eq!(tail[0][before-1],1.,"an already scheduled echo survives resizing");
+        assert_eq!(tail[0].iter().sum::<f32>(),1.);
     }
 }

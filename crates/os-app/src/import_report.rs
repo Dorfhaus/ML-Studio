@@ -295,7 +295,7 @@ pub fn browse(app: &mut App, row: usize) {
     )
     .filter(
         "Audio",
-        &["wav", "flac", "mp3", "ogg", "aif", "aiff", "m4a"],
+        &["wav", "flac", "mp3", "ogg", "aif", "aiff", "m4a", "rx2", "rex", "rcy"],
     )
     .start(folder.as_deref());
     app.file_dialog(dlg);

@@ -2650,6 +2650,15 @@ pub fn apply(project: &Project, file: &mut FlpFile) -> Result<(), ProjectError> 
 
     // Channels.
     for (loc, (ch, old)) in l.channels.iter().zip(project.channels.iter().zip(&current.channels)) {
+        // Replacing a generator preserves the channel's origin, so restructure keeps its
+        // original block. Update the type as well as the plugin identity in that block.
+        if ch.kind != old.kind {
+            if let Some(k) = (loc.start + 1..loc.end).find(|&k| events[k].id == id::CH_TYPE) {
+                set_int(&mut events[k], u32::from(channel_type_code(ch.kind)));
+            } else {
+                inserts.push((loc.start + 1, Event::new(id::CH_TYPE, Value::U8(channel_type_code(ch.kind)))));
+            }
+        }
         // Stretch settings: event 215 ints 24..27 of the channel's block (spec: audio/audio-clips.md "Settings").
         if ch.sound.stretch != old.sound.stretch {
             let mut k = loc.start + 1;
@@ -2754,13 +2763,15 @@ pub fn apply(project: &Project, file: &mut FlpFile) -> Result<(), ProjectError> 
         }
         // A plugin channel's plugin (201) and state (213) (spec: flp/events/plugins.md §1-2). A state for a channel
         // that had none goes after the colour flag (41), where FL keeps it.
-        if (ch.kind == ChannelKind::Plugin || ara_channel(ch) || ara_channel(old)) && ch.plugin != old.plugin {
+        if ch.plugin != old.plugin {
             if let Some(i) = loc.plugin_name {
                 set_data(&mut events[i], encode_text(ch.plugin.as_deref().unwrap_or(""), enc));
+            } else if let Some(name) = &ch.plugin {
+                inserts.push((loc.start + 2, Event::new(id::PLUGIN_NAME, Value::var(encode_text(name, enc)))));
             }
         }
         if ch.plugin_state != old.plugin_state {
-            if ch.plugin_state.is_none() && ara_channel(old) {if let Some(i)=loc.state {removals.push(i);}}
+            if ch.plugin_state.is_none() {if let Some(i)=loc.state {removals.push(i);}}
             if let Some(st) = &ch.plugin_state {
                 match loc.state {
                     Some(i) => set_data(&mut events[i], st.clone()),
@@ -4180,6 +4191,52 @@ mod tests {
         assert_eq!(again.patterns.iter().map(|p| p.number).collect::<Vec<_>>(), vec![1, 2, 3]);
         assert_eq!(again.patterns[2].name.as_deref(), Some("Chorus"));
         assert_eq!(again.patterns[0].notes.len(), 2);
+    }
+
+    #[test]
+    #[ignore = "requires private COMMUNITY_PROJECT fixture; never bundle user projects"]
+    fn community_reported_project_replacement_roundtrip() {
+        let path=std::env::var_os("COMMUNITY_PROJECT").expect("set the reported project path");
+        let mut file=FlpFile::parse(&std::fs::read(path).unwrap()).unwrap();
+        let mut p=load(&file).unwrap();
+        assert!(p.channels.len()>=3);
+        for kind in [ChannelKind::Sampler,ChannelKind::Plugin] {
+            let c=&mut p.channels[2];c.kind=kind;
+            c.plugin=if kind==ChannelKind::Plugin {Some("Fruity Wrapper".into())}else{None};
+            c.plugin_state=c.plugin.as_ref().map(|_|vec![1,2,3]);
+            apply(&p,&mut file).unwrap();
+            let back=load(&FlpFile::parse(&file.to_bytes().unwrap()).unwrap()).unwrap();
+            assert_eq!(back.channels[2].kind,kind);
+            assert_eq!(back.channels[2].plugin_state,p.channels[2].plugin_state);
+            assert_eq!(back.channels[2].mixer_track,p.channels[2].mixer_track);
+            assert_eq!(back.patterns,p.patterns);
+            p=back;
+        }
+    }
+
+    #[test]
+    fn replaced_generator_survives_first_save_and_second_save() {
+        let mut file = create(&new_project()).unwrap();
+        let mut p = load(&file).unwrap();
+        let original = p.channels[0].clone();
+        for plugin in [Some("Fruity Wrapper"), Some("Sytrus"), None] {
+            let c = &mut p.channels[0];
+            c.kind = if plugin.is_some() { ChannelKind::Plugin } else { ChannelKind::Sampler };
+            c.plugin = plugin.map(str::to_owned);
+            c.plugin_state = plugin.map(|_| vec![1, 2, 3, 4]);
+            let expected = c.clone();
+            apply(&p, &mut file).unwrap();
+            let back = load(&FlpFile::parse(&file.to_bytes().unwrap()).unwrap()).unwrap();
+            assert_eq!(back.channels[0].kind, expected.kind);
+            assert_eq!(back.channels[0].plugin.as_deref().filter(|s|!s.is_empty()), plugin);
+            assert_eq!(back.channels[0].plugin_state, expected.plugin_state);
+            assert_eq!(back.channels[0].mixer_track, original.mixer_track);
+            assert_eq!(back.patterns, p.patterns);
+            let bytes = file.to_bytes().unwrap();
+            apply(&back, &mut file).unwrap();
+            assert_eq!(file.to_bytes().unwrap(), bytes);
+            p = back;
+        }
     }
 
     /// A sampler channel's settings that Lemon Sampler edits are saved (spec: plugins/lemon-sampler.md §7): a block

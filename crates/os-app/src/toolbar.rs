@@ -564,6 +564,7 @@ pub struct Bar {
     pub editing: bool,
     pub user: Vec<UserPreset>,
     pub floating_hint: Option<Rect>,
+    pub hint_text_size: u8,
 }
 
 impl Bar {
@@ -574,8 +575,11 @@ impl Bar {
             (values.iter().all(|v| v.is_finite()) && *w > 0.0 && *h > 0.0)
                 .then_some(Rect::new(*x, *y, *w, *h))
         });
-        Bar { layout: Layout::load(), editing: false, user: user_presets(), floating_hint }
+        let hint_text_size = crate::settings_file::get("toolbar_hint_text_size")
+            .and_then(|v| v.parse::<u8>().ok()).filter(|v| (9..=24).contains(v)).unwrap_or(11);
+        Bar { layout: Layout::load(), editing: false, user: user_presets(), floating_hint, hint_text_size }
     }
+    pub fn hint_font_size(&self) -> u8 { if (9..=24).contains(&self.hint_text_size) {self.hint_text_size} else {11} }
 
     pub fn save_hint(&self) {
         let value = self.floating_hint.map_or_else(String::new, |r| format!("{},{},{},{}", r.x, r.y, r.w, r.h));
