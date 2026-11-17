@@ -16,8 +16,18 @@ pub const CATALOG: &str = include_str!("../assets/headphones/catalog.tsv");
 const REV: &str = include_str!("../assets/headphones/REVISION");
 const H200_PATH: &str = "oratory1990/bundled-adam-h200";
 
+const HPM1000_PATH: &str = "SeokHwan-BAE1234/bundled-behringer-hpm1000";
+
+fn bundled_text(path: &str) -> Option<&'static str> {
+    match path {
+        H200_PATH => Some(include_str!("../assets/headphones/adam-audio-h200.txt")),
+        HPM1000_PATH => Some(include_str!("../assets/headphones/behringer-hpm1000.txt")),
+        _ => None,
+    }
+}
+
 pub fn is_bundled(path: &str) -> bool {
-    path == H200_PATH
+    bundled_text(path).is_some()
 }
 
 pub fn catalog() -> &'static Vec<(&'static str, &'static str)> {
@@ -27,7 +37,7 @@ pub fn catalog() -> &'static Vec<(&'static str, &'static str)> {
         CATALOG
             .lines()
             .filter_map(|line| line.split_once('\t'))
-            .chain(std::iter::once(("ADAM Audio H200", H200_PATH)))
+            .chain([("ADAM Audio H200", H200_PATH), ("Behringer HPM1000", HPM1000_PATH)])
             .collect()
     })
 }
@@ -233,8 +243,7 @@ pub fn select(app: &mut App, index: usize) {
 }
 fn load(index: usize) -> Result<String, String> {
     let (_, path) = catalog()[index];
-    if is_bundled(path) {
-        let text = include_str!("../assets/headphones/adam-audio-h200.txt");
+    if let Some(text) = bundled_text(path) {
         parse(text)?;
         return Ok(text.to_owned());
     }
@@ -517,7 +526,10 @@ mod tests {
     }
     #[test]
     fn headphone_profiles_audio_and_bypass() {
-        assert_eq!(catalog().len(), CATALOG.lines().count() + 1);
+        assert_eq!(catalog().len(), CATALOG.lines().count() + 2);
+        let index = catalog().iter().position(|entry| entry.0 == "Behringer HPM1000").unwrap();
+        let hpm = parse(&load(index).unwrap()).unwrap();
+        assert_eq!((hpm.count, hpm.preamp), (11, -6.5));
         let p = parse(include_str!("../assets/headphones/test-hd650.txt")).unwrap();
         assert_eq!(p.count, 10);
         assert_eq!(p.preamp, -6.1);

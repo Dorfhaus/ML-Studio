@@ -125,6 +125,20 @@ pub fn phase(s: &State) -> u8 {
         Some(0..=44) => 0, Some(45..=89) => 1, Some(90..=134) => 2, _ => 3,
     }
 }
+/// Apply a marquee against the selection captured on press. Reversing the drag
+/// restores items that leave the rectangle. Repeated hits share one identity.
+pub(crate) fn selection_hits<T: Copy + PartialEq>(base: &[T], hits: &[T], keep_outside: bool) -> Vec<T> {
+    let mut selected: Vec<T> = if keep_outside {
+        base.iter().copied().filter(|item| !hits.contains(item)).collect()
+    } else { Vec::new() };
+    for item in hits {
+        if !base.contains(item) && !selected.contains(item) {
+            selected.push(*item);
+        }
+    }
+    selected
+}
+
 pub(crate) const RANGE_SELECTION_VISIBILITY: &str = "visible_ctrl-shift-range-selection";
 
 pub(crate) fn range_chord(app: &App) -> bool {
@@ -138,8 +152,8 @@ pub(crate) fn range_cursor(app: &App) -> Option<Cursor> {
     }
     let workspace = matches!(app.hover, Some(Action::PlaylistArea | Action::PlHeader(_) | Action::PlTrackGrip(_)
         | Action::PlRowResize(_) | Action::PianoGrid | Action::PianoNote(_) | Action::PianoKeys));
-    let selecting = matches!(app.drag, Some(crate::app::Drag::Marquee { base: None, .. }
-        | crate::app::Drag::PianoPitchRange { .. } | crate::app::Drag::Pl(pl::PlDrag::Marquee { base: None, .. } | pl::PlDrag::HeaderRange { contents: true, .. })));
+    let selecting = matches!(app.drag, Some(crate::app::Drag::Marquee { .. }
+        | crate::app::Drag::PianoPitchRange { .. } | crate::app::Drag::Pl(pl::PlDrag::Marquee { .. } | pl::PlDrag::HeaderRange { contents: true, .. })));
     if (selecting || workspace && app.drag.is_none()) && range_chord(app) {
         app.range_cursor.set(true);
         return Some(Cursor::Playlist(PlTool::Select, 3));
@@ -149,7 +163,7 @@ pub(crate) fn range_cursor(app: &App) -> Option<Cursor> {
     if !workspace || !app.ctrl && !app.shift {
         app.range_cursor.set(false);
     }
-    if selecting || workspace && app.drag.is_none() && app.range_cursor.get() {
+    if (selecting || workspace && app.drag.is_none()) && app.range_cursor.get() {
         return Some(Cursor::Default);
     }
     None

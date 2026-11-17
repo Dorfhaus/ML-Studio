@@ -3654,7 +3654,7 @@ pub enum PlDrag {
     SweepErase{x:f32,y:f32, recorded:bool},
     Mute { on: bool },
     Paint { template: Clip },
-    Marquee { x0: f32, y0: f32, base: Option<Vec<usize>> },
+    Marquee { x0: f32, y0: f32, base: Vec<usize>, keep_outside: bool },
     Slice { y0: f32 },
     /// Right button held on empty grid: a horizontal drag turns into a slice (§3).
     RightPending { x0: f32, y0: f32 },
@@ -3876,18 +3876,6 @@ fn edge(r: Rect, x: f32) -> i32 {
 /// Mouse press on the grid. `right` = the right button.
 pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
     let (x, y) = app.mouse;
-    if !right && crate::playlist_tools::range_chord(app) {
-        let s = &mut app.state;
-        s.playlist.popup = None;
-        s.playlist.sel.clear();
-        s.playlist.selected_points = None;
-        s.playlist.last_clip = None;
-        app.drag = Some(Drag::Pl(PlDrag::Marquee {
-            x0: x, y0: y + s.playlist_scroll.1, base: None,
-        }));
-        app.damage_win(crate::app::Win::Playlist);
-        return;
-    }
     let placement_edge = if right { None } else { app.playlist_placement_edge(x) };
     let s = &mut app.state;
     s.playlist.popup = None;
@@ -3898,6 +3886,19 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
     let tick = g.tick_at(x).max(0.0);
     let hit = clip_at(s, &g, x, y);
     let tool = s.playlist.tool;
+    if !right && (app.ctrl || (tool == PlTool::Select && app.shift)) {
+        let base = s.playlist.sel.clone();
+        let hits = hit.map_or_else(Vec::new, |i| with_groups(s, vec![i]));
+        s.playlist.sel = if !app.shift { hits.clone() } else {
+            crate::playlist_tools::selection_hits(&base, &hits,true)
+        };
+        s.playlist.selected_points = None;
+        s.playlist.last_clip = None;
+        app.drag = Some(Drag::Pl(PlDrag::Marquee { x0:x, y0:y+s.playlist_scroll.1, base, keep_outside: app.shift }));
+        app.invalidate();
+        return;
+    }
+
     if right && hit.is_none() && matches!(tool,PlTool::Draw|PlTool::Paint) {
         s.playlist.sel.clear();s.playlist.header_selection.clear();s.playlist.header_anchor=None;
         s.playlist.range=None;s.playlist.overlay=None;s.playlist.last_header=None;
@@ -3961,28 +3962,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
         return;
     }
 
-    // Ctrl+drag selects in any tool; Ctrl+click toggles a clip (§3).
-    if app.ctrl && !right {
-        let base=s.playlist.sel.clone();
-        match hit {
-            Some(i) => {
-                app.drag=Some(Drag::Pl(PlDrag::Marquee{x0:x,y0:y+s.playlist_scroll.1,base:Some(base)}));
-                // A grouped clip toggles with its group.
-                let group = with_groups(s, vec![i]);
-                if s.playlist.sel.contains(&i) {
-                    s.playlist.sel.retain(|j| !group.contains(j));
-                } else {
-                    s.playlist.sel.extend(group.into_iter().filter(|j| !s.playlist.sel.contains(j)).collect::<Vec<_>>());
-                }
-            }
-            None => {
-                let base = s.playlist.sel.clone();
-                app.drag = Some(Drag::Pl(PlDrag::Marquee { x0: x, y0: y+s.playlist_scroll.1, base: Some(base) }));
-            }
-        }
-        app.invalidate();
-        return;
-    }
+
 
 
     // Audio clip handles: fades, fade tensions, gain (§9a).
@@ -4041,7 +4021,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
             let clip = clips(s)[i].clone();
             remember_audio_placement(s, &clip);
         }
-        app.drag = Some(Drag::Pl(PlDrag::Marquee { x0:x, y0:y+s.playlist_scroll.1, base:Some(Vec::new()) }));
+        app.drag = Some(Drag::Pl(PlDrag::Marquee { x0:x, y0:y+s.playlist_scroll.1, base:Vec::new(), keep_outside:false }));
         app.invalidate();
         return;
     }
@@ -4184,7 +4164,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
         }
         PlTool::Select if hit.is_none() => {
             s.playlist.sel.clear();
-            app.drag = Some(Drag::Pl(PlDrag::Marquee { x0: x, y0: y+s.playlist_scroll.1, base: Some(Vec::new()) }));
+            app.drag = Some(Drag::Pl(PlDrag::Marquee { x0: x, y0: y+s.playlist_scroll.1, base: Vec::new(), keep_outside:false }));
         }
         PlTool::Draw | PlTool::Paint | PlTool::Select => match hit {
             // Right-Shift+drag on empty grid with Draw / Paint: a quick slice line, as the Slice tool (§3).
@@ -4564,18 +4544,14 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
                 }
             }
         }
-        PlDrag::Marquee { x0, y0, base } => {
+        PlDrag::Marquee { x0, y0, base, keep_outside } => {
             let y0 = y0 - s.playlist_scroll.1;
-            if base.is_some() && (x-x0).hypot(y-y0)<3.{return app.invalidate();}
+            if s.playlist.overlay.is_none() && (x-x0).hypot(y-y0)<3.{return app.invalidate();}
             let r = Rect::span(x0.min(x), x0.max(x)+1., y0.min(y), y0.max(y)+1.);
             s.playlist.overlay = Some(Overlay::Marquee(r));
-            let mut sel = base.unwrap_or_default();
-            for (i, c) in clips(s).iter().enumerate() {
-                if !sel.contains(&i) && g.clip_rect(c).intersect(&r).w > 0.0 && g.clip_rect(c).intersect(&r).h > 0.0 {
-                    sel.push(i);
-                }
-            }
-            s.playlist.sel = sel;
+            let hits = clips(s).iter().enumerate().filter_map(|(i,c)|
+                (!g.clip_rect(c).intersect(&r).is_empty()).then_some(i)).collect();
+            s.playlist.sel = crate::playlist_tools::selection_hits(&base, &with_groups(s,hits), keep_outside);
         }
         PlDrag::Slice { y0 } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);

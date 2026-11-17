@@ -15,7 +15,10 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use objc2_app_kit::NSView;
+use objc2::{MainThreadMarker, MainThreadOnly};
+use objc2::rc::Retained;
+use objc2_app_kit::{NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask};
+use objc2_foundation::{NSPoint, NSRect, NSSize};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -43,12 +46,6 @@ fn pump(el: &mut EventLoop<()>, pl: &mut Plugins, ms: u64) {
     }
 }
 
-/// A view's size in points.
-fn size_of(view: &NSView) -> (f64, f64) {
-    let s = view.frame().size;
-    (s.width, s.height)
-}
-
 /// A view's frame in its superview, in points: x, y, width, height.
 fn frame_of(view: &NSView) -> (f64, f64, f64, f64) {
     let f = view.frame();
@@ -63,12 +60,13 @@ struct Look {
     window: Option<isize>,
 }
 
-fn look(pl: &Plugins) -> Option<Look> {
-    let w = pl.hosted.get(&0)?.window.as_ref()?;
+fn look(pl: &Plugins, row: usize) -> Option<Look> {
+    let w = pl.hosted.get(&row)?.window.as_ref()?;
     // SAFETY: the frame's views live as long as its window, which `pl` holds.
     let (frame, area) = unsafe { (&*(w.hwnd() as *const NSView), &*(w.area() as *const NSView)) };
     let editor = area.subviews().firstObject().map(|v| frame_of(&v));
-    Some(Look { area: size_of(area), editor, window: frame.window().map(|win| win.windowNumber()) })
+    let size = area.bounds().size;
+    Some(Look { area: (size.width, size.height), editor, window: frame.window().map(|win| win.windowNumber()) })
 }
 
 /// The window's picture (no shadow), with `screencapture`.
@@ -76,9 +74,38 @@ fn shoot(window: isize, path: &Path) -> bool {
     std::process::Command::new("screencapture").arg("-x").arg("-o").arg(format!("-l{window}")).arg(path).status().is_ok_and(|s| s.success())
 }
 
+/// Resolve built-in editors and registered Audio Units through the same factories as the picker.
+fn resolve(spec: &str) -> Result<Available, String> {
+    if let Some(name) = spec.strip_prefix("stock:") {
+        return super::builtin().into_iter().chain(super::builtin_effects()).find(|a| a.desc.name == name)
+            .ok_or_else(|| format!("Unknown stock plugin {name}"));
+    }
+    let (lib, name) = if let Some(name) = spec.strip_prefix("au:") {
+        (load_file(Path::new(os_host::audio_unit::REGISTRY_PATH), os_host::Format::AudioUnit)?, Some(name))
+    } else {
+        let file = Path::new(spec);
+        let format = match file.extension().and_then(|s| s.to_str()).map(str::to_ascii_lowercase).as_deref() {
+            Some("clap") => os_host::Format::Clap,
+            Some("vst3") => os_host::Format::Vst3,
+            Some("vst") => os_host::Format::Vst2,
+            _ => return Err(format!("Unknown plugin file format {spec}")),
+        };
+        (load_file(file, format)?, None)
+    };
+    let desc = lib.plugins().iter().find(|d| name.is_none_or(|name| d.name == name))
+        .cloned().ok_or_else(|| format!("No matching plugin for {spec}"))?;
+    Ok(Available { lib, desc })
+}
+
 pub fn run(args: &[String]) -> i32 {
+    // Geometry-only checks exercise the real detached frame without ordering it
+    // onto the user's screen or capturing any windows.
+    let offscreen = args.first().is_some_and(|arg| arg == "--offscreen");
+    let args = if offscreen { &args[1..] } else { args };
+    let docked = offscreen && args.first().is_some_and(|arg| arg == "--docked");
+    let args = if docked { &args[1..] } else { args };
     let Some((dir, files)) = args.split_first() else {
-        eprintln!("usage: lemonstudio --plugin-window-check <dir> <plugin file>...");
+        eprintln!("usage: lemonstudio --plugin-window-check [--offscreen [--docked]] <dir> <plugin file | stock:name | au:name>...");
         return 2;
     };
     let dir = PathBuf::from(dir);
@@ -86,63 +113,80 @@ pub fn run(args: &[String]) -> i32 {
     let mut builder = EventLoop::<()>::with_user_event();
     builder.with_activation_policy(ActivationPolicy::Accessory).with_activate_ignoring_other_apps(false).with_default_menu(false);
     let mut el = builder.build().expect("event loop");
+    let owner = docked.then(|| {
+        let mtm = MainThreadMarker::new().unwrap();
+        // This test window is never ordered on screen.
+        unsafe { NSWindow::initWithContentRect_styleMask_backing_defer(NSWindow::alloc(mtm),
+            NSRect::new(NSPoint::ZERO, NSSize::new(1500.0, 1000.0)), NSWindowStyleMask::Borderless,
+            NSBackingStoreType::Buffered, false) }
+    });
     let mut failed = false;
-    for file in files.iter().map(PathBuf::from) {
-        let format = match file.extension().and_then(|x| x.to_str()).map(str::to_ascii_lowercase).as_deref() {
-            Some("vst") => os_host::Format::Vst2,
-            Some("vst3") => os_host::Format::Vst3,
-            Some("clap") => os_host::Format::Clap,
-            _ => {
-                println!("{}: not a plugin file", file.display());
-                failed = true;
-                continue;
-            }
+    for spec in files {
+        let entry = match resolve(spec) {
+            Ok(entry) => entry,
+            Err(e) => { eprintln!("{spec}: {e}"); failed = true; continue; }
         };
-        let lib = match load_file(&file, format) {
-            Ok(l) => l,
-            Err(e) => {
-                println!("{}: {e}", file.display());
-                failed = true;
-                continue;
-            }
+        let name = entry.desc.name.clone();
+        let effect = entry.desc.kind == os_host::Kind::Effect;
+        let row = if effect { super::fx_key(1, 0) } else { 0 };
+        let mut pl = Plugins { scale: 2.0, rate: 48000, ..Plugins::default() };
+        if let Some(view) = owner.as_ref().and_then(|w| w.contentView()) {
+            pl.owner = Retained::as_ptr(&view) as isize;
+        }
+        let created = if effect {
+            pl.effects.push(entry);
+            pl.create_effect(1, 0, 0, None)
+        } else {
+            pl.available.push(entry);
+            pl.create(0, 0)
         };
-        let Some(desc) = lib.plugins().first().cloned() else { continue };
-        let name = desc.name.clone();
-        let mut pl = Plugins { available: vec![Available { lib, desc }], scale: 2.0, ..Plugins::default() };
-        if let Err(e) = pl.create(0, 0) {
+        if let Err(e) = created {
             println!("{name}: {e}");
             failed = true;
             continue;
         }
-        if !pl.hosted[&0].plugin.lock().is_ok_and(|p| p.has_editor()) {
+        if !pl.hosted[&row].plugin.lock().is_ok_and(|p| p.has_editor()) {
             println!("{name}: no editor");
             continue;
         }
         let info = ChannelInfo { name: name.clone(), target: "Insert 1".into(), enabled: true, volume: 0.78, pan: 0.0, pitch_cents: 0, range: 2, track: 1, max_track: 125, sidechain: None, misc: None };
-        if let Err(e) = pl.open_window(0, info) {
+        pl.hosted.get_mut(&row).unwrap().detached = !docked;
+        let opened = pl.open_window_with_visibility(row, info, !offscreen);
+        if let Err(e) = opened {
             println!("{name}: the window did not open: {e}");
             failed = true;
             continue;
         }
+        if offscreen && name == ml_plasma::NAME {
+            // Check immediately, before a size mismatch can compound on every idle.
+            if let Some(l) = look(&pl, row) {
+                if l.editor.is_some_and(|(_, _, w, h)| (w-l.area.0).abs() >= 0.5 || (h-l.area.1).abs() >= 0.5) {
+                    eprintln!("{name}: initial editor {:?} does not fit {:?}", l.editor, l.area);
+                    failed = true;
+                    pl.drop_key(row);
+                    continue;
+                }
+            }
+        }
         pump(&mut el, &mut pl, 900);
         let stem = name.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let display = pl.hosted[&0].window.as_ref().map_or(2.0, |w| w.scale());
+        let display = pl.hosted[&row].window.as_ref().map_or(2.0, |w| w.scale());
         for (k, tag) in [(display, "display"), (1.0, "1x"), (2.0, "2x")] {
             if tag != "display" {
-                pl.rescale_window(0, k);
+                pl.rescale_window(row, k);
                 pump(&mut el, &mut pl, 700);
             }
-            let reported = pl.hosted[&0].plugin.lock().ok().and_then(|p| p.editor_size());
-            let Some(l) = look(&pl) else {
+            let reported = pl.hosted[&row].plugin.lock().ok().and_then(|p| p.editor_size());
+            let Some(l) = look(&pl, row) else {
                 println!("{name} at {k}: the window is gone");
                 failed = true;
                 break;
             };
             // The editor's view fills the area: its size, and at the area's origin (not left where a smaller area had it).
-            let fits = l.editor.is_some_and(|(x, y, w, h)| x.abs() < 0.5 && y.abs() < 0.5 && (w - l.area.0).abs() < 0.5 && (h - l.area.1).abs() < 0.5);
+            let fits = l.editor.is_some_and(|(x, y, w, h)| x.abs() <= 0.5 / f64::from(k) && y.abs() <= 0.5 / f64::from(k) && (w - l.area.0).abs() <= 0.5 / f64::from(k) && (h - l.area.1).abs() <= 0.5 / f64::from(k));
             failed |= !fits;
             let shot = dir.join(format!("{stem}_{tag}.png"));
-            let pictured = l.window.is_some_and(|n| shoot(n, &shot));
+            let pictured = !offscreen && l.window.is_some_and(|n| shoot(n, &shot));
             println!(
                 "{name} at {k} ({tag}): editor view (x, y, w, h) {:?} pt, editor area {:?} pt, reported {reported:?} px: {}{}",
                 l.editor,
@@ -151,7 +195,26 @@ pub fn run(args: &[String]) -> i32 {
                 if pictured { format!(", {}", shot.display()) } else { String::new() }
             );
         }
-        pl.drop_key(0);
+        if offscreen && name == ml_plasma::NAME {
+            if let Some(initial) = look(&pl, row) {
+                // A resize drag takes this same queue. Shrink, enlarge and
+                // return to the original size across several host idle polls.
+                for factor in [0.75, 1.25, 1.0] {
+                    let requested = ((initial.area.0 * factor).round() as u32,
+                                     (initial.area.1 * factor).round() as u32);
+                    pl.hosted.get_mut(&row).unwrap().pending_editor_resize = Some(requested);
+                    pump(&mut el, &mut pl, 250);
+                    let fits = look(&pl, row).is_some_and(|l| {
+                        l.editor.is_some_and(|(x, y, w, h)| x.abs() < 0.5 && y.abs() < 0.5
+                            && (l.area.0-w).abs() < 0.5 && (l.area.1-h).abs() < 0.5
+                            && (w-f64::from(requested.0)).abs() <= 2.0 && (h-f64::from(requested.1)).abs() <= 2.0)
+                    });
+                    println!("{name} resize to {requested:?} points: {}", if fits { "fits" } else { "DOES NOT FIT" });
+                    failed |= !fits;
+                }
+            }
+        }
+        pl.drop_key(row);
         pump(&mut el, &mut pl, 200);
     }
     i32::from(failed)

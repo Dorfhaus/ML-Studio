@@ -360,6 +360,10 @@ impl<P: Plugin> Plugin for Guarded<P> {
         }
         ok
     }
+    fn load_dropped_file(&mut self, path: &str) -> Option<bool> {
+        self.sleep.wake();
+        self.run(Some(false), |p| p.load_dropped_file(path))
+    }
     fn latency(&self) -> u32 {
         self.look(0, |p| p.latency())
     }

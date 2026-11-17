@@ -4,6 +4,17 @@
   "sections": [
     {
       "date": "2026-11-17",
+      "title": "Selection, audio editing and plugin compatibility fixes \u00b7 public build 2026111703",
+      "changes": [
+        "Piano Roll and Playlist selection now support Ctrl+Shift click and drag to toggle selected notes or clips while preserving the rest of the selection.",
+        "Vocal Tuning and Audio Timing share Playlist scrolling, time zoom, middle-drag panning and Ctrl+right-drag region zoom. Inline selection and custom mouse controls work consistently.",
+        "Added Behringer HPM1000 to the Master headphone referencer with a bundled offline listening preset.",
+        "Improved Mac plugin editor sizing for Audio Units, Retina CLAP editors and joined stock editors, including Plasma.",
+        "Browser samples can be dragged into supported third-party plugin editors on Windows and Mac. Fixed FL native slicer runtime discovery and the MIDI key used to trigger imported slices."
+      ]
+    },
+    {
+      "date": "2026-11-17",
       "title": "Stock effect folders, ML Mix Template and H200 monitoring \u00b7 public build 2026111702",
       "changes": [
         "The 15 new stock effects now appear in their factory categories. On upgrade, untouched stock links move out of Unsorted. Custom folders, renamed links and removed entries are preserved.",

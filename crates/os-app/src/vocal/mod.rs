@@ -245,6 +245,7 @@ fn command_inner(app:&mut App,c:Command){
   Command::Pan(n)=>{app.state.playlist.vocal.low=(app.state.playlist.vocal.low+n as f32*6.).clamp(0.,120.-app.state.playlist.vocal.span);app.invalidate();return;},
   Command::Undo|Command::Redo|Command::UndoTiming|Command::RedoTiming=>{if let Some(ch)=crate::audio_edits::active(&app.state){crate::audio_edits::history(app,ch,matches!(c,Command::UndoTiming|Command::RedoTiming),matches!(c,Command::Redo|Command::RedoTiming));}return;},
   Command::Nav(k)=>{navigation::begin(app,k);return;},
+  Command::Surface if app.ctrl=>{navigation::begin(app,navigation::Kind::Box);return;},
   Command::Surface=>{navigation::begin(app,match app.state.playlist.vocal.tool{Tool::Hand=>navigation::Kind::Pan,Tool::Zoom=>navigation::Kind::Zoom,_=>navigation::Kind::Box});return;},
   Command::Fit=>{navigation::fit(app,false);return;},
   Command::XZoom(n)=>{let x=app.pl_grid().map(|g|g.cx()).unwrap_or(0.);navigation::zoom_x(app,1.4f32.powi(n as i32),x);app.invalidate();return;},
@@ -252,6 +253,7 @@ fn command_inner(app:&mut App,c:Command){
   Command::SelectNone=>{app.state.playlist.vocal.selected.clear();app.invalidate();return;},
   Command::SelectAll=>{app.state.playlist.vocal.selected=pl::clips(&app.state).iter().enumerate().filter(|(_,c)|Some(c.track)==app.state.playlist.vocal.row).filter_map(|(ci,_)|doc(&app.state,ci)).flat_map(|d|d.notes.iter().enumerate().map(move|(i,_)|(d.channel,i))).collect();app.invalidate();return;},
   Command::Param(f)=>{editing::parameter(app,f);return;},
+  Command::Boundary(ci,n) if app.ctrl=>{editing::begin(app,ci,Some(n));return;},
   Command::Boundary(ci,n)=>{editing::boundary(app,ci,n);return;},
   Command::Note(clip,n)=>{begin(app,clip,Some(n));return;},Command::Grid(clip)=>{begin(app,clip,None);return;},_=>{}
  }
@@ -295,7 +297,7 @@ pub fn reanalyse(app:&mut App,row:u16){
 
 pub fn key_input(app:&mut App,key:&winit::keyboard::Key,ctrl:bool,alt:bool)->bool{
  use winit::keyboard::{Key,NamedKey};if app.state.z.last()!=Some(&crate::app::Win::Playlist)||app.state.playlist.popup.is_some()||app.state.settings.open||app.state.menu_open.is_some(){return false;}let Some(r)=navigation::rect(app)else{return false};if !r.contains(app.mouse.0,app.mouse.1){return false;}
- let cmd=match key{Key::Character(c)if ctrl&&c.eq_ignore_ascii_case("a")=>Command::SelectAll,Key::Named(NamedKey::Escape)=>Command::SelectNone,Key::Character(c)if !ctrl&&!alt=>match c.to_ascii_lowercase().as_str(){"1"=>Command::Tool(Tool::Main),"2"=>Command::Tool(Tool::Select),"3"=>Command::Tool(Tool::Modulation),"4"=>Command::Tool(Tool::Drift),"5"=>Command::Tool(Tool::Formant),"6"=>Command::Tool(Tool::Amplitude),"7"=>Command::Tool(Tool::Time),"8"=>Command::Tool(Tool::Attack),"9"=>Command::Tool(Tool::Split),"t"=>Command::Tool(Tool::Transition),"d"=>Command::Tool(Tool::Draw),"h"=>Command::Tool(Tool::Hand),"z"=>Command::Tool(Tool::Zoom),"f"=>Command::Fit,"m"=>Command::Mute,_=>return false},_=>return false};command(app,cmd);true
+ let cmd=match key{Key::Character(c)if ctrl&&c.eq_ignore_ascii_case("a")=>Command::SelectAll,Key::Character(c)if ctrl&&c.eq_ignore_ascii_case("d")=>Command::SelectNone,Key::Named(NamedKey::Escape)=>Command::SelectNone,Key::Character(c)if !ctrl&&!alt=>match c.to_ascii_lowercase().as_str(){"1"=>Command::Tool(Tool::Main),"2"=>Command::Tool(Tool::Select),"3"=>Command::Tool(Tool::Modulation),"4"=>Command::Tool(Tool::Drift),"5"=>Command::Tool(Tool::Formant),"6"=>Command::Tool(Tool::Amplitude),"7"=>Command::Tool(Tool::Time),"8"=>Command::Tool(Tool::Attack),"9"=>Command::Tool(Tool::Split),"t"=>Command::Tool(Tool::Transition),"d"=>Command::Tool(Tool::Draw),"h"=>Command::Tool(Tool::Hand),"z"=>Command::Tool(Tool::Zoom),"f"=>Command::Fit,"m"=>Command::Mute,_=>return false},_=>return false};command(app,cmd);true
 }
 
 #[cfg(test)]mod tests{
@@ -411,13 +413,20 @@ pub fn key_input(app:&mut App,key:&winit::keyboard::Key,ctrl:bool,alt:bool)->boo
   let(mut app,_,ci)=fixture();let mut c=Canvas::new(1280,900,1.).unwrap();paint(&mut app,&mut c);
   let legacy:Note=serde_json::from_str(r#"{"start":0,"end":201,"base":57.0,"shift":0.0,"variation":1.0}"#).unwrap();assert_eq!(legacy,Note::new(0,201,57.));
   for t in TOOLS{assert!(hit(&app,Action::Vocal(Command::Tool(t))).w>20.);}
-  let r=navigation::rect(&app).unwrap();let(x,y)=(r.x+r.w*0.4,r.cy());app.mouse_move(x,y);let old=app.state.playlist.vocal.low;app.wheel(0.,1.,false,false);assert!(app.state.playlist.vocal.low>old);
-  let at=(app.state.playlist_scroll.0+x-app.pl_grid().unwrap().x)/app.state.playlist_bar_w;let z=app.state.playlist_bar_w;app.wheel(0.,1.,false,true);assert!(app.state.playlist_bar_w>z);let now=(app.state.playlist_scroll.0+x-app.pl_grid().unwrap().x)/app.state.playlist_bar_w;assert!((at-now).abs()<0.001);
+  let r=navigation::rect(&app).unwrap();let(x,y)=(r.x+r.w*0.4,r.cy());app.mouse_move(x,y);let old=app.state.playlist.vocal.low;app.wheel(0.,1.,false,false);app.ease_to_end();assert_eq!(app.state.playlist.vocal.low,old);
+  let at=(app.state.playlist_scroll.0+x-app.pl_grid().unwrap().x)/app.state.playlist_bar_w;let z=app.state.playlist_bar_w;app.wheel(0.,1.,false,true);app.ease_to_end();assert!(app.state.playlist_bar_w>z);let now=(app.state.playlist_scroll.0+x-app.pl_grid().unwrap().x)/app.state.playlist_bar_w;assert!((at-now).abs()<0.001);
   let pitch=app.state.playlist.vocal.low+(r.bottom()-y)/r.h*app.state.playlist.vocal.span;let span=app.state.playlist.vocal.span;app.wheel(0.,1.,true,true);assert!(app.state.playlist.vocal.span<span);let pitch2=app.state.playlist.vocal.low+(r.bottom()-y)/r.h*app.state.playlist.vocal.span;assert!((pitch-pitch2).abs()<0.001);
-  let saved_zoom=app.state.playlist_bar_w;for _ in 0..12{app.wheel(0.,1.,false,true);}assert!(app.state.playlist_bar_w>saved_zoom*3.);let scroll=app.state.playlist_scroll.0;app.wheel(0.,-2.,true,false);assert!(app.state.playlist_scroll.0>scroll);command(&mut app,Command::Fit);paint(&mut app,&mut c);
+  let saved_zoom=app.state.playlist_bar_w;for _ in 0..12{app.wheel(0.,1.,false,true);app.ease_to_end();}assert!(app.state.playlist_bar_w>saved_zoom*3.);let scroll=app.state.playlist_scroll.0;paint(&mut app,&mut c);app.wheel(0.,-2.,true,false);app.ease_to_end();assert!(app.state.playlist_scroll.0>scroll);command(&mut app,Command::Fit);paint(&mut app,&mut c);
   command(&mut app,Command::Tool(Tool::Zoom));paint(&mut app,&mut c);app.mouse_move(x,y);app.mouse_down_right();app.mouse_up();assert!(app.state.playlist.vocal.palette.is_some());paint(&mut app,&mut c);let tool=hit(&app,Action::Vocal(Command::Tool(Tool::Drift)));app.mouse_move(tool.cx(),tool.cy());app.mouse_down();app.mouse_up();assert_eq!(app.state.playlist.vocal.tool,Tool::Drift);assert!(app.state.playlist.vocal.palette.is_none());
   command(&mut app,Command::Tool(Tool::Main));paint(&mut app,&mut c);let g=pl::PGeom::new(&app.state,app.pl_grid().unwrap());let note=view::note_rect(&app.state,&g,ci,1).unwrap();let grid=navigation::rect(&app).unwrap();
   app.mouse_move(grid.x+1.,grid.y+2.);app.mouse_down();app.mouse_move(note.right()+2.,grid.bottom()-1.);app.mouse_up();assert!(app.state.playlist.vocal.selected.len()>=2);assert!(app.state.playlist.vocal.marquee.is_none());
+  let prior=app.state.playlist.vocal.selected.clone();
+  let channel=app.state.project.vocal_edits[0].channel;
+  app.ctrl=true; app.shift=true;
+  app.mouse_move(note.cx(),note.cy()); app.mouse_down(); app.mouse_up();
+  assert_eq!(app.state.playlist.vocal.selected, prior.iter().copied().filter(|&item|item!=(channel,1)).collect::<Vec<_>>());
+  app.mouse_down(); app.mouse_up(); app.ctrl=false; app.shift=false;
+  assert_eq!(app.state.playlist.vocal.selected.len(),prior.len());
   for(tool,field)in [(Tool::Modulation,Field::Modulation),(Tool::Drift,Field::Drift),(Tool::Formant,Field::Formant),(Tool::Amplitude,Field::Amplitude),(Tool::Transition,Field::Transition)]{
    command(&mut app,Command::Tool(tool));paint(&mut app,&mut c);let before=app.state.project.vocal_edits.clone();let rr=hit(&app,Action::Vocal(Command::Param(field)));app.mouse_move(rr.cx(),rr.cy());app.mouse_down();app.mouse_move(rr.cx(),rr.cy()-24.);app.mouse_up();assert_ne!(app.state.project.vocal_edits,before);crate::history::undo(&mut app.state).unwrap();assert_eq!(app.state.project.vocal_edits,before);
   }

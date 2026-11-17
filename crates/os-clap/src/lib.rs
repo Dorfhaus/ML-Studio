@@ -1225,7 +1225,7 @@ impl Plugin {
         }
         // The editor asked for a new size: it gets it (its own adjustment wins), and the frame follows `editor_size`.
         let resize = self.host_data.resize.lock().ok().and_then(|mut r| r.take());
-        if let (Some((w, h)), true) = (resize, self.editor) {
+        if let Some((w, h)) = resize.filter(|_| self.editor_resizable()) {
             unsafe {
                 let g = &*self.gui;
                 let (mut w, mut h) = (w, h);
@@ -1293,6 +1293,29 @@ impl Plugin {
             }
             g.show.map(|f| f(self.plugin));
             self.editor = true;
+            #[cfg(target_os = "macos")]
+            if !self.editor_resizable() {
+                // Some fixed Cocoa editors (including Vital) report backing pixels
+                // through get_size. Detect both dimensions on the actual display
+                // after attaching. Compliant editors keep the normal points path.
+                use objc2_app_kit::NSView;
+                if let Some(area) = parent.cast::<NSView>().as_ref() {
+                    let children = area.subviews();
+                    if let (1, Some(child), Some(window)) = (children.len(), children.firstObject(), area.window()) {
+                        let backing = window.backingScaleFactor();
+                        let pt = child.frame().size;
+                        let (mut width, mut height) = (0, 0);
+                        if backing > 1.0 && pt.width > 1.0 && pt.height > 1.0
+                            && g.get_size.is_some_and(|read| read(self.plugin, &mut width, &mut height))
+                            && (f64::from(width) - pt.width * backing).abs() <= 1.0
+                            && (f64::from(height) - pt.height * backing).abs() <= 1.0
+                        {
+                            self.editor_scale /= backing as f32;
+                            return Ok(self.to_px((width, height)));
+                        }
+                    }
+                }
+            }
             Ok(self.to_px((w, h)))
         }
     }

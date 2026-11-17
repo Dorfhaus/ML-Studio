@@ -97,6 +97,7 @@ pub struct NativePlugin {
     /// Note events for the next `process`.
     events: Vec<(u32, Ev)>,
     next_tag: IntPtr,
+    absolute_slice_keys: bool,
     wants_tick: bool,
     /// The plugin renders each voice itself (`Voice_Render`) instead of all of them at once (`Gen_Render`).
     voice_render: bool,
@@ -137,7 +138,9 @@ impl NativePlugin {
         let wants_tick = plugin.info.flags & flags::WANT_NEW_TICK != 0;
         let voice_render = plugin.info.uses_voice_render();
         let renders = !plugin.info.no_process() && (desc.is_instrument() || !plugin.info.is_generator());
+        let absolute_slice_keys = matches!(desc.name.as_str(), "Fruity Slicer 2" | "Slicex");
         NativePlugin {
+            absolute_slice_keys,
             plugin,
             desc,
             rate: 0,
@@ -273,7 +276,9 @@ impl NativePlugin {
                 }
                 let tag = self.next_tag;
                 self.next_tag += 1;
-                let init = note_levels(key, velocity, own);
+                let mut init = note_levels(key, velocity, own);
+                // These slice maps index absolute MIDI cents (first default slice = key 60).
+                if self.absolute_slice_keys { init.pitch = f32::from(key) * 100.0; }
                 // The channel's envelopes and LFOs take the voice's first tick at once; a plugin that renders voice by
                 // voice gets the channel filter (spec: "Voices").
                 let (channel, nominal, filter) = (self.channel, self.art_spt(), self.voice_render.then_some(self.rate.max(1)));
@@ -686,6 +691,19 @@ impl os_host::Plugin for NativePlugin {
         self.plugin.restore_state(data)
     }
 
+    fn load_dropped_file(&mut self, path: &str) -> Option<bool> {
+        let filename = std::ffi::CString::new(path).ok()?;
+        // Older generators return zero even after importing the sample. Use their
+        // persisted state to distinguish that case from a request for editor fallback.
+        let before = self.plugin.save_state();
+        match self.plugin.dispatch(dispatch::LOAD_FILE, 0, filename.as_ptr() as isize) {
+            1 => Some(true),
+            2 => Some(false),
+            0 if before.is_some_and(|old| self.plugin.save_state().is_some_and(|new| new != old)) => Some(true),
+            _ => None,
+        }
+    }
+
     fn stopped(&self) -> Option<u32> {
         self.plugin.stopped()
     }
@@ -795,6 +813,41 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opt-in check against an installed generator and a synthetic audio file.
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn installed_generator_sample_drop() {
+        use os_host::Library as _;
+        let dll = std::env::var_os("ML_TEST_GENERATOR").unwrap();
+        let wav = std::env::var("ML_TEST_DROP_WAV").unwrap();
+        let lib = crate::NativeLibrary::load(std::path::Path::new(&dll)).unwrap();
+        let id = lib.plugins()[0].id.clone();
+        let instance = lib.create(&id).unwrap();
+        let mut p = instance.lock().unwrap();
+        assert!(p.activate(48000));
+        let before = p.save_state().unwrap();
+        let reply = p.load_dropped_file(&wav);
+        for _ in 0..12 { p.idle(); }
+        let after = p.save_state().unwrap();
+        eprintln!("{}: reply {reply:?}, state {} => {} bytes, changed {}", p.desc().name, before.len(), after.len(), before != after);
+        assert!(p.stopped().is_none());
+        assert_eq!(reply, Some(true));
+        assert!(before != after);
+        for _ in 0..20 { p.idle(); std::thread::sleep(std::time::Duration::from_millis(10)); }
+        p.note_on(0, 60, 0.8);
+        let mut peak = 0.0f32;
+        for _ in 0..16 {
+            let (mut l, mut r) = ([0.0; 256], [0.0; 256]);
+            p.process(48000, &mut l, &mut r);
+            for x in l.into_iter().chain(r) { peak = peak.max(x.abs()); }
+        }
+        p.note_off(0, 60);
+        eprintln!("first slice on MIDI key 60: peak {peak}");
+        assert!(peak > 1e-5, "loaded slice did not sound on middle C");
+        assert!(p.load_state(&after));
+    }
 
     #[test]
     fn parameter_values_and_names() {

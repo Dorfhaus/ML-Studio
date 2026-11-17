@@ -291,6 +291,8 @@ pub trait Plugin: Instrument + HostedEffect + Send {
     fn save_state(&self) -> Option<Vec<u8>>;
     /// Restores a `save_state` blob (UI thread).
     fn load_state(&mut self, data: &[u8]) -> bool;
+    /// A format-specific channel file drop. None leaves delivery to the editor.
+    fn load_dropped_file(&mut self, _path: &str) -> Option<bool> { None }
 
     /// Processing latency the plugin reports, in frames (0 when it reports none).
     fn latency(&self) -> u32 {

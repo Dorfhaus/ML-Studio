@@ -701,7 +701,7 @@ pub fn press(app: &mut App, button: usize) -> bool {
         return false;
     }
     if !app.top_hit(app.mouse.0, app.mouse.1).is_some_and(|h| {
-        matches!(
+        crate::app::inline_audio_surface(&h.action) || matches!(
             h.action,
             Action::PianoGrid
                 | Action::PianoNote(_)

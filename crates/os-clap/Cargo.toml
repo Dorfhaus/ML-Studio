@@ -12,6 +12,9 @@ os-engine.workspace = true
 os-host.workspace = true
 
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSView", "NSWindow"] }
+
 [dev-dependencies]
 os-model.workspace = true
 # The built-in EQ, linked (no exported entry points), for the parameter tests.

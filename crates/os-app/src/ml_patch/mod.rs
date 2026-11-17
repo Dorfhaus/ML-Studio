@@ -778,14 +778,10 @@ pub fn tick(app: &mut App) {
             if let Some(l) = &mut e.link {
                 e.window.set_page(l.page());
                 e.window.set_hint(l.hint());
-                if let Some(min) = l.resizable() {
-                    resizable = Some((min.0 as f32, min.1 as f32));
-                    if let Some(s) = l.size() {
-                        size = Some((
-                            (s.0 as f32 * e.window.scale()) as u32,
-                            (s.1 as f32 * e.window.scale()) as u32,
-                        ));
-                    }
+                resizable = l.resizable().map(|(w, h)| (w as f32, h as f32));
+                if let Some((w, h)) = l.size() {
+                    let k = e.window.scale();
+                    size = Some(((w as f32 * k).round() as u32, (h as f32 * k).round() as u32));
                 }
             }
             e.window.set_resizable(resizable);

@@ -73,6 +73,7 @@ pub struct Form {
     pub selection: Vec<f64>,
     selection_start: f64,
     selection_base: Vec<f64>,
+    keep_outside: bool,
     pub amplitude: f32,
     pub wave: Cell<Rect>,
     pub snap: bool,
@@ -183,7 +184,7 @@ impl Form {
         };
         let lo = beat.min(self.selection_start) - tolerance;
         let hi = beat.max(self.selection_start) + tolerance;
-        self.selection = self.selection_base.clone();
+        let mut hits = Vec::new();
         for src in self
             .transients
             .iter()
@@ -191,12 +192,13 @@ impl Form {
             .chain(self.edit.points.iter().map(|p| p.0))
         {
             let dst = interpolate(&self.edit.points, src, false);
-            if dst >= lo && dst <= hi && !self.selection.contains(&src) {
-                self.selection.push(src);
+            if dst >= lo && dst <= hi {
+                hits.push(src);
             }
         }
+        self.selection = crate::playlist_tools::selection_hits(&self.selection_base, &hits, self.keep_outside);
         self.message = format!(
-            "{} points selected  -  Quantize applies only to these points. Shift-drag adds more.",
+            "{} points selected  -  Quantize applies only to these points. Shift-drag toggles more.",
             self.selection.len()
         );
     }
@@ -389,6 +391,7 @@ fn prepare(
         selection: vec![],
         selection_start: 0.,
         selection_base: vec![],
+        keep_outside: false,
         amplitude: 1.,
         wave: Cell::new(Rect::new(0., 0., 1., 1.)),
         snap: true,
@@ -493,7 +496,8 @@ fn run(app: &mut App, c: Command, _confirmed: bool) {
     if f.pending.is_some() {
         return;
     }
-    if matches!(
+    let c = if app.ctrl && matches!(c,Command::Marker(_)) { Command::Source } else { c };
+    if !(matches!(c, Command::Source) && (app.ctrl || f.select_mode)) && matches!(
         c,
         Command::Source | Command::Marker(_) | Command::Delete | Command::Reset | Command::Quantize
     ) {
@@ -505,7 +509,7 @@ fn run(app: &mut App, c: Command, _confirmed: bool) {
             f.select_mode = !f.select_mode;
             f.selection.clear();
             f.selected = None;
-            f.message = if f.select_mode {"Drag across points to select; Shift-drag adds. Then Quantize."} else {"Click to add a marker; drag its line. Ctrl+wheel zooms time; Alt+wheel enlarges waveform."}.into();
+            f.message = if f.select_mode {"Drag across points to select; Shift-drag toggles. Then Quantize."} else {"Click to add a marker; drag its line. Ctrl+wheel zooms time; Alt+wheel enlarges waveform."}.into();
         }
         Command::Grid => f.grid = (f.grid + 1) % GRIDS.len(),
         Command::Strength => f.strength = (f.strength + 1) % 5,
@@ -601,10 +605,11 @@ fn run(app: &mut App, c: Command, _confirmed: bool) {
             f.message = format!("{count} points quantized. Updates automatically; Undo to compare.");
         }
         Command::Source => {
-            if f.select_mode {
+            if f.select_mode || app.ctrl {
                 let r = f.wave.get();
                 f.selection_start = ((x - r.x) / r.w).clamp(0., 1.) as f64 * f.end();
-                f.selection_base = if app.shift {
+                f.keep_outside = app.shift;
+                f.selection_base = if app.shift || app.ctrl {
                     f.selection.clone()
                 } else {
                     vec![]
@@ -712,7 +717,7 @@ pub fn drag_selection(app: &mut App, x: f32) {
         app.invalidate();
     }
 }
-pub fn wheel(app: &mut App, dx: f32, dy: f32, ctrl: bool) -> bool {
+pub fn wheel(app: &mut App, dx: f32, dy: f32, _ctrl: bool) -> bool {
     if !crate::workspace_visibility::shown("visible_playlist-warp") {
         return false;
     }
@@ -732,18 +737,14 @@ pub fn wheel(app: &mut App, dx: f32, dy: f32, ctrl: bool) -> bool {
     let Some(f) = app.state.playlist.warp.as_mut() else {
         return false;
     };
-    if !f.wave.get().contains(app.mouse.0, app.mouse.1) || (!ctrl && !app.alt) {
+    if !f.wave.get().contains(app.mouse.0, app.mouse.1) || !app.alt {
         return false;
     }
     if app.drag.is_some() {
         return true;
     }
     let factor = 1.18f32.powf((dx + dy).clamp(-12., 12.));
-    if app.alt {
-        f.amplitude = (f.amplitude * factor).clamp(0.25, 16.);
-    } else {
-        crate::vocal::navigation::zoom_x(app, factor, app.mouse.0);
-    }
+    f.amplitude = (f.amplitude * factor).clamp(0.25, 16.);
     app.invalidate();
     true
 }
@@ -859,6 +860,18 @@ pub fn key_input(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: boo
         || app.state.playlist.popup.is_some()
     {
         return false;
+    }
+    if ctrl && matches!(app.top_hit(app.mouse.0,app.mouse.1).map(|h| &h.action),Some(Action::Warp(_))) && let Key::Character(c) = key && (c.eq_ignore_ascii_case("a") || c.eq_ignore_ascii_case("d")) {
+        let f = app.state.playlist.warp.as_mut().unwrap();
+        f.selection.clear();
+        if c.eq_ignore_ascii_case("a") {
+            f.selection.extend(f.transients.iter().copied().chain(f.edit.points.iter().map(|p|p.0)));
+            f.selection.sort_by(f64::total_cmp);
+            f.selection.dedup();
+        }
+        f.selected = None;
+        app.invalidate();
+        return true;
     }
     let action = match key {
         Key::Named(NamedKey::Escape) => {if cancel_drag(app){return true;}Some(Command::Close)},
@@ -1104,7 +1117,7 @@ fn inline_editor(ui: &mut Ui, s: &State, g: &pl::PGeom, area: Rect, f: &Form) {
     ui.hit(
         visible,
         Action::Warp(Command::Source),
-        if f.select_mode {"Drag to select points; Shift-drag adds. Ctrl+wheel: time zoom; Alt+wheel: waveform zoom"} else {"Click to add a marker; drag its line. Ctrl+wheel: time zoom; Alt+wheel: waveform zoom"},
+        if f.select_mode {"Drag to select points; Shift-drag toggles. Ctrl+wheel: time zoom; Alt+wheel: waveform zoom"} else {"Click to add a marker; drag its line. Ctrl+wheel: time zoom; Alt+wheel: waveform zoom"},
     );
     ui.c.push_clip(visible);
     ui.c.line(
@@ -1432,6 +1445,15 @@ mod tests {
             app.paint(&mut canvas, Some(damage));
             let clip_count = pl::clips(&app.state).len();
             app.mouse_move(press_x, press_y);
+            let marker = points[index].0;
+            app.state.playlist.warp.as_mut().unwrap().selection = vec![points[0].0, marker];
+            app.ctrl=true; app.shift=true;
+            app.mouse_down(); app.mouse_up();
+            app.ctrl=false; app.shift=false;
+            let form=app.state.playlist.warp.as_ref().unwrap();
+            assert!(form.selection.contains(&points[0].0));
+            assert!(!form.selection.contains(&marker));
+            assert_eq!(form.edit.points,points);
             assert_eq!(
                 app.top_hit(press_x, press_y).map(|hit| &hit.action),
                 Some(&Action::Warp(Command::Marker(index))),
@@ -1483,7 +1505,7 @@ mod tests {
             assert!(app.state.playlist.warp.as_ref().unwrap().amplitude > 1.);
             app.alt = false;
             let old_zoom = app.state.playlist_bar_w;
-            assert!(wheel(&mut app, 0., 1., true));
+            app.wheel(0., 1., false, true);
             assert!(app.state.playlist_bar_w > old_zoom);
             if let Some(dir) = std::env::var_os("OS_SHOT_DIR") {
                 canvas

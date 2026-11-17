@@ -79,7 +79,7 @@ unsafe extern "C" {
     fn lm_au_release_data(data: *mut c_void);
     fn lm_au_load(instance: *mut c_void, bytes: *const u8, length: usize) -> bool;
     fn lm_au_has_editor(instance: *mut c_void) -> bool;
-    fn lm_au_open_editor(instance: *mut c_void, parent: *mut c_void, width: *mut u32, height: *mut u32) -> bool;
+    fn lm_au_open_editor(instance: *mut c_void, parent: *mut c_void, scale: f32, width: *mut u32, height: *mut u32) -> bool;
     fn lm_au_editor_size(instance: *mut c_void, width: *mut u32, height: *mut u32) -> bool;
     fn lm_au_close_editor(instance: *mut c_void);
 }
@@ -370,9 +370,9 @@ impl Plugin for Unit {
     fn set_offline(&mut self, offline: bool) { unsafe { lm_au_offline(self.ptr(), u32::from(offline)) }; }
     fn has_editor(&self) -> bool { unsafe { lm_au_has_editor(self.ptr()) } }
     fn editor_open(&self) -> bool { self.editor }
-    fn open_editor(&mut self, parent: *mut c_void, _scale: f32) -> Result<(u32, u32), String> {
+    fn open_editor(&mut self, parent: *mut c_void, scale: f32) -> Result<(u32, u32), String> {
         let (mut width, mut height) = (0, 0);
-        self.editor = unsafe { lm_au_open_editor(self.ptr(), parent, &mut width, &mut height) };
+        self.editor = unsafe { lm_au_open_editor(self.ptr(), parent, scale, &mut width, &mut height) };
         if self.editor { Ok((width, height)) } else { Err("This Audio Unit could not open a Cocoa editor".into()) }
     }
     fn editor_size(&self) -> Option<(u32, u32)> {

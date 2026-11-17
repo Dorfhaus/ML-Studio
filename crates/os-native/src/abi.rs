@@ -44,6 +44,7 @@ pub mod dispatch {
     pub const SET_SAMPLE_RATE: IntPtr = 4;
     pub const SET_ENABLED: IntPtr = 11;
     pub const SET_PLAYING: IntPtr = 12;
+    pub const LOAD_FILE: IntPtr = 18;
     pub const SET_SAMPLES_PER_TICK: IntPtr = 20;
     pub const GET_PARAM_INFO: IntPtr = 26;
     use super::IntPtr;

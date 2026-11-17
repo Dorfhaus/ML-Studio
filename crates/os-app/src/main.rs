@@ -47,6 +47,8 @@ mod audio_bench;
 #[cfg(test)]
 mod open_bench;
 mod browser;
+#[cfg(any(windows, target_os = "macos"))]
+mod sample_drag;
 mod browser_files;
 mod browser_preview;
 mod plugin_downloads;
@@ -718,6 +720,8 @@ impl Shell {
     }
 
     fn step(&mut self, el: &ActiveEventLoop, held: bool) {
+        #[cfg(target_os = "macos")]
+        sample_drag::finish(&mut self.app);
         if self.app.state.native_view.is_none() {self.main_mouse=self.app.mouse;}
         self.detached.sync(&mut self.app,el,&mut self.tool_cursors);
         let current=screens(el);
@@ -1029,6 +1033,16 @@ impl ApplicationHandler for Shell {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        #[cfg(any(windows, target_os = "macos"))]
+        if matches!(event, WindowEvent::CursorMoved { .. }) && self.app.dragging_browser_samples() {
+            let source = if self.app.state.native_input == Some(app::Win::Browser) {
+                self.detached.browser_window()
+            } else { self.window.as_deref() };
+            if source.is_some_and(|window| sample_drag::handoff(&mut self.app, window)) {
+                self.pending = true;
+                return;
+            }
+        }
         if matches!(event, WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. })
             && self.app.state.native_input == Some(app::Win::Browser)
             && self.app.dragging_browser_samples()

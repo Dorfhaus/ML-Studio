@@ -464,7 +464,6 @@ void Instance::syncParams(bool notifyState) {
 // ---------------------------------------------------------------- editor size
 
 void Instance::preferredViewSize(int& w, int& h) const {
-  if (viewW_ > 0 && viewH_ > 0) { w = viewW_; h = viewH_; return; }
   if (!info_) {
     w = kDefaultViewW;
     h = kDefaultViewH;
@@ -472,9 +471,12 @@ void Instance::preferredViewSize(int& w, int& h) const {
   }
   int cw = editorW_, ch = editorH_;
   if (cw <= 0 || ch <= 0) {  // not drawn yet: the editor's width and a typical height
+    if (viewW_ > 0 && viewH_ > 0) { w = viewW_; h = viewH_; return; }
     cw = static_cast<int>(editorWidthOf(*info_)) + 16;
     ch = variant_ == Variant::Instrument ? 520 : 420;
   }
+  // A saved viewport can have the old page's proportions (including the
+  // provisional opening height). Preserve the zoom against the measured UI.
   w = static_cast<int>(std::lround(cw * zoom_));
   h = static_cast<int>(std::lround(ch * zoom_));
 }

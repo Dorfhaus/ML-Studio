@@ -37,6 +37,8 @@ use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
 use super::*;
+mod file_drop;
+pub(crate) use file_drop::begin as drop_browser_files;
 
 x11rb::atom_manager! {
     Atoms: AtomsCookie {
@@ -1045,7 +1047,9 @@ fn window_of(e: &Event) -> Option<xproto::Window> {
 /// UI tick: handles the frames' window events (input, close, expose) and follows the active window.
 pub fn pump() {
     let Some(conn) = CONN.with(|c| c.borrow().clone()) else { return };
+    file_drop::tick(&conn.c, None);
     while let Ok(Some(e)) = conn.c.poll_for_event() {
+        file_drop::tick(&conn.c, Some(&e));
         if let Event::PropertyNotify(p) = &e {
             if p.window == conn.root && p.atom == conn.atoms._NET_ACTIVE_WINDOW {
                 let active = conn.c.get_property(false, conn.root, conn.atoms._NET_ACTIVE_WINDOW, AtomEnum::WINDOW, 0, 1);

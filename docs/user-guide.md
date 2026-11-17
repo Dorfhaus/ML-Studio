@@ -445,7 +445,7 @@ Related: Fit a loop or use its detected tempo | Align multiple performances | Tu
 Guide: warp
 1. Click the timing-pin button on the Playlist track, or open Edit audio timing from an audio clip's menu. The editor detects transients in the clip.
 2. Click a detected line to create a timing marker. Drag anywhere along a movable marker line to adjust timing. Use Snap to follow the selected grid.
-3. Choose Select and drag across several points. Shift-drag adds more. Use Quantize to move the selection toward the grid, and choose Grid and Strength before quantizing.
+3. Choose Select and drag across several points. Ctrl-drag also selects with the editing tool active. Ctrl+Shift-click or drag toggles points while preserving the selection outside the touched area. Use Quantize to move the selection toward the grid, and choose Grid and Strength before quantizing.
 4. Use Sensitivity to control transient detection. Click the value to choose 0–100%, or wheel over it for 1% adjustments. Higher values detect quieter attacks; 50% keeps the original detection threshold. Changes filter the detected markers immediately after analysis and are remembered per profile. They do not move or remove timing anchors already edited. Use Detect transients to rerun analysis, then Quantize when ready. Settings > Visibility > Playlist can hide the sensitivity control without changing its value.
 5. Use Ctrl + wheel to zoom time, Alt + wheel to scale the waveform display, and Fit to see the whole clip. Changes render automatically after you release a drag or finish a command. Close keeps completed edits; Escape during a drag cancels that gesture. Updating means the last successful audio is still playing until the new render is ready.
 
@@ -1857,6 +1857,9 @@ Under **View**, turn off **Show step grid** for a compact Channel Rack. The layo
 Right-click a channel name to open Piano Roll, change or insert an instrument, open the graph editor, load a sample, change sample tempo or stretch, set Cut itself, edit pattern steps, consolidate, rename, clone or delete. Fill each 2, 4 or 8 steps gives an even pattern. Advanced fill and step rotation modify the current pattern.
 Right-click the Mixer number for destination and selected routing options. Right-click a knob for its value and automation options. Use the LED context for channel mute and solo. Rack View controls the Mixer number display, zipped rows, name alignment, button width and automatic height.
 Related: Select and edit several channels | Route selected channels to the Mixer | Program steps and patterns
+
+### Selecting notes and clips with the mouse
+Hold Ctrl (Command on macOS) to select with an editing tool. Ctrl+Shift-click a selected note, clip or timing point to remove it while keeping the rest. Drag a rectangle to toggle everything it touches against the selection you started with. Moving the rectangle back restores items that leave it. In vocal tuning and audio timing, Ctrl/Cmd+wheel zooms time at the pointer, Shift+wheel scrolls through time, and middle-drag pans the Playlist. Alt+wheel zooms pitch or waveform amplitude.
 
 ### Mixer and effect slot menus
 Keywords: mixer options track insert slot FX presets spare state scaling PDC dock to routing layout inspector delete remove all tracks Master only
@@ -5291,10 +5294,10 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 Keywords: view - control hints 1 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
-- Drag to scroll pitch; wheel over notes to scroll, Ctrl+Shift+wheel to zoom pitch
+- Drag to scroll pitch; wheel to scroll the Playlist, Ctrl+Shift+wheel to zoom pitch
 - Vocal editor
 - Drag value up/down; Alt for fine changes, Alt-click resets
-- Wheel: pitch scroll · Shift: time scroll · Ctrl: time zoom · Ctrl+Shift: pitch zoom · drag empty space to select
+- Wheel: Playlist scroll · Shift: time scroll · Ctrl: time zoom · Ctrl+Shift: pitch zoom · drag empty space to select
 - Drag empty space to select; choose Draw to paint pitch
 - Drag pitch scrollbar
 - Drag time navigator; the Playlist timeline stays aligned

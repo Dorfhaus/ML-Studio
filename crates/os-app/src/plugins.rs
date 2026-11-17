@@ -1016,6 +1016,12 @@ impl Plugins {
         p.load_state(&new)
     }
 
+    pub(crate) fn channel_file_drop(&mut self, row: usize, path: &str) -> Option<bool> {
+        let reply = self.hosted.get(&row)?.plugin.lock().ok()?.load_dropped_file(path);
+        if reply == Some(true) { self.mark_edited(row); }
+        reply
+    }
+
     /// The hosted row whose plugin window is at screen point (x, y).
     #[cfg(windows)]
     pub fn row_at_screen(&self, x: i32, y: i32) -> Option<usize> {
@@ -1038,6 +1044,7 @@ impl Plugins {
     /// through their state. Returns whether the plugin got the file.
     #[cfg(windows)]
     pub fn drop_file(&mut self, row: usize, x: i32, y: i32, path: &str, sampler: bool) -> bool {
+        if let Some(accepted) = self.channel_file_drop(row, path) { return accepted; }
         if self.load_chop_sample(row, path) { return true; }
         if self.hosted.get(&row).and_then(|h| h.window.as_ref()).is_some_and(|f| post_drop(x, y, path, f.hwnd())) {
             return true;
@@ -1060,13 +1067,14 @@ impl Plugins {
     }
 
     pub(crate) fn browser_sample_to_plugin(&mut self,row:usize,path:&str)->bool {
+        if let Some(accepted) = self.channel_file_drop(row, path) { return accepted; }
         if self.load_chop_sample(row,path) {return true;}
         #[cfg(windows)]
         if let Some((hwnd,_))=self.window_of(row) {
             use windows_sys::Win32::{Foundation::RECT,UI::WindowsAndMessaging::GetWindowRect};
             let mut r:RECT=unsafe {std::mem::zeroed()};
             if unsafe {GetWindowRect(hwnd as _,&mut r)}!=0 {
-                return self.drop_file(row,(r.left+r.right)/2,(r.top+r.bottom)/2,path,false);
+                return post_drop((r.left+r.right)/2,(r.top+r.bottom)/2,path,hwnd);
             }
         }
         false
@@ -1154,6 +1162,11 @@ impl Plugins {
     /// Opens (or raises) row `row`'s plugin window.
     #[cfg(plugin_windows)]
     pub fn open_window(&mut self, row: usize, info: ChannelInfo) -> Result<(), String> {
+        self.open_window_with_visibility(row, info, true)
+    }
+
+    #[cfg(plugin_windows)]
+    fn open_window_with_visibility(&mut self, row: usize, info: ChannelInfo, show: bool) -> Result<(), String> {
         #[cfg(any(windows,target_os="macos"))] self.close_rack(row);
         let (owner, scale) = (self.owner, self.scale);
         let h = self.hosted.get(&row).ok_or("not a plugin channel")?;
@@ -1162,7 +1175,7 @@ impl Plugins {
             return editor_action(&h.plugin, os_host::EditorAction::Open { parent: std::ptr::null_mut(), scale }).map(|_| ());
         }
         if let Some(w) = &h.window {
-            w.raise();
+            if show { w.raise(); }
             return Ok(());
         }
         // At most `MAX_EDITORS` open: the one opened earliest closes (its plugin keeps running). Spec:
@@ -1215,7 +1228,7 @@ impl Plugins {
         if h.name=="ML Wave" {w.enable_wave_zoom();}
         // On top: the app stacks it above its other windows (`State::raise`), and a new child window starts below
         // the open ones.
-        w.raise();
+        if show { w.raise(); }
         h.window = Some(w);
         self.opens += 1;
         h.opened = self.opens;
@@ -1465,7 +1478,7 @@ impl Plugins {
                 #[cfg(plugin_windows)]
                 if let (Some(w), true, Some((ew, eh))) = (
                     &h.window,
-                    h.link.as_ref().is_none_or(|link| link.resizable().is_none()),
+                    h.link.is_none(),
                     p.editor_size(),
                 ) {
                     let k = w.scale();
@@ -1492,12 +1505,11 @@ impl Plugins {
                 if let Some(l) = &mut h.link {
                     w.set_page(l.page());
                     w.set_hint(l.hint());
-                    if let Some((mw, mh)) = l.resizable() {
-                        if let Some((lw, lh)) = l.size() {
-                            w.set_editor_size((lw as f32, lh as f32));
-                        }
-                        w.set_resizable(Some((mw as f32, mh as f32)));
+                    // Joined editors expose their content size without the tabs in the host strip.
+                    if let Some((lw, lh)) = l.size() {
+                        w.set_editor_size((lw as f32, lh as f32));
                     }
+                    w.set_resizable(l.resizable().map(|(mw, mh)| (mw as f32, mh as f32)));
                 }
                 let wave=h.name=="ML Wave";
                 for e in w.take_events() {
@@ -3699,6 +3711,41 @@ mod tests {
         i.choke(0, 60);
         let after: Vec<f32> = (0..10).map(|_| block(&mut *i)).collect();
         assert!(after[3..].iter().all(|&p| p < 1e-4), "choked: {after:?}");
+    }
+
+    /// Check native file-drop registration in an installed editor on an isolated
+    /// test desktop. Does not drive the mouse or require the user's project.
+    #[test]
+    #[ignore]
+    fn installed_vst3_registers_file_drop_target() {
+        use windows_sys::Win32::{Foundation::HWND, UI::WindowsAndMessaging::{EnumChildWindows, GetPropW}};
+        // Winit initializes OLE on the GUI thread in the normal application.
+        use windows_sys::Win32::System::Ole::{OleInitialize, OleUninitialize};
+        assert!(unsafe { OleInitialize(std::ptr::null()) } >= 0);
+        struct Ole;
+        impl Drop for Ole { fn drop(&mut self) { unsafe { OleUninitialize() } } }
+        let _ole = Ole;
+        let path = std::env::var_os("ML_TEST_DROP_VST3").unwrap();
+        let lib = load_file(Path::new(&path), os_host::Format::Vst3).unwrap();
+        let desc = lib.plugins().iter().find(|d| d.is_instrument()).unwrap().clone();
+        let info = ChannelInfo { name: desc.name.clone(), target: "Insert 1".into(), enabled: true, volume: 0.78, pan: 0.0, pitch_cents: 0, range: 2, track: 1, max_track: 125, sidechain: None, misc: None };
+        let mut pl = Plugins { available: vec![Available { lib, desc }], scale: 1.0, rate: 48000, ..Plugins::default() };
+        pl.create(0, 0).unwrap();
+        pl.open_window_with_visibility(0, info, false).unwrap();
+        pump(&mut pl, 250);
+        unsafe extern "system" fn child(hwnd: HWND, data: isize) -> i32 {
+            // Read registration only. The product always delegates delivery to Windows.
+            let key: Vec<_> = "OleDropTargetInterface".encode_utf16().chain([0]).collect();
+            if unsafe { !GetPropW(hwnd, key.as_ptr()).is_null() } {
+                unsafe { *(data as *mut bool) = true; }
+                return 0;
+            }
+            1
+        }
+        let mut found = false;
+        let area = pl.hosted[&0].window.as_ref().unwrap().area();
+        unsafe { EnumChildWindows(area, Some(child), (&mut found as *mut bool) as isize); }
+        assert!(found, "plugin editor did not register an OLE drop target");
     }
 
     /// A file dropped on an open Lemon Sampler window (what a browser drag released over it does) reaches its editor

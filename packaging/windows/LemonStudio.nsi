@@ -87,7 +87,7 @@ Section "ML Studio"
   CreateDirectory "${STARTMENU}"
   CreateShortcut "${STARTMENU}\ML Studio.lnk" "$INSTDIR\lemonstudio.exe"
   WriteRegStr HKCU "${REGKEY}" "DisplayName" "ML Studio - Michael Lane Edition"
-  WriteRegStr HKCU "${REGKEY}" "DisplayVersion" "2026.11.17.2"
+  WriteRegStr HKCU "${REGKEY}" "DisplayVersion" "2026.11.17.3"
   WriteRegStr HKCU "${REGKEY}" "Publisher" "Michael Lane"
   WriteRegStr HKCU "${REGKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${REGKEY}" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'

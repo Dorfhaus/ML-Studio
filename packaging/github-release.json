@@ -1,42 +1,42 @@
 {
-  "tag": "v2026.11.17.2",
-  "title": "ML Studio 2026.11.17.2",
-  "notes": "- The 15 new stock effects now appear in their factory categories. On upgrade, untouched stock links move out of Unsorted. Custom folders, renamed links and removed entries are preserved.\n- ML Mix Template is the new name of the factory starter in File > New, startup and the template picker. Existing factory selections switch over automatically, and edited templates keep their settings.\n- Added an offline ADAM Audio H200 headphone correction profile by oratory1990 via OPRA. Search H200 from the Master headphone icon. Correction affects monitoring only.\n- Updated the User Guide and cleaned up ML Studio branding across the app documents and packages. Installers use ML Mix Template and ML Studio Source filenames where included. Existing signed updaters remain compatible.\n\nhttps://michaellanemusic.de/ml-studio/",
+  "tag": "v2026.11.17.3",
+  "title": "ML Studio 2026.11.17.3",
+  "notes": "- Piano Roll and Playlist selection now support Ctrl+Shift click and drag to toggle selected notes or clips while preserving the rest of the selection.\n- Vocal Tuning and Audio Timing share Playlist scrolling, time zoom, middle-drag panning and Ctrl+right-drag region zoom. Inline selection and custom mouse controls work consistently.\n- Added Behringer HPM1000 to the Master headphone referencer with a bundled offline listening preset.\n- Improved Mac plugin editor sizing for Audio Units, Retina CLAP editors and joined stock editors, including Plasma.\n- Browser samples can be dragged into supported third-party plugin editors on Windows and Mac. Fixed FL native slicer runtime discovery and the MIDI key used to trigger imported slices.\n\nhttps://michaellanemusic.de/ml-studio/",
   "assets": [
     {
-      "name": "ML-Studio-Windows-Setup-2026.11.17.2.exe",
-      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111702/ML-Studio-Windows-Setup-2026.11.17.2.exe",
-      "sha256": "b36c8b855802675353580af95036e4665e3393ae51f464ba76dd858f93ad4f70"
+      "name": "ML-Studio-Windows-Setup-2026.11.17.3.exe",
+      "url": "https://michaellanemusic.de/lemon-studio/downloads/2026111703/ML-Studio-Windows-Setup-2026.11.17.3.exe",
+      "sha256": "58f5b7962ae893d5fbd7cb2897868c10f3697e6bff16dbf86b17b02c6494f4d2"
     },
     {
-      "name": "ML-Studio-Source-2026111702.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111702/ML%20Studio%20Source.zip",
-      "sha256": "bbad3fc52c8e095a38813a6beec8a0971e827b5a3f2be6a007da268f2aa1c3ca"
+      "name": "ML-Studio-Source-2026111703.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/updates/2026111703/ML%20Studio%20Source.zip",
+      "sha256": "7a3695bd250078b23863b2b4e83320b3c0f094bcaf148334210f2e47b849fc20"
     },
     {
-      "name": "ML-Studio-Linux-x86_64-2026111702.tar.gz",
-      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111702/ML-Studio-Linux-x86_64-2026111702.tar.gz",
-      "sha256": "5743cbf1f7edb1870d79c3f1d9e783f431678cf702057f2bf7dd492b3b62864c"
+      "name": "ML-Studio-Linux-x86_64-2026111703.tar.gz",
+      "url": "https://michaellanemusic.de/lemon-studio/linux/2026111703/ML-Studio-Linux-x86_64-2026111703.tar.gz",
+      "sha256": "b415e97e62bdf057744a6853ab0cd1ca1cb3b9946df903936875a489d6c21d39"
     },
     {
-      "name": "ML-Studio-Mac-arm64-2026111702.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111702/ML-Studio-Mac-arm64-2026111702.dmg",
-      "sha256": "250517427970535a65f8d1fd8ec16faec74ec5982c76b4a8a94e547c585329c3"
+      "name": "ML-Studio-Mac-arm64-2026111703.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111703/ML-Studio-Mac-arm64-2026111703.dmg",
+      "sha256": "a187d0c7a0bebaabdb608c6d0483cc5c5448b2c6d56a798fde9c03784c57019d"
     },
     {
-      "name": "ML-Studio-Source-Mac-arm64-2026111702.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111702/ML-Studio-Source-Mac-arm64-2026111702.zip",
-      "sha256": "f7c1553996e44d3bf8d0d92796ab01092cd7c19d2409faf99d58d5b07c183556"
+      "name": "ML-Studio-Source-Mac-arm64-2026111703.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111703/ML-Studio-Source-Mac-arm64-2026111703.zip",
+      "sha256": "36610580237ec3d2a9b291b6b459756bac84a613a4b253b2c0d89d9715134ade"
     },
     {
-      "name": "ML-Studio-Mac-x86_64-2026111702.dmg",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111702/ML-Studio-Mac-x86_64-2026111702.dmg",
-      "sha256": "b0683a6bf4dd1332df18a171fecba4bd59120fa4efefd5d21551ef1acd869858"
+      "name": "ML-Studio-Mac-x86_64-2026111703.dmg",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111703/ML-Studio-Mac-x86_64-2026111703.dmg",
+      "sha256": "a7e601aa875efea5aa421a2b1f6d41ef04610ee6b5faf22f1f1c042dd1414fb1"
     },
     {
-      "name": "ML-Studio-Source-Mac-x86_64-2026111702.zip",
-      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111702/ML-Studio-Source-Mac-x86_64-2026111702.zip",
-      "sha256": "83bd471dbefca8348c2fb4f09e5ebe9b61a52946e5cd9b6671b3350c1373723e"
+      "name": "ML-Studio-Source-Mac-x86_64-2026111703.zip",
+      "url": "https://michaellanemusic.de/lemon-studio/mac/2026111703/ML-Studio-Source-Mac-x86_64-2026111703.zip",
+      "sha256": "9990e6c93d35cb7d7301b54b48878659d4ba7749a7e88944ee3feb5fe9475d01"
     },
     {
       "name": "melli-linux-v4.zip",

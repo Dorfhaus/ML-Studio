@@ -530,6 +530,29 @@ impl App {
                 return;
             }
         }
+        #[cfg(any(windows, target_os = "macos"))]
+        if matches!(&item, Item::Samples(_)) && self.plugin_window_under_cursor().is_some() {
+            self.state.message = Some("Drop one sample at a time on this part of the plugin".into());
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let paths = match &item {
+                Item::Sample(p) => std::slice::from_ref(p),
+                Item::Samples(paths) => paths.as_slice(),
+                _ => &[],
+            };
+            if !paths.is_empty() {
+                let frames: Vec<_> = self.plugins.hosted.iter().filter_map(|(&r,h)| Some((r,h.window.as_ref()?.hwnd() as u32))).collect();
+                if !frames.is_empty() && let Some((row,sent)) = crate::plugin_window::drop_browser_files(&frames,paths) {
+                    if sent { self.state.message = Some("Sent sample selection to the plugin".into()); }
+                    else if paths.len() == 1 { self.file_on_plugin_window(row,paths[0].clone().into()); }
+                    else { self.state.message = Some("This part of the plugin does not accept files".into()); }
+                    self.invalidate();
+                    return;
+                }
+            }
+        }
         if let Some(row)=crate::playlist_tracks::drops::header_at(self) {
             match &item {
                 Item::Sample(path) => { crate::playlist_tracks::drops::sample(self,path.clone(),row);return; }
@@ -1164,7 +1187,7 @@ pub fn row_menu(s: &crate::app::State, row: &view::Row) -> Vec<PItem> {
             for e in &s.plugdb.lists.gens {
                 let name=e.name.to_lowercase();
                 let chop=crate::plugins::canonical_name(&e.name)=="ML Chop";
-                let ext=cfg!(windows) && ["fruity granulizer","fruity slicer","slicex"].iter().any(|n| name==*n);
+                let ext=cfg!(windows) && ["fruity granulizer","fruity slicer","fruity slicer 2","slicex"].iter().any(|n| name==*n);
                 if chop||ext {items.push(PItem::new(format!("Open in new {} channel",e.label),Cmd::Browser(BCmd::Row(RowCmd::Instrument(e.index)))));}
             }
             let mut system=vec![r("Open parent folder",RowCmd::ParentFolder),r("Locate file",RowCmd::ShowInFolder),r("Delete file...",RowCmd::Trash)];

@@ -4,10 +4,16 @@ fn related(app:&App,channel:u16)->Vec<(u16,usize,Note)>{app.state.project.vocal_
 fn strengths(app:&App)->Vec<(u16,f32)>{app.state.project.vocal_edits.iter().filter(|d|pl::clips(&app.state).iter().any(|c|Some(c.track)==app.state.playlist.vocal.row&&c.source==ClipSource::Channel(d.channel))).map(|d|(d.channel,d.strength)).collect()}
 pub fn begin(app:&mut App,clip:usize,note:Option<usize>){
  let tool=app.state.playlist.vocal.tool;
+ if app.ctrl || tool == Tool::Select {
+     let entry = doc_index(&app.state,clip).and_then(|i| note.map(|n|(app.state.project.vocal_edits[i].channel,n)));
+     let before = if app.ctrl || app.shift { app.state.playlist.vocal.selected.clone() } else { Vec::new() };
+     navigation::begin(app,navigation::Kind::Box);
+     if let Some(entry)=entry { app.state.playlist.vocal.selected=if app.shift { crate::playlist_tools::selection_hits(&before,&[entry],true) } else { vec![entry] }; }
+     return;
+ }
  if matches!(tool,Tool::Hand|Tool::Zoom){navigation::begin(app,if tool==Tool::Hand{navigation::Kind::Pan}else{navigation::Kind::Zoom});return;}
  let Some(i)=doc_index(&app.state,clip)else{return};app.state.playlist.vocal.active=Some(app.state.project.vocal_edits[i].channel);let d=app.state.project.vocal_edits[i].clone();
  if let Some(n)=note{if n>=d.notes.len(){return;}let entry=(d.channel,n);
-  if app.ctrl{if let Some(i)=app.state.playlist.vocal.selected.iter().position(|p|*p==entry){app.state.playlist.vocal.selected.remove(i);}else{app.state.playlist.vocal.selected.push(entry);}app.invalidate();return;}
   if app.shift{if !app.state.playlist.vocal.selected.contains(&entry){app.state.playlist.vocal.selected.push(entry);}}else if !app.state.playlist.vocal.selected.contains(&entry){app.state.playlist.vocal.selected=vec![entry];}
   let now=Instant::now();let double=app.state.playlist.vocal.click.is_some_and(|(ch,ni,t,at)|ch==d.channel&&ni==n&&t==tool&&now.duration_since(at).as_millis()<330);
   app.state.playlist.vocal.click=if double{None}else{Some((d.channel,n,tool,now))};

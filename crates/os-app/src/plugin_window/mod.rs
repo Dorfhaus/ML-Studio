@@ -33,6 +33,8 @@ pub use win32::{clicked_strip,chop_placement,prepare_embedded,embedded_exposed,d
 #[cfg(target_os = "linux")]
 mod x11;
 #[cfg(target_os = "linux")]
+pub(crate) use x11::drop_browser_files;
+#[cfg(target_os = "linux")]
 pub use x11::{
     busy, default_position, exposed, focus_main, lift_hide, lift_show, main_focused, paint_dirty, pointer, pointer_in_docked, pump, screen_to_main, stack, take_exposed, take_lift_input, unpinned,
     FrameWindow, Unpinned,

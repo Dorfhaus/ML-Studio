@@ -27,6 +27,7 @@ typedef struct {
     float input[2][BlockFrames];
     float output[2][BlockFrames];
     void *editor;
+    double editorScale;
 } Host;
 
 typedef struct {
@@ -362,13 +363,16 @@ bool lm_au_editor_size(Host *host, uint32_t *width, uint32_t *height) {
     if (!host->editor || !NSThread.isMainThread) return false;
     NSSize size = [(__bridge NSView *)host->editor frame].size;
     if (!isfinite(size.width) || !isfinite(size.height) || size.width < 1 || size.height < 1) return false;
-    *width = (uint32_t)ceil(MIN(size.width, 16384));
-    *height = (uint32_t)ceil(MIN(size.height, 16384));
+    *width = (uint32_t)MAX(1, round(MIN(size.width, 16384) * host->editorScale));
+    *height = (uint32_t)MAX(1, round(MIN(size.height, 16384) * host->editorScale));
     return true;
 }
 
-bool lm_au_open_editor(Host *host, void *parent, uint32_t *width, uint32_t *height) {
+bool lm_au_open_editor(Host *host, void *parent, float scale, uint32_t *width, uint32_t *height) {
     if (!parent || !NSThread.isMainThread) return false;
+    // AppKit measures in fractional points. The host expects device pixels,
+    // including when its requested scale differs from the main display.
+    host->editorScale = isfinite(scale) && scale > 0 ? scale : 1;
     @autoreleasepool {
         if (host->editor) return lm_au_editor_size(host, width, height);
         UInt32 size = 0;

@@ -692,6 +692,12 @@ pub struct Hit {
     pub reveal: Option<usize>,
 }
 
+pub(crate) fn inline_audio_surface(action: &Action) -> bool {
+    use crate::{vocal::Command as Vocal, warp::Command as Timing};
+    matches!(action, Action::Warp(Timing::Source | Timing::Marker(_)) |
+        Action::Vocal(Vocal::Surface | Vocal::Grid(_) | Vocal::Note(..) | Vocal::Boundary(..)))
+}
+
 fn effect_slot(action: &Action) -> Option<u8> {
     use crate::mixer::MHit;
     match *action {
@@ -1036,7 +1042,7 @@ pub enum Drag {
     /// Paint tool: notes back to back on `key` from `start`, `len` apart (§9).
     NotePaint { key: i32, start: u32, len: u32 },
     /// Select tool marquee from (x0, y0); `base` = selection kept (Ctrl adds).
-    Marquee { x0: f32, y0: f32, base: Option<Vec<usize>> },
+    Marquee { x0: f32, y0: f32, base: Vec<usize>, keep_outside: bool },
     PianoPitchRange { anchor: i32 },
     /// Slice tool line, Zoom tool box, Playback scrub.
     Slice,
@@ -5410,7 +5416,14 @@ impl App {
     /// sample(s)" (`history::load_sample`).
     pub(crate) fn sample_to_rack(&mut self, path: String, y: f32) {
         let s = &self.state;
-        let row = views::rack::row_at(s, y).filter(|&r| s.project.channels[r].kind.is_sampler());
+        let hit = views::rack::row_at(s, y);
+        if let Some(row) = hit.filter(|&r| !s.project.channels[r].kind.is_sampler()) {
+            if let Some(accepted) = self.plugins.channel_file_drop(row, &crate::plugins::resolve_sample(&path)) {
+                self.sample_taken(row, &path, false, accepted);
+                return;
+            }
+        }
+        let row = hit.filter(|&r| self.state.project.channels[r].kind.is_sampler());
         self.sample_to_channel(path, row);
     }
 
@@ -5504,7 +5517,7 @@ impl App {
         let Some((x, y)) = Self::pointer_on_screen() else { return false };
         let Some(row) = self.plugins.row_at_screen(x, y) else { return false };
         let sampler = self.state.project.channels.get(row).is_some_and(|c| c.kind.is_sampler());
-        let taken = self.plugins.drop_file(row, x, y, path, sampler);
+        let taken = self.plugins.drop_file(row, x, y, &crate::plugins::resolve_sample(path), sampler);
         self.sample_taken(row, path, sampler, taken);
         true
     }
@@ -5541,7 +5554,15 @@ impl App {
         }
         let sampler = self.state.project.channels.get(row).is_some_and(|c| c.kind.is_sampler());
         let p = path.to_string_lossy().into_owned();
-        let taken = self.plugins.load_chop_sample(row, &p) || (sampler && self.plugins.load_sample(row, &p));
+        #[cfg(windows)]
+        if let Some((x, y)) = Self::pointer_on_screen()
+            && self.plugins.row_at_screen(x, y) == Some(row)
+        {
+            let taken = self.plugins.drop_file(row, x, y, &p, sampler);
+            return self.sample_taken(row, &p, sampler, taken);
+        }
+        let taken = self.plugins.channel_file_drop(row, &p).unwrap_or_else(||
+            self.plugins.load_chop_sample(row, &p) || (sampler && self.plugins.load_sample(row, &p)));
         self.sample_taken(row, &p, sampler, taken);
     }
 
@@ -6615,18 +6636,15 @@ impl App {
                 }
                 Drag::NoteMute { on } => self.mute_at(x, y, on),
                 Drag::NotePaint { key, start, len } => self.paint_notes(key, start, len),
-                Drag::Marquee { x0, y0, base } => {
-                    let pad = if base.is_none() { 1. } else { 0. };
+                Drag::Marquee { x0, y0, base, keep_outside } => {
+                    if (x-x0).hypot(y-y0) < 3. && self.state.piano.overlay.is_none() { return true; }
+                    let pad = 1.;
                     let r = Rect::span(x0.min(x), x0.max(x) + pad, y0.min(y), y0.max(y) + pad);
                     self.state.piano.overlay = Some(Overlay::Marquee(r));
                     if let Some(g) = self.piano_geom() {
                         let s = &mut self.state;
-                        let mut sel = piano::notes_in(s, &g, r);
-                        if let Some(mut base) = base {
-                            sel.retain(|i| !base.contains(i));
-                            base.extend(sel);
-                            sel = base;
-                        }
+                        let hits = piano::notes_in(s, &g, r);
+                        let sel = crate::playlist_tools::selection_hits(&base, &hits, keep_outside);
                         if let Some(ch) = piano::channel(s) {
                             s.piano.select(s.pattern, ch, sel);
                         }
@@ -7947,6 +7965,7 @@ impl App {
             return;
         }
         let targets: &[Scroll] = match action {
+            Some(ref a) if inline_audio_surface(a) => &[Scroll::PlaylistX, Scroll::PlaylistY],
             Some(Action::PianoGrid | Action::PianoNote(_)) => &[Scroll::PianoX, Scroll::PianoY],
             Some(Action::PianoKeys) => &[Scroll::PianoY],
             Some(Action::PianoVelocity) => &[Scroll::PianoX],
@@ -7971,6 +7990,10 @@ impl App {
         self.smooth.stop();
         let (x, y) = self.mouse;
         let action = self.top_hit(x, y).map(|h| h.action.clone());
+        if self.ctrl && action.as_ref().is_some_and(inline_audio_surface) {
+            self.playlist_act(&Action::PlaylistArea, true);
+            return;
+        }
         if action == Some(Action::Donate) { crate::donate::prompt(self); return; }
         if action == Some(Action::PianoVerticalZoom) {
             self.set_rows(Scroll::PianoY, views::piano::ROW);
@@ -8888,8 +8911,8 @@ impl App {
             return;
         }
         if crate::help::wheel(self, -(dx + dy) * 63.) { return; }
-        if crate::warp::wheel(self, dx, dy, ctrl) { return; }
         if crate::input_bindings::wheel(self, dx, dy, shift, ctrl) { return; }
+        if crate::warp::wheel(self, dx, dy, ctrl) { return; }
         if crate::vocal::navigation::wheel(self,dx,dy,shift,ctrl){return;}
         // Scrolling or zooming one window repaints just that window; scrolling the playlist moves its pixels.
         let before = self.damage.clone();
@@ -8990,7 +9013,7 @@ impl App {
     /// The wheel's work; returns the window when only that window's view moved (else everything is repainted).
     fn wheel_act(&mut self, dx: f32, dy: f32, shift: bool, ctrl: bool) -> Option<Win> {
         let (x, y) = self.mouse;
-        let area = self.top_hit(x, y).map(|h| match h.action {Action::Mix(crate::mixer::MHit::AttachedRecord(row))=>Action::PlHeader(row),_=>h.action.clone()});
+        let area = self.top_hit(x, y).map(|h| match h.action {Action::Mix(crate::mixer::MHit::AttachedRecord(row))=>Action::PlHeader(row),ref a if inline_audio_surface(a)=>Action::PlaylistArea,_=>h.action.clone()});
         use crate::mixer::MHit;
         let attached_list = match area {
             Some(Action::Mix(MHit::AttachedSendLabel(_) | MHit::AttachedSelect(_))
@@ -10017,15 +10040,6 @@ impl App {
             self.piano_pitch_range(anchor, y);
             return;
         }
-        if matches!(a, Action::PianoGrid | Action::PianoNote(_)) && crate::playlist_tools::range_chord(self) {
-            let s = &mut self.state;
-            s.piano.event_focus = false;
-            s.piano.properties_click = None;
-            s.piano.clear_selection();
-            self.drag = Some(Drag::Marquee { x0: x, y0: y, base: None });
-            self.damage_piano();
-            return;
-        }
         if matches!(a,Action::PianoGrid|Action::PianoVelocity) && g.source_window.is_some_and(|(start,end)|{
             let tick=g.tick_at(x);tick<start || tick>=end
         }){return;}
@@ -10037,21 +10051,20 @@ impl App {
             }else{self.state.piano.properties_click=None;}
         }else{self.state.piano.properties_click=None;}
         // Ctrl temporarily selects with any note tool, without editing or auditioning notes.
-        if self.ctrl && matches!(a, Action::PianoGrid | Action::PianoNote(_)) {
-            let s=&mut self.state;
-            let mut selected=s.piano.selection(s.pattern,Some(ch));
-            if let Action::PianoNote(i)=*a {
+        if (self.ctrl || tool == Tool::Select) && matches!(a, Action::PianoGrid | Action::PianoNote(_)) {
+            let s = &mut self.state;
+            let previous = s.piano.selection(s.pattern, Some(ch));
+            let base = if self.ctrl || self.shift { previous } else { Vec::new() };
+            let hits = if let Action::PianoNote(i) = *a {
                 let Some(note) = piano::notes(s).get(i).copied().filter(|n| n.channel == ch) else { return };
-                if selected.contains(&i) {
-                    selected.retain(|n| *n != i);
-                } else {
-                    selected.push(i);
-                    s.piano.use_note_type(&note);
-                }
-                s.piano.select(s.pattern,ch,selected);
-            } else {
-                self.drag=Some(Drag::Marquee{x0:x,y0:y,base:Some(selected)});
-            }
+                s.piano.use_note_type(&note);
+                vec![i]
+            } else { Vec::new() };
+            let selection = if !self.shift { hits.clone() } else {
+                crate::playlist_tools::selection_hits(&base, &hits,true)
+            };
+            s.piano.select(s.pattern, ch, selection);
+            self.drag = Some(Drag::Marquee { x0: x, y0: y, base, keep_outside: self.shift });
             self.damage_piano();
             return;
         }
@@ -10111,27 +10124,7 @@ impl App {
                     self.damage_piano();
                     return;
                 }
-                Tool::Select if note.is_none() => {
-                    let base = if self.ctrl { s.piano.selection(s.pattern, Some(ch)) } else { Vec::new() };
-                    s.piano.select(s.pattern, ch, base.clone());
-                    self.drag = Some(Drag::Marquee { x0: x, y0: y, base: Some(base) });
-                    self.damage_piano();
-                    return;
-                }
-                Tool::Select => {
-                    // Clicking an unselected note selects it (Ctrl adds), then drags as Draw does.
-                    let i = note.unwrap_or(0);
-                    let mut sel = s.piano.selection(s.pattern, Some(ch));
-                    if !sel.contains(&i) {
-                        if !self.ctrl {
-                            sel.clear();
-                        }
-                        sel.push(i);
-                        s.piano.select(s.pattern, ch, sel);
-                    }
-                }
-                // Painting empty grid creates notes; dragging selected notes preserves the group.
-                Tool::Paint => {},
+                Tool::Select => unreachable!("selection handled before note editing"),
                 _ => s.piano.clear_selection(),
             }
         }
@@ -13248,7 +13241,7 @@ mod tests {
     }
 
     #[test]
-    fn piano_ctrl_shift_marquee_replaces_selection_from_a_note() {
+    fn piano_ctrl_shift_marquee_toggles_selection_from_a_note() {
         let mut app = App::new(None);
         app.state.project = test_project();
         app.state.z = vec![Win::PianoRoll];
@@ -13274,27 +13267,28 @@ mod tests {
             ((left, top), (right, bottom)),
             ((right, bottom), (left, top)),
         ] {
+            app.state.piano.select(app.state.pattern,ch,vec![outside,a]);
             app.ctrl = true;
             app.shift = true;
             app.mouse_move(x0, y0);
             assert_eq!(app.cursor(), Cursor::Playlist(crate::playlist::PlTool::Select, 3));
             app.mouse_down();
-            assert!(matches!(app.drag, Some(Drag::Marquee { base: None, .. })));
+            assert!(matches!(app.drag, Some(Drag::Marquee { keep_outside: true, .. })));
             app.mouse_move(x1, y1);
-            assert_eq!(app.state.piano.selection(app.state.pattern, Some(ch)), [a, b]);
+            assert_eq!(app.state.piano.selection(app.state.pattern, Some(ch)), [outside, b]);
             app.mouse_move(x0, y0);
-            assert!(app.state.piano.selection(app.state.pattern, Some(ch)).len() <= 1);
+            assert!(app.state.piano.selection(app.state.pattern, Some(ch)).len() <= 3);
             app.mouse_move(x1, y1);
             app.shift = false;
             assert_eq!(app.cursor(), Cursor::Default);
             app.mouse_up();
             assert_eq!(app.cursor(), Cursor::Default);
-            assert_eq!(app.state.piano.selection(app.state.pattern, Some(ch)), [a, b]);
+            assert_eq!(app.state.piano.selection(app.state.pattern, Some(ch)), [outside, b]);
             assert_eq!(piano::notes(&app.state), before);
             app.ctrl = false;
         }
         app.key(&winit::keyboard::Key::Named(winit::keyboard::NamedKey::Delete), false, false);
-        assert_eq!(piano::notes(&app.state), &[before[outside]]);
+        assert_eq!(piano::notes(&app.state), &[before[a]]);
     }
 
     #[test]
@@ -13392,7 +13386,7 @@ mod tests {
     }
 
     #[test]
-    fn playlist_ctrl_shift_marquee_replaces_selection_across_tracks() {
+    fn playlist_ctrl_shift_marquee_toggles_selection_across_tracks() {
         use crate::playlist::{self as pl, PlDrag, PlTool};
         use os_model::{Clip, ClipSource};
         let mut app = App::new(None);
@@ -13423,27 +13417,28 @@ mod tests {
             ((left, bottom), (right, top)),
             ((right, top), (left, bottom)),
         ] {
+            app.state.playlist.sel=vec![2,0];
             app.ctrl = true;
             app.shift = true;
             app.mouse_move(x0, y0);
             assert_eq!(app.cursor(), Cursor::Playlist(PlTool::Select, 3));
             app.mouse_down();
-            assert!(matches!(app.drag, Some(Drag::Pl(PlDrag::Marquee { base: None, .. }))));
+            assert!(matches!(app.drag, Some(Drag::Pl(PlDrag::Marquee { keep_outside: true, .. }))));
             app.mouse_move(x1, y1);
-            assert_eq!(app.state.playlist.sel, [0, 1]);
+            assert_eq!(app.state.playlist.sel, [2, 1]);
             app.mouse_move(x0, y0);
-            assert!(app.state.playlist.sel.len() <= 1);
+            assert!(app.state.playlist.sel.len() <= 3);
             app.mouse_move(x1, y1);
             app.ctrl = false;
             assert_eq!(app.cursor(), Cursor::Default);
             app.mouse_up();
             assert_eq!(app.cursor(), Cursor::Default);
-            assert_eq!(app.state.playlist.sel, [0, 1]);
+            assert_eq!(app.state.playlist.sel, [2, 1]);
             assert_eq!(pl::clips(&app.state), before);
             app.shift = false;
         }
         pl::run(&mut app, pl::Cmd::Delete);
-        assert_eq!(pl::clips(&app.state), &[<os_model::Clip as Clone>::clone(&before[2])]);
+        assert_eq!(pl::clips(&app.state), &[<os_model::Clip as Clone>::clone(&before[0])]);
     }
 
     #[test]
@@ -13462,7 +13457,8 @@ mod tests {
         app.ctrl=true;
         app.piano_click(&Action::PianoNote(i));
         assert_eq!(app.state.piano.selection(app.state.pattern,Some(ch)),vec![i]);
-        assert!(app.drag.is_none());
+        assert!(matches!(app.drag,Some(Drag::Marquee {..})));
+        app.shift=true;
         app.piano_click(&Action::PianoNote(j));
         assert_eq!(app.state.piano.selection(app.state.pattern,Some(ch)),vec![i,j]);
         app.piano_click(&Action::PianoNote(i));

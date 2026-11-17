@@ -786,10 +786,24 @@ impl Frame {
             // Docked: the main window's view is flipped, the top-left stays.
             None => self.view.setFrameSize(NSSize::new(w, h)),
         }
-        self.area.setFrame(rect(f64::from(BORDER), f64::from(ay), f64::from(ed.0), f64::from(ed.1)));
         let zoom=f64::from(self.editor_zoom.get());
+        let editor_bounds = NSSize::new(f64::from(ed.0) / zoom, f64::from(ed.1) / zoom);
+        // Plasma sizes its root view before the host catches up. Applying AppKit's
+        // flexible-width/height delta a second time feeds a larger size into the
+        // next editor poll. Editors still sized to the old parent need autoresizing.
+        let already_sized = self.area.bounds().size != editor_bounds && self.area.autoresizesSubviews() && {
+            let children = self.area.subviews();
+            !children.is_empty() && children.iter().all(|view| view.frame().size == editor_bounds)
+        };
+        if already_sized {
+            self.area.setAutoresizesSubviews(false);
+        }
+        self.area.setFrame(rect(f64::from(BORDER), f64::from(ay), f64::from(ed.0), f64::from(ed.1)));
         if zoom!=1. || self.area.bounds().size!=self.area.frame().size {
-            self.area.setBoundsSize(NSSize::new(f64::from(ed.0)/zoom,f64::from(ed.1)/zoom));
+            self.area.setBoundsSize(editor_bounds);
+        }
+        if already_sized {
+            self.area.setAutoresizesSubviews(true);
         }
         self.pin_editor();
         self.area.setHidden(!show);
@@ -1130,6 +1144,8 @@ pub fn install_monitor(_mtm: MainThreadMarker) {
     if MONITOR.with(|m| m.replace(true)) {
         return;
     }
+    unsafe extern "C" { fn ml_watch_sample_drags(); }
+    unsafe { ml_watch_sample_drags(); }
     let mask = NSEventMask::KeyDown | NSEventMask::KeyUp | NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown;
     let block = RcBlock::new(|e: NonNull<NSEvent>| -> *mut NSEvent {
         if monitor(unsafe { e.as_ref() }){std::ptr::null_mut()}else{e.as_ptr()}
