@@ -1662,6 +1662,9 @@ pub struct Arrangement {
     /// Sorted by position.
     pub clips: Vec<Clip>,
     pub tracks: Vec<PlaylistTrack>,
+    /// None retains the full legacy Playlist. Stored independently from FL's fixed track records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible_tracks: Option<u16>,
     /// Time markers in file order (spec: flp/events/playlist.md "Time markers").
     pub markers: Vec<TimeMarker>,
     #[serde(default)]

@@ -120,6 +120,10 @@ impl Windows {
         if matches!(event,WindowEvent::CloseRequested) {app.state.hide(p.kind);self.changed=true;return;}
         if matches!(event,WindowEvent::Focused(true)|WindowEvent::MouseInput{state:ElementState::Pressed,..}|WindowEvent::KeyboardInput{..}|WindowEvent::MouseWheel{..}) {if app.state.native_input!=Some(p.kind){self.changed|=app.state.playlist.popup.is_some()||app.state.menu_open.is_some();app.state.playlist.popup=None;app.state.menu_open=None;}app.state.raise(p.kind);app.state.native_input=Some(p.kind);app.auto_close.main_focused=true;}
         if matches!(event,WindowEvent::Focused(false)) {p.motion=None;app.typing_release_all();}
+        if p.kind==Win::Browser && matches!(event,WindowEvent::CursorLeft{..}|WindowEvent::Focused(false)) {
+            p.motion=None;p.mouse=(-1.,-1.);
+            if app.state.browser_library.open {crate::views::browser::library::leave(app);p.window.request_redraw();}
+        }
         if !needs_layout(&event,app.drag.is_some()||app.pressed.is_some()) {
             if matches!(event,WindowEvent::Moved(_)|WindowEvent::ScaleFactorChanged{..}) {p.refresh_editors=true;}
             if matches!(event,WindowEvent::Resized(_)|WindowEvent::ScaleFactorChanged{..}) {p.window.request_redraw();}
@@ -166,10 +170,8 @@ impl Windows {
             }
             WindowEvent::MouseWheel{delta,..}=>{app.state.native_input=Some(p.kind);let (x,y)=match delta{MouseScrollDelta::LineDelta(x,y)=>(x,y),MouseScrollDelta::PixelDelta(p)=>(p.x as f32/40.,p.y as f32/40.)};app.wheel(x,y,p.mods.shift_key(),crate::ctrl(p.mods));}
             WindowEvent::KeyboardInput{event,..}=>{
-                app.state.native_input=Some(p.kind);let pressed=event.state==ElementState::Pressed;
-                if event.physical_key==winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::ShiftRight){app.rshift=pressed;}
-                let used=if let winit::keyboard::PhysicalKey::Code(code)=event.physical_key {app.typing_key(code,pressed,crate::ctrl(p.mods),p.mods.alt_key())}else{false};
-                if pressed&&!used {app.repeat=event.repeat;app.key(&event.logical_key,crate::ctrl(p.mods),p.mods.alt_key());app.repeat=false;}
+                app.state.native_input=Some(p.kind);
+                crate::keyboard_input(app, event, p.mods);
             }
             WindowEvent::HoveredFile(path)=>{crate::drop_preview::hover_file(app,path,Some(p.kind));p.window.request_redraw();},
             WindowEvent::HoveredFileCancelled=>{crate::drop_preview::clear(app);p.window.request_redraw();},
@@ -257,6 +259,7 @@ impl Windows {
                 help::scroll_detached(app, amount, height);
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                app.shift = pane.mods.shift_key();
                 help::guide_key(app, &event.logical_key, crate::ctrl(pane.mods), pane.mods.alt_key(), true, height);
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {

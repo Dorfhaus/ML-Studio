@@ -355,7 +355,7 @@ mod tests {
 pub struct Form {
     batch: Batch,
     mode: Mode,
-    target: crate::dialog::Field,
+    pub(crate) target: crate::dialog::Field,
     message: String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,9 +460,7 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) {
                 ..
             }) = app.state.dialogs.last_mut()
             {
-                if f.target.len() < 32 || !matches!(key, Key::Character(_)) {
-                    f.target.key(key, ctrl, alt);
-                }
+                f.target.key_limited(key, ctrl, alt, app.shift, 32);
             }
             app.invalidate();
         }
@@ -490,23 +488,17 @@ pub fn paint(ui: &mut crate::app::Ui, r: os_ui::Rect, f: &Form) {
     let field = Rect::new(r.x + 150., r.y + 105., r.w - 170., 34.);
     ui.c.fill_rrect(field, 4., ui.t.sunken);
     ui.c.stroke_rrect(field, 4., 1., yellow);
-    if f.target.all {
-        ui.c.fill_rrect(field.inset(4.), 2., ui.t.button_hi);
-    }
-    ui.c.text(
-        Font::new(14),
-        field.x + 10.,
-        field.y + 9.,
-        yellow,
-        &f.target.text,
-    );
-    let caret = field.x + 10. + ui.c.text_width(Font::new(14), f.target.before_caret());
-    ui.c.line(caret, field.y + 7., caret, field.bottom() - 7., 1., yellow);
     ui.hit(
         field,
         Action::Dlg(DHit::Normalize(Command::Target)),
         "Enter a normalization target",
     );
+    use crate::dialog::{text, TextTarget};
+    let font = Font::new(14);
+    let inner = Rect::new(field.x + 10.0, field.y, field.w - 20.0, field.h);
+    let origin = text::paint(ui, inner, &f.target, true, font, yellow, yellow.with_alpha(90), "");
+    text::carets(ui, field, &f.target, font, origin,
+        |pos| Action::Dlg(DHit::TextCaret(TextTarget::Normalize, pos)), "Enter a normalization target");
     ui.c.text_clip(
         Font::new(11),
         r.x + 20.,

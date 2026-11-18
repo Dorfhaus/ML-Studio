@@ -1,0 +1,4 @@
+OSPRESET 1
+plugin=ML Pure Player	id=clap:com.mlstudio.pureplayer	format=clap	body=params
+Bank = 0
+Program = 48

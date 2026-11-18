@@ -395,11 +395,19 @@ pub fn poll_requests(app: &mut App) {
     if pending(&app.state.project) {
         return;
     }
+    if crate::plugins::sampler_loads_pending(&app.state) {
+        return;
+    }
     if let Some(play) = app.state.playlist.vocal.waiting.take() {
         match play {
             crate::warp::Play::Start(b) => app.start_playback_counted(b),
             crate::warp::Play::Seek(t) => app.play_song_from(t),
             crate::warp::Play::Resume => crate::warp::resume(app),
+        }
+    }
+    if let Some(Output::Export(project, _, _)) = &app.state.playlist.vocal.pending_output {
+        if !crate::plugins::prepare_sampler_playback(project) {
+            return;
         }
     }
     let Some(request) = app.state.playlist.vocal.pending_output.take() else {
@@ -683,6 +691,87 @@ pub(crate) mod tests {
         }
         assert!(out.is_file());
         assert!(std::fs::metadata(out).unwrap().len() > 1000);
+    }
+
+    #[test]
+    fn tuned_vocal_first_export_after_reopen_and_tempo_change_matches_replay() {
+        fn export(app: &mut App, path: &std::path::Path) -> Vec<f32> {
+            let mut job = crate::export::Job::wav(path);
+            job.options.tail = crate::export::Tail::Cut;
+            job.options.rate = 48000;
+            app.start_export(job, true);
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while app.export.is_some() || app.state.playlist.vocal.pending_output.is_some() {
+                app.plugin_tick();
+                assert!(Instant::now() < deadline, "export did not finish: {:?}", app.state.message);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let sample = os_engine::sample::load_shared(path).unwrap();
+            assert!(sample.left.iter().any(|v| v.abs() > 0.01), "empty export");
+            sample.left.clone()
+        }
+
+        let (mut app, dir, ci) = fixture("first-tempo-export");
+        app.state.song_mode = true;
+        app.state.project.vocal_edits[0].notes[0].shift = 2.;
+        finish(&mut app.state);
+        render(&mut app);
+        let channel = channel(&app.state, ci).unwrap();
+        let row = app.state.project.channels.iter().position(|c| c.index == channel).unwrap();
+        crate::loop_fit::set_fitted_time(&mut app.state.project.channels[row].sound, 4.0);
+        app.state.project.channels[row].sound.stretch[3] = os_model::stretch_mode::AUTO as u32;
+        let project_path = dir.join("tuned.lmn");
+        app.save_copy(project_path.clone()).unwrap().unwrap();
+        drop(app);
+
+        let mut app = App::new(None);
+        app.plugins = crate::plugins::Plugins::builtins();
+        app.open(project_path);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while app.loading() {
+            app.plugin_tick();
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        app.state.song_mode = true;
+        app.plugin_tick();
+        assert!(app.plugins.hosted.contains_key(&row), "the actual sampler must host the tuned clip");
+        for tempo in [120.0, 90.0, 150.0] {
+            app.state.tempo = tempo;
+            app.state.project.tempo = Some(tempo);
+            let before = app.state.project.clone();
+            // The first export never primes the samplers with a playback block.
+            let cold = export(&mut app, &dir.join(format!("first-{tempo}.wav")));
+            let paths: Vec<_> = app.state.project.channels.iter().filter_map(|c| {
+                c.sample_path.as_deref().map(crate::plugins::resolve_sample)
+            }).collect();
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !lemon_sampler::playback::prepare(tempo, &paths) {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let again = export(&mut app, &dir.join(format!("again-{tempo}.wav")));
+            let difference = cold.iter().zip(&again).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(cold.len() == again.len() && difference < 1e-6,
+                    "first render at {tempo} differs from warmed render: max error {difference}");
+            assert_eq!(app.state.project, before, "preparing audio changed the project");
+            assert!((cold.len() as f64 / 48000.0 - 240.0 / tempo).abs() < 0.1,
+                    "wrong clip duration at {tempo}: {}", cold.len());
+            app.save_copy(dir.join(format!("tuned-{tempo}.lmn"))).unwrap().unwrap();
+        }
+        for (tempo, request) in [(111.0, crate::warp::Play::Start(0)), (137.0, crate::warp::Play::Seek(96))] {
+            app.state.tempo = tempo;
+            app.state.project.tempo = Some(tempo);
+            assert!(crate::warp::wait_for_play(&mut app, request), "first Play must wait for the new tempo");
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !crate::plugins::prepare_sampler_playback(&app.state.project) {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            assert!(crate::warp::cancel_play(&mut app));
+            assert!(!crate::warp::wait_for_play(&mut app, request), "prepared Play should start immediately");
+        }
+        drop(app);
     }
     #[test]
     fn audio_edits_save_and_consolidate_wait_for_committed_revision() {

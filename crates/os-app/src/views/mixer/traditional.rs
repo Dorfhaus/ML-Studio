@@ -116,13 +116,14 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let full_title=r;
     let left=s.vintage_2005 || mx::inspector_left();
     let inspector=Rect::new(if left {r.x} else {r.right()-panel_w},r.y,panel_w,r.h);
+    let caption_right = full_title.right() - 58.0 - crate::views::WINDOW_DETACH_OFFSET - 6.0;
     let r=if left {Rect::new(r.x+panel_w,r.y,r.w,r.h)} else {r};
     let client = crate::views::window_frame_ex(ui, Win::Mixer, Rect::new(r.x, r.y, r.w - panel_w, r.h), "", 0.0, false, inner.is_some());
     super::title_tools(ui, s, r, r.right() - panel_w);
     if r.h < 2.0 * TITLE_H {
         // Collapsed to the title bar: only the slot panel's title with the window buttons.
         s.cables.borrow_mut().clear();
-        slot_panel(ui, s, inspector);
+        slot_panel(ui, s, inspector, caption_right);
         layout_picker(ui,s,full_title);
         window_buttons(ui, Win::Mixer, full_title.right()-58.,full_title.y,ui.t.tx(0xd4dade),ui.t.tx(0xffffff));
         return;
@@ -270,7 +271,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     ui.live(Live::MixerScroll, area.union(&sb));
     crate::views::scrollbar(ui, sb, false, s.mixer_scroll, area.w, bank.end + width, crate::app::Scroll::MixerX);
 
-    ui.part(crate::app::Seg::MixerInspector, inspector, |ui| slot_panel(ui, s, inspector));
+    ui.part(crate::app::Seg::MixerInspector, inspector, |ui| slot_panel(ui, s, inspector, caption_right));
         layout_picker(ui,s,full_title);
         window_buttons(ui, Win::Mixer, full_title.right()-58.,full_title.y,ui.t.tx(0xd4dade),ui.t.tx(0xffffff));
     resize_zones(ui, s, Win::Mixer, outer);
@@ -360,13 +361,15 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     } else if selected { ui.t.s(0x26292b) } else { ui.t.s(0x232527) };
     let tint=track.and_then(|m|m.color).map(crate::views::rgb);
     let body=tint.map_or(body,|c|body.mix(c,0.22));
+    let flat_body = t.appearance.assigned_colors.traditional_mixer.fill(t.mixer_strip, tint);
+    let body = flat_body.unwrap_or(body);
     let lemon = crate::views::lemon(ui);
     let header_top = ly.y(HEAD_Y0);
     let body_top = ly.y(HEAD_Y1) + 1.0;
     let body_rect = Rect::new(left, body_top, width, bottom - body_top);
     let card_face = Rect::new(body_rect.x + 1.5, body_rect.y + 1.0, body_rect.w - 3.0, body_rect.h - 4.0);
     let card_radius = lk::r_panel(t);
-    if t.style.vintage_2005 {
+    if t.style.vintage_2005 && flat_body.is_none() {
         let steel = t.mixer_strip.mix(body, 0.35);
         os_ui::kit::styled_surface(ui.c, t, body_rect, 0.0, t.window_border, steel, steel.shade(-0.03),
             os_theme::appearance::Finish::Beveled);
@@ -569,7 +572,8 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         }
         ui.c.fill_rect(readout,body);
         ui.c.push_clip(readout);
-        ui.c.text_center(font,readout,ui.t.text,&text);
+        let ink = flat_body.map_or(t.text, |face| os_theme::fl::readable(t.text, face, 0.45));
+        ui.c.text_center(font,readout,ink,&text);
         ui.c.pop_clip();
     }
     let fx=Rect::new(left+cx-12.,by-79.,24.,16.);
@@ -629,14 +633,15 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         }
     }
     if selected || also {
+        let ink = flat_body.map_or(t.accent, |face| os_theme::fl::readable(t.accent, face, 0.35));
         if t.style.vintage_2005 {
-            ui.c.stroke_rrect(Rect::new(left + 0.75, header_top + 0.75, width - 1.5, bottom - header_top - 17.5), 0.0, 1.0, t.accent);
+            ui.c.stroke_rrect(Rect::new(left + 0.75, header_top + 0.75, width - 1.5, bottom - header_top - 17.5), 0.0, 1.0, ink);
         } else if lemon {
             let outline = Rect::new(card_face.x, header_top, card_face.w, card_face.bottom() - header_top);
-            selection_outline(ui.c, outline, card_radius.min(card_face.w / 2.0).min(card_face.h / 2.0), t.accent);
+            selection_outline(ui.c, outline, card_radius.min(card_face.w / 2.0).min(card_face.h / 2.0), ink);
         } else {
             let outline = Rect::new(left + 0.75, header_top + 0.75, width - 1.5, bottom - header_top - 1.5);
-            ui.c.stroke_rrect(outline, 0.0, 1.5, t.accent);
+            ui.c.stroke_rrect(outline, 0.0, 1.5, ink);
         }
     }
     if s.vintage_2005 && mx::has_separator(s, n) {

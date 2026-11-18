@@ -110,9 +110,39 @@ pub fn icon(t:Tool)->TablerIcon{if t==Tool::Zoom{return os_ui::tabler::ZOOM_IN;}
  Tool::Draw=>"M 4 20 L 5 15 L 17 3 L 21 7 L 9 19 Z M 5 15 L 9 19",
  Tool::Hand=>"M 8 13 L 8 6 C 8 3 11 3 11 6 L 11 11 L 11 4 C 11 1 14 1 14 4 L 14 11 L 14 6 C 14 3 17 3 17 6 L 17 12 L 17 9 C 17 6 20 6 20 9 L 20 16 C 20 20 17 22 14 22 L 12 22 C 10 22 8 20 7 18 L 3 13 C 2 11 4 10 6 12 L 8 14",
  Tool::Zoom=>"M 16 16 L 22 22 M 18 10 C 18 20 2 20 2 10 C 2 0 18 0 18 10 M 6 10 L 14 10 M 10 6 L 10 14"}}}
-fn toolbar_height(g:&PGeom)->f32{let mut x=0.;let mut rows=1.;for w in [28.,28.,28.,28.,28.,28.,28.,28.,28.,28.,28.,28.,28.,46.,70.,28.,28.,28.,28.,28.,28.,28.,28.,28.,86.,86.,86.]{if x+w>g.grid.w-12.{rows+=1.;x=0.;}x+=w+3.;}rows*31.+7.}
-fn inspector_height(g:&PGeom)->f32{if g.grid.w<480.{68.}else{36.}}
-pub fn pitch_rect(g:&PGeom,row:u16)->Rect{let top=toolbar_height(g)+inspector_height(g)+7.;Rect::new(g.grid.x+1.,g.y_of(row)+g.rows.base_height(row)+top,(g.grid.w-16.).max(1.),(super::EXTRA-top-47.).max(40.))}
+const GRIP_HEIGHT: f32 = 8.0;
+const FOOTER_HEIGHT: f32 = 47.0 + GRIP_HEIGHT;
+const TOOL_PALETTE_HEIGHT: f32 = 230.0;
+
+fn toolbar_height(width: f32) -> f32 {
+    let mut x = 0.0;
+    let mut y = 4.0;
+    let area = Rect::new(-5.0, 0.0, width, 0.0);
+    for _ in TOOLS { toolbar_slot(area, &mut x, &mut y, 28.0); }
+    for width in [46.0, 70.0] { toolbar_slot(area, &mut x, &mut y, width); }
+    for _ in 0..9 { toolbar_slot(area, &mut x, &mut y, 28.0); }
+    for _ in 0..3 { toolbar_slot(area, &mut x, &mut y, 86.0); }
+    y + 34.0
+}
+
+fn pitch_top(width: f32) -> f32 {
+    toolbar_height(width) + if width < 480.0 { 75.0 } else { 43.0 }
+}
+
+pub(crate) fn minimum_height(width: f32) -> f32 {
+    (pitch_top(width) + FOOTER_HEIGHT + 72.0).max(TOOL_PALETTE_HEIGHT + GRIP_HEIGHT + 11.0)
+}
+
+pub fn pitch_rect(g: &PGeom, row: u16) -> Rect {
+    let base = g.rows.base_height(row);
+    let top = pitch_top(g.grid.w);
+    Rect::new(
+        g.grid.x + 1.0,
+        g.y_of(row) + base + top,
+        (g.grid.w - 16.0).max(1.0),
+        (g.rows.height(row) - base - top - FOOTER_HEIGHT).max(1.0),
+    )
+}
 pub fn note_rect(s:&State,g:&PGeom,ci:usize,ni:usize)->Option<Rect>{let clip=pl::clips(s).get(ci)?;let d=doc(s,ci)?;let n=d.notes.get(ni)?;let r=pitch_rect(g,clip.track);let cr=g.clip_rect(clip);let(a,b)=pl::window(s,clip);let sx=|t:f64|cr.x+((d.destination(t)*1000.-a)/(b-a))as f32*cr.w;let x=sx(n.start as f64*STEP);let end=sx(n.end as f64*STEP);let y=r.bottom()-(n.base+n.shift*d.strength-s.playlist.vocal.low)/s.playlist.vocal.span*r.h;Some(Rect::new(x,y-(r.h/s.playlist.vocal.span*0.39).max(3.),(end-x).max(2.),(r.h/s.playlist.vocal.span*0.78).max(6.)))}
 pub fn keys(ui:&mut Ui,s:&State,g:&PGeom,row:u16,header:Rect){
  if !super::expanded(s,row){return;}
@@ -155,7 +185,7 @@ pub fn paint(ui:&mut Ui,s:&State,g:&PGeom){
     let Some(row) = s.playlist.vocal.row else { return };
     if g.rows.strip(row) || g.rows.height(row) == 0.0 { return; }
     let y = g.y_of(row) + g.rows.base_height(row);
-    let area = Rect::new(g.grid.x, y, g.grid.w, super::EXTRA - 3.0);
+    let area = Rect::new(g.grid.x, y, g.grid.w, g.rows.height(row) - g.rows.base_height(row));
     let visible = area.intersect(&g.grid);
     // Hit targets must be rebuilt even when this editor lies outside the paint damage.
     // Skipping it lets the underlying Playlist accept clicks and insert audio clips.
@@ -181,7 +211,7 @@ fn editor(ui: &mut Ui, s: &State, g: &PGeom, row: u16, area: Rect) {
  }
  // A compact inspector replaces paired +/- buttons. Values are draggable; Alt-click resets.
  let fields=[(super::Field::Pitch,"PITCH"),(if s.playlist.vocal.tool==Tool::Transition{super::Field::Transition}else{super::Field::Modulation},if s.playlist.vocal.tool==Tool::Transition{"TRANSITION"}else{"MODULATION"}),(super::Field::Drift,"DRIFT"),(super::Field::Formant,"FORMANT"),(super::Field::Amplitude,"LEVEL"),(super::Field::Strength,"CORRECTION")];
- let chosen:Vec<_>=s.project.vocal_edits.iter().flat_map(|d|d.notes.iter().enumerate().filter(|(ni,_)|s.playlist.vocal.selected.contains(&(d.channel,*ni))).map(move|(_,n)|(d,n))).collect();let cols=if g.grid.w<480.{3}else{6};let width=(area.w-10.)/cols as f32;let iy=y+toolbar_height(g);
+ let chosen:Vec<_>=s.project.vocal_edits.iter().flat_map(|d|d.notes.iter().enumerate().filter(|(ni,_)|s.playlist.vocal.selected.contains(&(d.channel,*ni))).map(move|(_,n)|(d,n))).collect();let cols=if g.grid.w<480.{3}else{6};let width=(area.w-10.)/cols as f32;let iy=y+toolbar_height(g.grid.w);
  for(j,(field,name))in fields.into_iter().enumerate(){let rr=Rect::new(area.x+5.+(j%cols)as f32*width,iy+(j/cols)as f32*32.,width-4.,30.);let enabled=!chosen.is_empty()||field==super::Field::Strength;inspector_face(ui,rr);if enabled{ui.hit(rr,Action::Vocal(Command::Param(field)),"Drag value up/down; Alt for fine changes, Alt-click resets");}ui.c.text(font(vintage,9),rr.x+6.,rr.y+2.,ui.t.text_dim,name);
   let values:Vec<f32>=chosen.iter().map(|(d,n)|match field{super::Field::Pitch=>n.base+n.shift,super::Field::Modulation=>n.variation*100.,super::Field::Drift=>n.drift*100.,super::Field::Transition=>n.transition*100.,super::Field::Formant=>n.formant,super::Field::Amplitude=>n.gain,super::Field::Strength=>d.strength*100.}).collect();let mixed=values.windows(2).any(|w|(w[0]-w[1]).abs()>0.01);let value=values.first().copied().or_else(||if field==super::Field::Strength{pl::clips(s).iter().enumerate().find_map(|(ci,c)|(c.track==row).then(||doc(s,ci).map(|d|d.strength*100.)).flatten())}else{None});let value=if mixed{"Mixed".into()}else if let Some(v)=value{match field{super::Field::Pitch=>{let p=v.round()as i32;let names=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];format!("{}{} {:+.0} ct",names[p.rem_euclid(12)as usize],p/12-1,(v-p as f32)*100.)},super::Field::Modulation|super::Field::Drift|super::Field::Transition|super::Field::Strength=>format!("{v:.0}%"),super::Field::Formant=>format!("{v:+.1} st"),super::Field::Amplitude=>format!("{v:+.1} dB")}}else{"—".into()};ui.c.text_clip(font(vintage,12),rr.x+6.,rr.y+13.,rr.w-10.,if enabled{ui.t.text}else{ui.t.text_faint},&value);
  }
@@ -207,12 +237,20 @@ fn editor(ui: &mut Ui, s: &State, g: &PGeom, row: u16, area: Rect) {
  let rail=Rect::new(r.right()+3.,r.y,9.,r.h);if vintage {crate::vintage::recess(ui.c,rail,Color::rgb(0x303b42));}else{ui.c.fill_rrect(rail,4.,ui.t.s(0x0e1519));}ui.hit(rail,Action::Vocal(Command::Nav(super::navigation::Kind::Vertical)),"Drag pitch scrollbar");let thumb=Rect::new(rail.x+1.,rail.y+(128.-low-span)/128.*rail.h,7.,(span/128.*rail.h).max(8.));if vintage {crate::vintage::metal(ui.c,thumb,Color::rgb(0x657780));}else{ui.c.fill_rrect(thumb,3.,ui.t.s(0x657780));}
  let overview=Rect::new(r.x,r.bottom()+5.,(r.w-145.).max(30.),14.);if vintage {crate::vintage::recess(ui.c,overview,Color::rgb(0x303b42));}else{ui.c.fill_rrect(overview,3.,ui.t.s(0x0f171c));}ui.hit(overview,Action::Vocal(Command::Nav(super::navigation::Kind::Horizontal)),"Drag time navigator; the Playlist timeline stays aligned");let total=(pl::clips(s).iter().map(|c|c.end()).max().unwrap_or(0)as f32/(f32::from(s.project.ppq.max(4))*4.)*s.playlist_bar_w+r.w).max(r.w);let tw=(r.w/total*overview.w).max(12.);let tx=(s.playlist_scroll.0/total*overview.w).clamp(0.,overview.w-tw);let thumb=Rect::new(overview.x+tx,overview.y+2.,tw,10.);if vintage {crate::vintage::metal(ui.c,thumb,Color::rgb(0x657780));}else{ui.c.fill_rrect(thumb,3.,ui.t.s(0x526772));}
  for(j,(label,cmd))in [("−",Command::XZoom(-1)),("+",Command::XZoom(1)),("Fit",Command::Fit)].into_iter().enumerate(){text_btn(ui,Rect::new(r.right()-136.+j as f32*45.,r.bottom()+3.,41.,19.),label,cmd,false);}
+ let footer_bottom = area.bottom() - GRIP_HEIGHT - 3.0;
  let count=s.playlist.vocal.selected.len();let status=if s.playlist.vocal.busy||s.playlist.vocal.message.starts_with("Vocal tuning:")||s.playlist.vocal.message.contains("cancelled"){s.playlist.vocal.message.clone()}else{format!("Ready  ·  {} selected  ·  {}  ·  Wheel: scroll   Shift: time   Ctrl: zoom   Ctrl+Shift: pitch zoom",count,if s.playlist.vocal.snap{"Snap on"}else{"Free"})};let status_left = if s.playlist.vocal.busy {
-     crate::loading::activity_icon(ui.c, area.x + 12., area.bottom() - 9., ui.t.accent);
+     crate::loading::activity_icon(ui.c, area.x + 12., footer_bottom - 9., ui.t.accent);
      23.
  } else { 6. };
- ui.c.text_clip(font(vintage,10),area.x+status_left,area.bottom()-14.,area.w-70.-status_left,ui.t.text_dim,&status);if s.playlist.vocal.busy{text_btn(ui,Rect::new(area.right()-68.,area.bottom()-25.,63.,21.),"Cancel",Command::Cancel,false);}else if !s.playlist.vocal.failed.is_empty(){text_btn(ui,Rect::new(area.right()-68.,area.bottom()-25.,63.,21.),"Retry",Command::Retry,false);}
- if let Some((px,py))=s.playlist.vocal.palette{let w=330f32.min(area.w-10.);let h=230.;let menu=Rect::new(px.clamp(area.x+4.,(area.right()-w-4.).max(area.x+4.)),py.clamp(area.y+4.,(area.bottom()-h-4.).max(area.y+4.)),w,h);if vintage {crate::vintage::metal(ui.c,menu,Color::rgb(0x465259));}else{ui.c.fill_rrect(menu,6.,ui.t.s(0x10191f));ui.c.stroke_rrect(menu,6.,1.,ui.t.s(0x667881));}ui.hit(menu,Action::Swallow,"Vocal tools");let names=["Main","Pitch","Modulation","Drift","Transition","Formant","Amplitude","Timing","Time handle","Separation","Draw","Hand","Zoom"];
+ ui.c.text_clip(font(vintage,10),area.x+status_left,footer_bottom-14.,area.w-70.-status_left,ui.t.text_dim,&status);if s.playlist.vocal.busy{text_btn(ui,Rect::new(area.right()-68.,footer_bottom-25.,63.,21.),"Cancel",Command::Cancel,false);}else if !s.playlist.vocal.failed.is_empty(){text_btn(ui,Rect::new(area.right()-68.,footer_bottom-25.,63.,21.),"Retry",Command::Retry,false);}
+ if crate::workspace_visibility::shown(super::resize::VISIBILITY) {
+     let grip = Rect::new(area.x, area.bottom() - GRIP_HEIGHT, area.w, GRIP_HEIGHT);
+     let hot = ui.hit(grip, Action::VocalResize(row), "Drag to resize the vocal editor. Double-click to expand or restore.");
+     let mark_width = 34.0_f32.min(grip.w);
+     let mark = Rect::new(grip.cx() - mark_width / 2.0, grip.cy() - 1.0, mark_width, 2.0);
+     ui.c.fill_rrect(mark, 1.0, if hot { ui.t.glyph } else { ui.t.text_dim });
+ }
+ if let Some((px,py))=s.playlist.vocal.palette{let w=330f32.min(area.w-10.);let h=TOOL_PALETTE_HEIGHT;let menu=Rect::new(px.clamp(area.x+4.,(area.right()-w-4.).max(area.x+4.)),py.clamp(area.y+4.,(footer_bottom-h-4.).max(area.y+4.)),w,h);if vintage {crate::vintage::metal(ui.c,menu,Color::rgb(0x465259));}else{ui.c.fill_rrect(menu,6.,ui.t.s(0x10191f));ui.c.stroke_rrect(menu,6.,1.,ui.t.s(0x667881));}ui.hit(menu,Action::Swallow,"Vocal tools");let names=["Main","Pitch","Modulation","Drift","Transition","Formant","Amplitude","Timing","Time handle","Separation","Draw","Hand","Zoom"];
   for(j,t)in TOOLS.into_iter().enumerate(){let rr=Rect::new(menu.x+5.+(j%2)as f32*(w-10.)/2.,menu.y+6.+(j/2)as f32*27.,(w-12.)/2.,25.);let hot=ui.hit(rr,Action::Vocal(Command::Tool(t)),label(t));if hot||s.playlist.vocal.tool==t{if vintage {control_face(ui,rr,s.playlist.vocal.tool==t,hot);}else{ui.c.fill_rrect(rr,3.,ui.t.glyph.with_alpha(35));}}let glyph=Rect::new(rr.x+4.,rr.y+3.,19.,19.);
   if ui.c.icon_pack()==0{ui.c.icon_stroke(&icon(t),glyph,ui.t.text,1.4);}
   else{ui.c.art_icon(&packed_art(t,ui.c.icon_pack()).shape,glyph,ui.t.text);}ui.c.text(font(vintage,12),rr.x+30.,rr.y+5.,ui.t.text,names[j]);}

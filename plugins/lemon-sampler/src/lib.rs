@@ -13,6 +13,8 @@ pub mod fx;
 pub mod params;
 pub mod stream;
 pub mod sample_drop;
+#[cfg(feature = "linked")]
+pub mod playback;
 pub mod view;
 
 use std::num::NonZeroU32;
@@ -576,9 +578,13 @@ pub struct LemonSampler {
 
 impl Default for LemonSampler {
     fn default() -> Self {
+        let params = Arc::new(SamplerParams::default());
+        let shared = Arc::new(Shared::default());
+        #[cfg(feature = "linked")]
+        playback::register(&shared, &params);
         LemonSampler {
-            params: Arc::new(SamplerParams::default()),
-            shared: Arc::new(Shared::default()),
+            params,
+            shared,
             engine: dsp::Engine::new(44100.0),
             requested: None,
             current: None,

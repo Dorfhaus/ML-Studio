@@ -152,7 +152,7 @@ impl App {
         let mut free=Vec::new();
         for &n in &armed {
             let bound=crate::attached_mixer::lane(&self.state,n).filter(|r|!free.contains(r)&&pl::track_info(&self.state,*r).is_none_or(|t|!t.locked&&t.frozen.is_none()));
-            let row=bound.or_else(||(0..pl::TRACKS).find(|r|!free.contains(r)&&!self.state.project.instrument_lanes.iter().any(|v|self.state.project.arrangement().is_some_and(|a|v.1==a.number)&&v.2==*r)&&rows.height(*r)>0.&&pl::track_info(&self.state,*r).is_none_or(|t|!t.locked&&!t.grouped&&t.frozen.is_none())&&!pl::clips(&self.state).iter().any(|c|c.track==*r)));
+            let row=bound.or_else(||(0..pl::TRACKS).find(|r|!free.contains(r)&&!self.state.project.instrument_lanes.iter().any(|v|self.state.project.arrangement().is_some_and(|a|v.1==a.number)&&v.2==*r)&&(rows.height(*r)>0. || *r>=rows.count)&&pl::track_info(&self.state,*r).is_none_or(|t|!t.locked&&!t.grouped&&t.frozen.is_none())&&!pl::clips(&self.state).iter().any(|c|c.track==*r)));
             if let Some(row)=row{free.push(row);}
         }
         if free.len()!=armed.len() { return Err("Not enough empty Playlist tracks for the armed inputs".into()); }
@@ -166,7 +166,9 @@ impl App {
             let color=crate::mixer::track(&self.state,t).and_then(|m|m.color);
             tracks.push((selected,Destination { attached:crate::attached_mixer::active(&self.state),mixer:t,row,start,length:1,name:crate::mixer::name(&self.state,t),color }));
         }
+        let last_row = tracks.iter().map(|(_, destination)| destination.row).max();
         self.begin_mixer_group(tracks,stream)?;
+        if let Some(row) = last_row { pl::reveal_track(&mut self.state, row); }
         self.invalidate();Ok(())
     }
 }
@@ -328,6 +330,38 @@ mod tests {
             assert_eq!(back.arrangement().unwrap().clips.len(),pl::clips(&app.state).len());
             let _=std::fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn no_tracks_template_mixer_recording_creates_first_playlist_track() {
+        let _lock = crate::capture::TEST_RECORDING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = App::new(None);
+        app.pick_new_template(crate::templates::NO_TRACKS);
+        let insert = crate::mixer::add_track(&mut app.state, None);
+        app.set_mixer_input(insert, Some(Input { device: "Test ASIO".into(), asio: true, first: 0, stereo: false }));
+        assert_eq!(pl::track_count(&app.state), 0);
+        app.prepare_mixer_take().unwrap();
+        assert_eq!(app.state.mixer.recording.live[0].row, 0);
+        assert_eq!(pl::track_count(&app.state), 1);
+        app.transport.pretend_at(0., true);
+        app.one_click_tick();
+        crate::capture::capture().push(4800, |_, _| 0.25);
+        app.transport.stop();
+        for _ in 0..400 {
+            app.one_click_tick();
+            if app.audio_rec.is_none() { break; }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(app.audio_rec.is_none());
+        let clip = &pl::clips(&app.state)[0];
+        assert_eq!(clip.track, 0);
+        let os_model::ClipSource::Channel(id) = clip.source else { panic!("expected audio clip") };
+        let channel = app.state.project.channel(id).unwrap();
+        assert_eq!(channel.mixer_track, insert);
+        assert!(pl::Rows::new(&app.state).height(0) > 0.);
+        let path = std::path::PathBuf::from(channel.sample_path.as_ref().unwrap());
+        assert_eq!(os_engine::sample::load_shared(&path).unwrap().frames(), 4800);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

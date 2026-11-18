@@ -51,6 +51,8 @@ lemon-fast-distortion = { path = "../../plugins/lemon-fast-distortion", features
 ml-de-esser = { path = "../../plugins/ml-de-esser", features = ["linked"] }
 ml-meter = { path = "../../plugins/ml-meter", features = ["linked"] }
 ml-tuner = { path = "../../plugins/ml-tuner", features = ["linked"] }
+ml-pure-player = { path = "../../plugins/ml-pure-player", features = ["linked"] }
+ml-riser = { path = "../../plugins/ml-riser", features = ["linked"] }
 ml-frequency-shift = { path = "../../plugins/ml-frequency-shift", features = ["linked"] }
 ml-multiband-delay = { path = "../../plugins/ml-multiband-delay", features = ["linked"] }
 ml-time-shaper = { path = "../../plugins/ml-time-shaper", features = ["linked"] }

@@ -132,7 +132,7 @@ pub struct Perf {
     pub placed: bool,
     pub reset_on_transport: bool,
     pub freeze: bool,
-    pub find: String,
+    pub find: crate::dialog::Field,
     /// The Find box takes the typing.
     pub finding: bool,
     pub sort: Col,
@@ -154,7 +154,7 @@ impl Default for Perf {
             placed: false,
             reset_on_transport: false,
             freeze: false,
-            find: String::new(),
+            find: Default::default(),
             finding: false,
             sort: Col::Time,
             desc: true,
@@ -250,7 +250,7 @@ impl Perf {
 
     /// The rows Find leaves, in order.
     pub fn shown(&self) -> Vec<&Row> {
-        let f = self.find.to_lowercase();
+        let f = self.find.as_str().to_lowercase();
         self.rows.iter().filter(|r| f.is_empty() || r.text().contains(&f)).collect()
     }
 }

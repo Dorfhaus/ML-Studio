@@ -745,6 +745,7 @@ pub fn save_chosen(app: &mut App, key: usize, target: PathBuf) -> Option<String>
     let target = with_ext(target);
     Some(match save(&target, &h, &state) {
         Ok(()) => {
+            crate::browser::refresh_preset_folders(&mut app.state);
             queue_preview(app,key,&target,&state);
             app.plugins.set_preset(key, Some(target.clone()));
             format!("Saved preset {}", shown_name(&target))
@@ -775,6 +776,7 @@ pub fn import_chosen(app: &mut App, key: usize, file: PathBuf) -> Option<String>
         }
         first.get_or_insert(target);
     }
+    crate::browser::refresh_preset_folders(&mut app.state);
     let loaded = load_into(app, key, first.as_deref()?);
     Some(match found.len() {
         1 => loaded.unwrap_or_default().replacen("Preset:", "Imported preset", 1),
@@ -795,6 +797,7 @@ pub fn rename_chosen(app: &mut App, key: usize, old: PathBuf, target: PathBuf) -
             if app.plugins.presets.get(&key) == Some(&old) {
                 app.plugins.set_preset(key, Some(target.clone()));
             }
+            crate::browser::refresh_preset_folders(&mut app.state);
             format!("Renamed preset {} to {}", shown_name(&old), shown_name(&target))
         }
         Err(e) => format!("Preset not renamed: {e}"),
@@ -809,6 +812,7 @@ pub fn delete_chosen(app: &mut App, key: usize, path: PathBuf) -> Option<String>
             if app.plugins.presets.get(&key) == Some(&path) {
                 app.plugins.set_preset(key, None);
             }
+            crate::browser::refresh_preset_folders(&mut app.state);
             format!("Deleted preset {}", shown_name(&path))
         }
         Err(e) => format!("Preset not deleted: {e}"),

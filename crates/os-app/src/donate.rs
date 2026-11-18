@@ -159,8 +159,11 @@ mod tests {
         };
         set_active(false);run(&mut app,&path);assert!(path.is_file());
         assert!(app.state.dialogs.iter().any(|m|matches!(&m.body,Body::Msg(msg) if msg.then==Then::SupporterPrompt)));
-        app.state.dialogs.clear();set_active(true);run(&mut app,&path);assert!(app.state.dialogs.is_empty());
+        let supported = path.with_extension("supported.wav");
+        app.state.dialogs.clear();set_active(true);run(&mut app,&supported);assert!(app.state.dialogs.is_empty());
+        assert!(supported.is_file());
         set_active(false);run(&mut app,&path.join("cannot-write-inside-a-file.wav"));assert!(app.state.dialogs.is_empty());
         fs::remove_file(path).unwrap();
+        fs::remove_file(supported).unwrap();
     }
 }

@@ -264,7 +264,8 @@ impl Projection {
             }else if used {fallback.extend(first..end);}else{free.extend(first..end);}
             first=end;
         }
-        let mut free=free.into_iter();
+        let count = pl::track_count(s);
+        let mut free=free.into_iter().peekable();
         let direct:BTreeSet<_>=channels.values().copied().chain(blocks.keys().copied()).chain(s.mixer.recording.inputs.keys().copied()).collect();
         let receives:BTreeSet<_>=s.project.mixer.iter().flat_map(|m|m.routes.iter().copied()).collect();
         for n in 1..=mixer::inserts(s) {
@@ -272,7 +273,7 @@ impl Projection {
             if receives.contains(&n) && !direct.contains(&n) {p.buses.push(n);continue;}
             if let Some(rows)=blocks.remove(&n){p.order.extend(rows);}
             else if !arr.is_some_and(|a| a.attached_hidden.contains(&n)) {
-                if let Some(row)=free.next(){p.owners[row as usize]=Some(n);p.order.push(row);}
+                if let Some(row)=free.next_if(|row| *row < count){p.owners[row as usize]=Some(n);p.order.push(row);}
             }
         }
         p.order.extend(fallback);
@@ -320,6 +321,7 @@ pub fn toggle(app:&mut App) {
 
 /// Persist only real editing/recording bindings; viewing an old project is non-mutating.
 pub fn bind(s:&mut State,row:u16,mixer:u16) {
+    pl::reveal_track(s,row);
     let a=pl::arr_mut(s);while a.tracks.len()<=row as usize{a.tracks.push(os_model::PlaylistTrack::new(a.tracks.len() as u32+1));}
     a.tracks[row as usize].attached_mixer=Some(mixer);
     if active(s){pl::arr_mut(s).tracks[row as usize].mode=os_model::PlaylistTrackMode::Audio;}clear(s);
@@ -427,7 +429,9 @@ pub fn insert_lane(s: &mut State, before: u16) -> Option<String> {
     if mixer::inserts(s) >= 4093 { return Some("The Mixer has reached its track limit".into()); }
     let p = projection(s);
     let order = &p.order[..p.lane_count];
-    let Some(row) = p.order.get(p.lane_count).copied() else { return Some("The Playlist has reached its track limit".into()); };
+    let count = pl::track_count(s);
+    let available = if before == count && count < pl::TRACKS { Some(count) } else { p.order.get(p.lane_count).copied() };
+    let Some(row) = available else { return Some("The Playlist has reached its track limit".into()); };
     let before = lane_family(s, before).start;
     let at = order.iter().position(|&r| r == before).unwrap_or(order.len());
     let previous = s.selected_mixer;

@@ -90,6 +90,8 @@ pub fn job(s: &State, dir: &Path, stem: &str) -> ex::Job {
         options,
         folder: dir.to_path_buf(),
         name: stem.to_string(),
+        auto_number: false,
+        approved_replacements: Vec::new(),
         span: None,
         markers: Vec::new(),
         loop_frames: None,

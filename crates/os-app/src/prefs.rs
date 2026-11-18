@@ -576,6 +576,8 @@ pub const MUTING_CHANNEL: Number = Number { key: "midi_muting_channel", label: "
 
 /// The declared checks.
 pub const DOUBLE_CLICK_RESET: Check = Check { key: "double_click_reset", label: "Double-click resets faders and knobs", default: false };
+pub const LEGACY_BROWSER: Check = Check { key: "browser_legacy_layout", label: "Use legacy browser", default: false };
+
 pub const HOVER_MENUS: Check = Check { key: "hover_main_menus", label: "Open menus on hover", default: true };
 /// General > Samples and bouncing: bounces otherwise keep their original Mixer processing live.
 pub const BOUNCE_FREE: Check = Check { key: "bounce_to_free_mixer", label: "Bounce to next free Mixer insert", default: false };
@@ -592,6 +594,7 @@ pub const CHECKS: &[&Check] = &[
     &AUTO_DOWNLOAD_UPDATES,
     &DOUBLE_CLICK_RESET,
     &HOVER_MENUS,
+    &LEGACY_BROWSER,
     &BOUNCE_FREE,
     &FIT_DROPS,
     &RESTORE_AFTER_SOLO,
@@ -817,6 +820,13 @@ impl App {
     pub(crate) fn pref_toggle(&mut self, label: &str) {
         let Some(c) = find_check(label) else { return };
         let on = toggle(c);
+        if c.key == LEGACY_BROWSER.key {
+            self.state.browser_library.open=false;
+            self.state.browser_library.edit=None;
+            if on && crate::views::browser::library::library_tab(self.state.browser_tab) {
+                self.browser_act(&crate::app::Action::BrowserTab(0));
+            }
+        }
         if matches!(c.key, "threaded_generators" | "threaded_mixer" | "playback_pdc" | "smart_disable_v1") {
             self.transport.playback_settings_changed();
         }

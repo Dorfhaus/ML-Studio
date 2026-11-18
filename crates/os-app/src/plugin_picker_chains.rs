@@ -48,6 +48,7 @@ pub struct View {
     anchor: Option<usize>,
     pub first: usize,
     draft: Option<(Option<usize>, Chain)>,
+    pub(super) draft_name: crate::dialog::Field,
     pub rect: Option<Rect>,
     pub focused: bool,
     pub drag_start: Option<Rect>,
@@ -307,7 +308,7 @@ pub fn load_into(app: &mut App, chains: &[Chain], track: u16, slot: Option<u8>) 
 
 pub fn choose(app: &mut App) {
     let v = &app.state.plugin_picker;
-    let matches = v.chains.matches(&v.query, v.sort);
+    let matches = v.chains.matches(v.query.as_str(), v.sort);
     let chains: Vec<_> = v.chains.picked(&matches).into_iter().map(|i| v.chains.chains[i].clone()).collect();
     if chains.is_empty() { return; }
     let track = app.state.selected_mixer;
@@ -316,7 +317,7 @@ pub fn choose(app: &mut App) {
 }
 
 pub fn dragged(v: &super::View, row: usize) -> Vec<Chain> {
-    let matches = v.chains.matches(&v.query, v.sort);
+    let matches = v.chains.matches(v.query.as_str(), v.sort);
     let Some(&id) = matches.get(row) else { return Vec::new() };
     let picked = v.chains.picked(&matches);
     let ids = if picked.contains(&id) { picked } else { vec![id] };
@@ -329,7 +330,7 @@ pub fn drag_label(chains: &[Chain]) -> String {
 
 pub fn select_all(v: &mut super::View) {
     if crate::workspace_visibility::shown(BATCH_VISIBILITY) {
-        v.chains.selection = Some(v.chains.matches(&v.query, v.sort));
+        v.chains.selection = Some(v.chains.matches(v.query.as_str(), v.sort));
     }
 }
 
@@ -347,7 +348,14 @@ pub fn create(app: &mut App, indices: Vec<usize>) {
     v.query.clear();
     v.chains.first = 0;
     v.chains.focused = true;
-    v.chains.draft = Some((None, Chain { name: "New Chain".into(), group: 7, stages, favorite: false }));
+    v.chains.begin_edit(None, Chain { name: "New Chain".into(), group: 7, stages, favorite: false });
+}
+
+impl View {
+    fn begin_edit(&mut self, index: Option<usize>, draft: Chain) {
+        self.draft_name.set(&draft.name);
+        self.draft = Some((index, draft));
+    }
 }
 
 pub fn capture(app: &mut App, track: u16) -> Option<String> {
@@ -396,7 +404,7 @@ pub fn capture(app: &mut App, track: u16) -> Option<String> {
             v.query.clear();
             v.chains.first = 0;
             v.chains.focused = true;
-            v.chains.draft = Some((None, chain));
+            v.chains.begin_edit(None, chain);
             app.invalidate();
             None
         }
@@ -407,7 +415,7 @@ pub fn capture(app: &mut App, track: u16) -> Option<String> {
 pub fn act(app: &mut App, hit: Hit) {
     let v = &mut app.state.plugin_picker;
     let c = &mut v.chains;
-    let matches = c.matches(&v.query, v.sort);
+    let matches = c.matches(v.query.as_str(), v.sort);
     let picked = c.picked(&matches);
     let current = (picked.len() == 1).then(|| picked[0]);
     match hit {
@@ -417,7 +425,7 @@ pub fn act(app: &mut App, hit: Hit) {
             c.reset_selection();
             c.chains[i].favorite = !c.chains[i].favorite;
             c.save();
-            c.selected = c.matches(&v.query, v.sort).iter().position(|&id| id == i).unwrap_or(0);
+            c.selected = c.matches(v.query.as_str(), v.sort).iter().position(|&id| id == i).unwrap_or(0);
         }
         Hit::ChainNew => {
             v.filter = 0;
@@ -434,7 +442,7 @@ pub fn act(app: &mut App, hit: Hit) {
                 draft.name = format!("{} Copy", draft.name).chars().take(80).collect();
                 draft.favorite = false;
             }
-            c.draft = Some((original, draft));
+            c.begin_edit(original, draft);
             c.first = 0;
         }
         Hit::ChainCategory => {
@@ -462,7 +470,8 @@ pub fn act(app: &mut App, hit: Hit) {
         }
         Hit::ChainCancel => { c.draft = None; }
         Hit::ChainSave => {
-            let Some((index, chain)) = c.draft.take() else { return };
+            let Some((index, mut chain)) = c.draft.take() else { return };
+            chain.name.clone_from(&c.draft_name.text);
             if !valid(&chain) {
                 c.draft = Some((index, chain));
                 app.state.message = Some("Enter a chain name and keep at least one effect".into());
@@ -494,37 +503,22 @@ pub fn act(app: &mut App, hit: Hit) {
 
 pub fn editing(v: &super::View) -> bool { v.chains.draft.is_some() }
 
-pub fn clear_name(v: &mut super::View) {
-    if let Some((_, draft)) = &mut v.chains.draft { draft.name.clear(); }
-}
-
 pub fn scroll(v: &mut super::View, delta: isize, cols: usize, rows: usize) {
     let c = &mut v.chains;
     let limit = if let Some((_, draft)) = &c.draft {
         draft.stages.len().saturating_sub(1)
     } else {
-        c.matches(&v.query, v.sort).len().div_ceil(cols).saturating_sub(rows)
+        c.matches(v.query.as_str(), v.sort).len().div_ceil(cols).saturating_sub(rows)
     };
     c.first = c.first.saturating_add_signed(delta).min(limit);
 }
 
 pub fn navigate(v: &mut super::View, delta: isize, cols: usize, rows: usize) {
     let c = &mut v.chains;
-    let matches = c.matches(&v.query, v.sort);
+    let matches = c.matches(v.query.as_str(), v.sort);
     c.select(&matches, c.selected.saturating_add_signed(delta).min(matches.len().saturating_sub(1)), false, false);
     let row = c.selected / cols;
     c.first = c.first.clamp(row.saturating_sub(rows - 1), row);
-}
-
-pub fn name_input(v: &mut super::View, text: Option<&str>) {
-    if let Some((_, draft)) = &mut v.chains.draft {
-        if let Some(text) = text {
-            let room = 80usize.saturating_sub(draft.name.chars().count());
-            draft.name.extend(text.chars().filter(|c| !c.is_control()).take(room));
-        } else {
-            draft.name.pop();
-        }
-    }
 }
 
 const ACCENT: Color = Color::rgb(0x2096f3);
@@ -560,7 +554,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     let w = (r.right() - 18. - x).max(1.);
     let y = r.y + 105.;
     let bottom = r.bottom() - 83.;
-    let matches = c.matches(&v.query, v.sort);
+    let matches = c.matches(v.query.as_str(), v.sort);
     let picked = c.picked(&matches);
     let selected = (picked.len() == 1).then(|| picked[0]);
     ui.c.push_clip(Rect::new(r.x + 16., y, r.w - 32., (bottom - y).max(0.)));
@@ -578,10 +572,14 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
             ui.t.text_dim, &count.to_string());
     }
     if let Some((_, draft)) = &c.draft {
-        ui.c.text_clip(Font::new(13).bold(), x, y, w, ui.t.text_dim, "CHAIN NAME · TYPE TO EDIT");
+        ui.c.text_clip(Font::new(13).bold(), x, y, w, ui.t.text_dim, "CHAIN NAME");
         let name = Rect::new(x, y + 23., (w - 125.).max(1.), 32.);
         ui.c.stroke_rrect(name, 6., 1., ACCENT);
-        ui.c.text_clip(Font::new(15), x + 10., y + 31., name.w - 20., ui.t.text, &draft.name);
+        use crate::dialog::text;
+        let font = Font::new(15);
+        let inner = Rect::new(name.x + 10.0, name.y, (name.w - 20.0).max(1.0), name.h);
+        let origin = text::paint(ui, inner, &c.draft_name, c.focused, font, ui.t.text, ACCENT.with_alpha(90), "Chain name");
+        text::carets(ui, name, &c.draft_name, font, origin, |i| Action::TextCaret(text::Target::PickerName, i), "Chain name");
         button(ui, Rect::new(x + w - 119., y + 23., 119., 32.), GROUPS[draft.group], Hit::ChainCategory, false);
         for (i, stage) in draft.stages.iter().enumerate().skip(c.first) {
             let sy = y + 62. + (i - c.first) as f32 * 30.;
@@ -713,7 +711,7 @@ mod tests {
         click(&mut app, Hit::ChainTile(1));
         app.ctrl = false;
         let v = &app.state.plugin_picker;
-        let matches = v.chains.matches(&v.query, v.sort);
+        let matches = v.chains.matches(v.query.as_str(), v.sort);
         assert_eq!(v.chains.picked(&matches), vec![matches[0], matches[2]]);
         let names: Vec<_> = [matches[0], matches[2]].into_iter()
             .flat_map(|i| v.chains.chains[i].stages.iter().map(|s| s.name.clone())).collect();
@@ -804,7 +802,7 @@ mod tests {
         app.state.mixer.slot_names.insert((2, 0), "Lead EQ".into());
         assert_eq!(mixer::run(&mut app, mixer::MCmd::SaveEffectChain(2)), None);
         assert!(editing(&app.state.plugin_picker));
-        clear_name(&mut app.state.plugin_picker);
+        app.state.plugin_picker.chains.draft_name.select_all();
         use winit::keyboard::{Key, NamedKey};
         app.key(&Key::Character("Lead".into()), false, false);
         app.key(&Key::Named(NamedKey::Space), false, false);

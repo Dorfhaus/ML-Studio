@@ -1003,7 +1003,7 @@ pub struct Db {
     pub all_rows: Vec<TableRow>,
     pub rows: Vec<TableRow>,
     pub sort: (Col, bool),
-    pub find: String,
+    pub find: crate::dialog::Field,
     /// Typing goes into the Find box.
     pub finding: bool,
     /// First table row shown.
@@ -1023,7 +1023,7 @@ impl Default for Db {
             all_rows: Vec::new(),
             rows: Vec::new(),
             sort: (Col::Name, false),
-            find: String::new(),
+            find: Default::default(),
             finding: false,
             top: 0,
             progress: None,
@@ -1045,7 +1045,7 @@ impl Db {
 
     /// Re-sorts and re-filters the table (sort column, Find text).
     pub fn refilter(&mut self) {
-        self.rows = sort_filter(&self.all_rows, self.sort.0, self.sort.1, &self.find);
+        self.rows = sort_filter(&self.all_rows, self.sort.0, self.sort.1, self.find.as_str());
         self.top = self.top.min(self.rows.len().saturating_sub(1));
     }
 

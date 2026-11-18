@@ -13,6 +13,20 @@ use crate::playlist::{Cmd, Mark, PItem, Popup};
 use crate::playlist::{self as pl, PickKind};
 use crate::views::browser::{self as view, Item};
 
+impl crate::app::State {
+    pub(crate) fn browser_field(&self) -> &crate::dialog::Field {
+        if let Some((_, field)) = &self.browser_library.edit { return field; }
+        if let Some((_, field)) = &self.browser_tag_edit { return field; }
+        &self.browser_search
+    }
+
+    pub(crate) fn browser_field_mut(&mut self) -> &mut crate::dialog::Field {
+        if let Some((_, field)) = &mut self.browser_library.edit { return field; }
+        if let Some((_, field)) = &mut self.browser_tag_edit { return field; }
+        &mut self.browser_search
+    }
+}
+
 /// Mouse travel before a press on an item becomes a drag (spec §3).
 const DRAG_START: f32 = 4.0;
 /// How long a clicked sample plays (spec §7).
@@ -33,6 +47,10 @@ impl App {
 
     /// Browser actions; returns whether `a` was one.
     pub(crate) fn browser_act(&mut self, a: &Action) -> bool {
+        if let Action::BrowserLibrary(control) = *a {
+            view::library::act(self, control);
+            return true;
+        }
         if self.state.browser_tab==crate::plugin_downloads::TAB {
             if let Action::BrowserRow(i)=*a {
                 if let Some(row)=crate::plugin_downloads::rows(&self.state).get(i) {
@@ -62,7 +80,7 @@ impl App {
         let s = &mut self.state;
         match *a {
             Action::BrowserTab(i) => {
-                s.browser_tab = if i <= 5 || i == view::PARAMETERS_TAB { i } else { 0 };
+                s.browser_tab = if i <= 5 || i == view::PARAMETERS_TAB || view::library::valid_tab(s,i) { i } else { 0 };
                 s.browser_auto_hidden=false;
                 if let Some(label)=match i {1=>Some("Current project"),2=>Some("Plugin database"),4=>Some("Plugin presets"),_=>None} {s.browser_open.insert(format!("{i}:{label}"));}
                 s.browser_search.clear();
@@ -90,6 +108,7 @@ impl App {
                 }
                 if row.open.is_some()&&row.key.starts_with("search:@") {
                     if let Some(path)=&row.path {
+                        if s.browser_tab==view::library::ALL {s.browser_tab=0;}
                         let roots=if s.browser_tab==3{favorites()}else{view::library_roots(s)};
                         if let Some(root)=roots.iter().filter(|root|path.starts_with(root)).max_by_key(|root|root.components().count()) {
                             let mut key=if s.browser_tab==3{format!("3:@{}",root.display())}else{view::disk_key(root)};
@@ -99,13 +118,13 @@ impl App {
                         }
                     }
                 }
+                view::library::remember(s, &row);
                 let selection=sample_selection(s,&row,self.ctrl,self.shift);
                 select(s, &row.key);
                 s.browser_samples=selection.0;s.browser_sample_anchor=selection.1;
                 if row.open.is_some() && !s.browser_open.remove(&row.key) {
                     s.browser_open.insert(row.key.clone());
                     if let Some(path)=&row.path {s.browser_dirs.borrow_mut().remove(path);}
-                    *s.browser_index.borrow_mut()=Default::default();
                 }
                 match row.item {
                     Item::Pattern(n) => {
@@ -178,6 +197,7 @@ impl App {
 
     /// A browser options-menu command (spec §4); returns a message.
     pub(crate) fn browser_cmd(&mut self, c: BCmd) -> Option<String> {
+        if let BCmd::Library(control)=c { view::library::act(self,control);return None; }
         if let BCmd::CatalogFilter(i)=c {crate::plugin_downloads::act(self,i,7);return None;}
         self.invalidate();
         let s = &mut self.state;
@@ -216,7 +236,7 @@ impl App {
                 if [(view::OPT_PROJECT,1),(view::OPT_PLUGINS,2),(view::OPT_PRESETS,4),(view::OPT_PARAMETERS,view::PARAMETERS_TAB)].iter().any(|(key,id)|*key==k && *id==s.browser_tab && !view::opt(s,k)) {s.browser_tab=0;}
                 s.browser_scroll = s.browser_scroll.min(view::max_scroll(s));
             }
-            BCmd::CatalogFilter(_) => unreachable!(),
+            BCmd::CatalogFilter(_) | BCmd::Library(_) => unreachable!(),
             BCmd::History(dir) => {
                 let pos = s.browser_hist_pos as isize + dir;
                 let Some(key) = usize::try_from(pos).ok().and_then(|p| s.browser_hist.get(p)).cloned() else {
@@ -302,33 +322,37 @@ impl App {
 
     /// Whether typed letters belong to the browser search (the typing keyboard leaves them alone).
     pub(crate) fn browser_takes_typing(&self) -> bool {
-        self.state.browser_search_focus || (view::opt(&self.state, view::OPT_TYPE) && self.over_browser())
+        self.browser_has_focus() || (view::opt(&self.state, view::OPT_TYPE) && self.over_browser())
+    }
+
+    pub(crate) fn browser_has_focus(&self) -> bool {
+        let s = &self.state;
+        s.show_browser && s.browser_search_focus && (s.native_view == Some(Win::Browser) ||
+            (s.native_view.is_none() && !s.native_detached.contains(&Win::Browser)))
     }
 
     /// Browser keys (spec §4, §5); returns whether the key was used.
     pub(crate) fn browser_key(&mut self, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> bool {
         use winit::keyboard::{Key, NamedKey};
-        if self.state.browser_tag_edit.is_some() {
+        let focus = self.browser_has_focus();
+        if focus && view::library::edit_key(self,key,ctrl,alt) {return true;}
+        if focus && self.state.browser_tag_edit.is_some() {
             match key {
                 Key::Named(NamedKey::Escape)=>{self.state.browser_tag_edit=None;self.state.browser_search_focus=false;}
                 Key::Named(NamedKey::Enter)=>{
                     let (path,text)=self.state.browser_tag_edit.take().unwrap();
                     let mut tags:Vec<String>=Vec::new();
-                    for name in text.split(',').map(str::trim).filter(|t|!t.is_empty()){
+                    for name in text.as_str().split(',').map(str::trim).filter(|t|!t.is_empty()){
                         if !tags.iter().any(|t|t.eq_ignore_ascii_case(name)){tags.push(name.into());}
                     }
                     if tags.is_empty(){self.state.browser_tags.remove(&path);}else{self.state.browser_tags.insert(path,tags);}
                     save_tags(&self.state);self.state.browser_search_focus=false;
                 }
-                Key::Named(NamedKey::Backspace)=>{self.state.browser_tag_edit.as_mut().unwrap().1.pop();}
-                Key::Character(c) if !ctrl && !alt=>{let v=&mut self.state.browser_tag_edit.as_mut().unwrap().1;if v.len()<1024{v.push_str(c);}}
-                Key::Named(NamedKey::Space)=>{self.state.browser_tag_edit.as_mut().unwrap().1.push(' ');}
-                _=>{}
+                _=>{self.state.browser_field_mut().key_limited(key, ctrl, alt, self.shift, 1024);}
             }
             self.invalidate();return true;
         }
         let shift = self.shift;
-        let focus = self.state.browser_search_focus;
         let over = self.over_browser() || focus;
         if over && !focus && !ctrl && !alt && !shift && matches!(key, Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight)) {
             let rows = view::rows(&self.state);
@@ -347,14 +371,14 @@ impl App {
                 }
             }
         }
-        if over && !ctrl && !alt && !shift && matches!(key, Key::Named(NamedKey::ArrowRight)) {
+        if over && !focus && !ctrl && !alt && !shift && matches!(key, Key::Named(NamedKey::ArrowRight)) {
             let rows = view::rows(&self.state);
             if let Some(Item::Sample(path)) = rows.iter().find(|r| Some(&r.key) == self.state.browser_sel.as_ref()).map(|r| &r.item) {
                 crate::browser_preview::retrigger(self, path);
                 return true;
             }
         }
-        if over && !ctrl && !alt && !shift && matches!(self.state.browser_tab, 0 | 3) {
+        if over && !ctrl && !alt && !shift && (matches!(self.state.browser_tab, 0 | 3) || view::library::library_tab(self.state.browser_tab)) {
             if let Key::Named(k @ (NamedKey::ArrowUp | NamedKey::ArrowDown)) = key {
                 self.browser_sample_step(*k == NamedKey::ArrowDown);
                 return true;
@@ -387,13 +411,19 @@ impl App {
                         s.message = Some(m);
                     }
                 }
-                Key::Named(NamedKey::Backspace) => {
-                    s.browser_search.pop();
+                Key::Named(NamedKey::Tab) => {
+                    s.browser_search_focus = false;
+                    self.invalidate();
+                    return true;
                 }
-                Key::Named(NamedKey::Space) => s.browser_search.push(' '),
-                Key::Character(c) if !ctrl && !alt => s.browser_search.push_str(c),
-                _ if ctrl || alt => return true,
-                _ => return false,
+                _ => {
+                    let before = s.browser_search.text.clone();
+                    s.browser_search.key_limited(key, ctrl, alt, shift, 1024);
+                    if s.browser_search.text == before {
+                        self.invalidate();
+                        return true;
+                    }
+                }
             }
             s.browser_scroll = 0.0;
             self.invalidate();
@@ -404,7 +434,8 @@ impl App {
             if !ctrl && !alt && view::opt(s, view::OPT_TYPE) && self.over_browser() {
                 let s = &mut self.state;
                 s.browser_search_focus = true;
-                s.browser_search.push_str(c);
+                s.browser_search.place(s.browser_search.len(), false);
+                s.browser_search.key_limited(key, ctrl, alt, shift, 1024);
                 s.browser_scroll = 0.0;
                 self.invalidate();
                 return true;
@@ -883,7 +914,7 @@ impl App {
                 let key=crate::plugins::resolve_sample(&sample?);
                 let mut text=s.browser_tags.get(&key).map_or_else(String::new,|v|v.join(", "));
                 if add && !text.is_empty(){text.push_str(", ");}
-                s.browser_tag_edit=Some((key,text));s.browser_search_focus=true;
+                s.browser_tag_edit=Some((key,text.as_str().into()));s.browser_search_focus=true;
                 return Some("Sample tags: separate with commas; Enter saves, Esc cancels".into());
             }
             RowCmd::ToggleTag(i) => {
@@ -1078,6 +1109,7 @@ pub enum BCmd {
     LoadSample,
     OpenFiles,
     CatalogFilter(usize),
+    Library(view::library::Control),
     /// Find previous (-1) / next (1).
     AddFolder,
     StarterPack,
@@ -1141,7 +1173,7 @@ pub fn row_menu(s: &crate::app::State, row: &view::Row) -> Vec<PItem> {
             items.push(PItem::sep());
         }
     };
-    let mut items = Vec::new();
+    let mut items = view::library::row_menu(s,row);
     if let Some(open) = row.open {
         // While searching every node shows open.
         let it = r(if open { "Close" } else { "Open" }, RowCmd::Toggle);
@@ -1242,29 +1274,41 @@ pub(crate) fn default_options_menu(s: &crate::app::State) -> Vec<PItem> {
     let t = |label: &'static str, k: &'static str| b(label, BCmd::Toggle(k)).mark(Mark::Check(view::opt(s, k)));
     let searching=!s.browser_search.is_empty();
     let find=|label,key,dir| {let item=b(label,BCmd::Find(dir)).key(key);if searching {item}else{item.off()}};
+    let mut optional_tabs=vec![t("Plugin database",view::OPT_PLUGINS),t("Plugin presets",view::OPT_PRESETS),t("Parameters",view::OPT_PARAMETERS)];
+    let mut appearance=vec![t("Dock on right",view::OPT_RIGHT),t("Auto-hide browser",view::OPT_AUTOHIDE)];
+    if !view::library::enabled() {
+        optional_tabs.insert(0,t("Current project",view::OPT_PROJECT));
+        appearance.push(t("Search box on top",view::OPT_TOP));
+    }
+    appearance.push(t("High contrast text",view::OPT_CONTRAST));
     vec![
         #[cfg(windows)]
         b("Add sample folder...",BCmd::AddFolder),
         PItem::sub("Content",vec![
             t("Single Folder View",view::OPT_SINGLE_FOLDER),
             t("Show generators and effects in Samples",view::OPT_TREE_PLUGINS),
-            PItem::sub("Browser tabs",vec![t("Current project",view::OPT_PROJECT),t("Plugin database",view::OPT_PLUGINS),t("Plugin presets",view::OPT_PRESETS),t("Parameters",view::OPT_PARAMETERS)]),
+            PItem::sub("Browser tabs",optional_tabs),
             b("Configure sample folders...",BCmd::ConfigureFolders),
             b("Refresh plugin list",BCmd::Rescan),
             b(if crate::starter_pack::busy(){"Cancel Starter Pack download"}else{"Download Starter Pack"},BCmd::StarterPack),
         ]),
         PItem::sub("Audio preview",vec![t("Show preview panel",view::OPT_PANEL),t("Play full sample / track",view::OPT_PREVIEW)]),
         b(if s.native_detached.contains(&crate::app::Win::Browser) {"Dock Browser"} else {"Detach Browser"}, BCmd::Detach),
-        PItem::sub("Appearance",vec![t("Dock on right",view::OPT_RIGHT),t("Auto-hide browser",view::OPT_AUTOHIDE),t("Search box on top",view::OPT_TOP),t("High contrast text",view::OPT_CONTRAST)]),
+        PItem::sub("Appearance",appearance),
         PItem::sub("Search",vec![find("Find previous","F2",-1),find("Find next","F3",1),PItem::sep(),t("Type to filter",view::OPT_TYPE),t("Show parent folders",view::OPT_PARENTS),t("Include folders",view::OPT_FOLDERS)]),
         PItem::sub("Navigation",vec![b("Back",BCmd::History(-1)),b("Forward",BCmd::History(1)),PItem::sep(),b("Collapse folders",BCmd::Collapse).key("Ctrl+Up"),b("Refresh folders",BCmd::Reread).key("Ctrl+R")]),
         PItem::sub("Send to selected channel",vec![b("Previous sample",BCmd::Send(-1)).key("Shift+Up"),b("Next sample",BCmd::Send(1)).key("Shift+Down")]),
     ]
 }
 
+pub(crate) fn refresh_preset_folders(s:&mut crate::app::State) {
+    s.browser_dirs.borrow_mut().clear();
+    s.browser_library.presets.borrow_mut().clear();
+}
+
 /// Reread structure (spec §4): folders are read from disk again; open nodes and the selection stay.
 fn reread(s: &mut crate::app::State) {
-    s.browser_dirs.borrow_mut().clear();
+    refresh_preset_folders(s);
     *s.browser_index.borrow_mut() = Default::default();
     s.browser_scroll = s.browser_scroll.min(view::max_scroll(s));
 }
@@ -1319,13 +1363,13 @@ fn step(s: &crate::app::State, rows: &[view::Row], dir: isize, ok: impl Fn(&view
 
 /// Find previous / next match of the search text.
 fn find(s: &mut crate::app::State, dir: isize) -> Option<String> {
-    let q = s.browser_search.to_lowercase();
+    let q = s.browser_search.as_str().to_lowercase();
     if q.is_empty() {
         return None;
     }
     let rows = view::rows(s);
     let Some(i) = step(s, &rows, dir, |r| view::matches(s, r, &q)) else {
-        return Some(format!("\"{}\" not found", s.browser_search));
+        return Some(format!("\"{}\" not found", s.browser_search.as_str()));
     };
     let key = rows[i].key.clone();
     select(s, &key);
@@ -1586,7 +1630,8 @@ mod favorite_tests {
     }
 
     #[test]
-    fn samples_browser_has_only_library_and_favorites_tabs() {
+    fn legacy_samples_browser_keeps_its_configured_tabs() {
+        crate::prefs::set_check(&crate::prefs::LEGACY_BROWSER,true);
         let mut app=App::new(None);
         let fixture = tempfile::tempdir().unwrap();
         for name in ["FX", "GO TO KIT", "FILLZ"] {

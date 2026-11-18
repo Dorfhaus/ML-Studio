@@ -5,6 +5,7 @@
 use crate::settings_file;
 
 pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
+    ("Project templates", &[("Offer to use saved templates at startup", crate::project_files::STARTUP_PROMPT_VISIBILITY)]),
     ("Collaboration", &[("Host and join sessions", crate::collaboration::VISIBLE)]),
     ("Pattern tools", &[
         ("Split by channel", crate::patterns::SPLIT_VISIBILITY),
@@ -56,7 +57,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ("Language", &[
         (crate::prefs::INTERFACE_LANGUAGE.label, crate::prefs::language::VISIBILITY),
     ]),
-    ("Theme customization", &[("Traditional insert knob settings", crate::advanced_theme::INSERT_VISIBILITY), ("Traditional peak meter settings", crate::advanced_theme::METER_VISIBILITY), ("Record light customization", crate::advanced_theme::RECORD_LIGHT_VISIBILITY), ("Quick color settings", crate::advanced_theme::QUICK_COLORS_VISIBILITY), ("Area color adjustments", crate::advanced_theme::AREA_VISIBILITY)]),
+    ("Theme customization", &[("Traditional insert knob settings", crate::advanced_theme::INSERT_VISIBILITY), ("Traditional peak meter settings", crate::advanced_theme::METER_VISIBILITY), ("Record light customization", crate::advanced_theme::RECORD_LIGHT_VISIBILITY), ("Quick color settings", crate::advanced_theme::QUICK_COLORS_VISIBILITY), ("Area color adjustments", crate::advanced_theme::AREA_VISIBILITY), (crate::advanced_theme::ASSIGNED_COLOR_SECTION, crate::advanced_theme::ASSIGNED_COLOR_VISIBILITY)]),
     ("Input customization", &[
         ("Typing keyboard octave menu", crate::typing_layout::OCTAVE_VISIBILITY),
         ("MIDI controller setup", crate::controller::VISIBILITY),
@@ -86,6 +87,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Report a Bug button", "visible_feedback"),
     ]),
     ("Browser", &[
+        ("Browser layout setting", crate::views::browser::library::VISIBILITY),
         ("Empty-space file actions", crate::browser::EMPTY_ACTIONS),
         ("Plugin Downloads tab", "visible_browser-downloads"),
         ("Plugin Downloads filters and favorites", crate::plugin_downloads::DISCOVERY_VISIBILITY),
@@ -105,9 +107,11 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Marker timebase controls", crate::scoring::MARKERS),
         ("Instrument keyboard and note activity", crate::playlist_tracks::INSTRUMENT_FEEDBACK),
         ("Sample drop choices", "visible_playlist-header-drop-options"),
+        ("Add button below Playlist tracks", "visible_playlist-add-track"),
         ("Track drag destination", "visible_playlist-track-destination"),
         (crate::theme_adjust::PLAYLIST_BRIGHTNESS, crate::theme_adjust::PLAYLIST_BRIGHTNESS_VISIBILITY),
         ("Vocal tuning button", "visible_playlist-vocal-tuning"),
+        ("Vocal editor resize grip", crate::vocal::resize::VISIBILITY),
         ("Audio warp editor", "visible_playlist-warp"),
         ("Audio timing detection sensitivity", crate::warp::SENSITIVITY_VISIBILITY),
         ("Attached mixer inspector", crate::attached_mixer::VISIBILITY),
@@ -204,6 +208,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         (crate::prefs::HOVER_MENUS.label, "visible_hover-main-menus"),
         ("Solo Playlist tracks export", crate::export_form::SOLO_VISIBILITY),
         ("Advanced Export tab", crate::export_form::ADVANCED_VISIBILITY),
+        ("Auto-number duplicate exports", crate::export_form::NUMBER_VISIBILITY),
         ("User Guide menu item", crate::help::VISIBILITY),
         ("ML Studio Helper companion", crate::studio_helper::VISIBILITY),
         ("User Guide: Detach button", crate::help::DETACH_VISIBILITY),

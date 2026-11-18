@@ -137,6 +137,7 @@ pub enum Util {
 pub enum Cursor {
     Playlist(crate::playlist::PlTool, u8),
     Default,
+    Text,
     EwResize,
     NsResize,
     NwseResize,
@@ -145,6 +146,7 @@ pub enum Cursor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    TextCaret(crate::dialog::text::Target, usize),
     HintDrag(bool),
     InputAction(String),
     Mpe(crate::mpe::Hit),
@@ -271,6 +273,7 @@ pub enum Action {
     GenericPresets(usize),
     /// Browser tab 0..5 (spec: ui/browser.md §1).
     BrowserTab(usize),
+    BrowserLibrary(views::browser::library::Control),
     BrowserPreview(u8),
     PluginDownload(usize, u8),
     StarterPack(u8),
@@ -338,6 +341,7 @@ pub enum Action {
     PlOptions,
     PlClips,
     PlAddInstrument,
+    PlAddTrack,
     PlTimelineTracks,
     PlRuler,
     ScoringLane(crate::scoring::Lane, bool),
@@ -347,6 +351,7 @@ pub enum Action {
     PlMarkers,
     Warp(crate::warp::Command),
     Vocal(crate::vocal::Command),
+    VocalResize(u16),
     PlHeader(u16),
     PlTrackGrip(u16),
     PlRowResize(u16),
@@ -971,6 +976,7 @@ pub enum Drag {
     ClipPicker { source: os_model::ClipSource, origin: (f32, f32), started: bool, collapse: bool },
     Vocal(crate::vocal::Gesture),
     VocalNav(crate::vocal::navigation::Navigation),
+    VocalResize(crate::vocal::resize::Gesture),
     PlRowResize{row:u16,y0:f32,h0:f32},
     InspectorResize { full: bool, section: crate::attached_mixer::Section, y0: f32, height: u16, limit: u16, changed: bool },
     WarpMarker { index: usize, grab_offset: f32 },
@@ -1094,6 +1100,7 @@ pub enum Drag {
     /// per pixel moved), spec: ui/dialogs.md.
     Dialog { dx: f32, dy: f32 },
     DialogText(crate::dialog::TextTarget),
+    Text(crate::dialog::text::Target),
     DialogBar { y0: f32, s0: f32, ratio: f32 },
     /// A slider declared in `crate::prefs` follows the mouse along its track (`w` wide from `x`).
     PlaylistBrightness { x: f32, w: f32 },
@@ -1164,6 +1171,7 @@ pub struct State {
     pub show_browser: bool,
     pub browser_auto_hidden: bool,
     pub browser_hovered: bool,
+    pub browser_library: views::browser::library::Library,
     pub rack_pos: (f32, f32),
     pub rack_size: (f32, f32),
     /// Horizontal step scroll of the rack, pixels.
@@ -1223,9 +1231,9 @@ pub struct State {
     pub sample_drop: crate::drop_preview::Preview,
     pub playlist_motion: std::cell::RefCell<crate::playlist_motion::Motion>,
     /// Search text and whether the search box has keyboard focus (spec: ui/browser.md §5).
-    pub browser_search: String,
+    pub browser_search: crate::dialog::Field,
     pub browser_tags: std::collections::BTreeMap<String,Vec<String>>,
-    pub browser_tag_edit: Option<(String,String)>,
+    pub browser_tag_edit: Option<(String,crate::dialog::Field)>,
     pub browser_plugin_sample: Option<(usize,usize,String)>,
     pub browser_search_focus: bool,
     /// Options-menu toggles that are on (`views::browser::OPT_*`).
@@ -1687,7 +1695,8 @@ impl App {
                 no_focus: false,
                 show_browser: true,
                 browser_auto_hidden: false,
-            browser_hovered: false,
+                browser_hovered: false,
+                browser_library: views::browser::library::Library::load(),
                 rack_pos: (317.0, 195.0),
                 rack_size: views::rack::DEFAULT_SIZE,
                 rack_scroll_x: 0.0,
@@ -1737,7 +1746,7 @@ impl App {
                 browser_sample_anchor: None,
                 sample_drop: Default::default(),
                 playlist_motion: Default::default(),
-                browser_search: String::new(),
+                browser_search: Default::default(),
                 browser_tags: crate::browser::load_tags(),
                 browser_tag_edit: None,
                 browser_plugin_sample: None,
@@ -2098,6 +2107,12 @@ impl App {
 
     pub(crate) fn start_project_export(&mut self, p: os_model::Project, job: crate::export::Job, song: bool) {
         if crate::audio_edits::pending(&p){self.state.playlist.vocal.pending_output=Some(crate::audio_edits::Output::Export(p,job,song));self.state.message=Some("Preparing current audio edits before export...".into());self.invalidate();return;}
+        if crate::plugins::sampler_loads_pending(&self.state) || !crate::plugins::prepare_sampler_playback(&p) {
+            self.state.playlist.vocal.pending_output = Some(crate::audio_edits::Output::Export(p, job, song));
+            self.state.message = Some("Preparing audio for the current tempo before export...".into());
+            self.invalidate();
+            return;
+        }
         if let Err(e)=crate::clip_effects::validate(&p){self.state.message=Some(e);self.invalidate();return;}
         if self.export.is_some() || self.mix_assistant.busy() { return; }
         let rate = Transport::device_rate().unwrap_or(44100);
@@ -2152,7 +2167,8 @@ impl App {
                             }
                         }
                         let more = if files.len() > 1 { format!(" + {} more", files.len() - 1) } else { String::new() };
-                        format!("Exported {}:{:02} to {name}{more}", (secs / 60.0) as u32, (secs % 60.0) as u32)
+                        let output = files.first().and_then(|path| path.file_name()).map_or(Cow::Borrowed(name.as_str()), |file| file.to_string_lossy());
+                        format!("Exported {}:{:02} to {output}{more}", (secs / 60.0) as u32, (secs % 60.0) as u32)
                     }
                     Err(e) => format!("Export failed: {e}"),
                 });
@@ -2454,6 +2470,7 @@ impl App {
             Next::CollaborationJoin(invite,name) => crate::collaboration::join(self,invite,name),
             Next::ImportMidi(p) => self.import_pending(p),
             Next::Revert(b) => self.revert_from(b),
+            Next::NoTracksTemplate => { self.start_no_tracks(); self.offer_new_form(); }
             Next::Template(f) => self.new_from_pick(f),
         }
         self.invalidate();
@@ -2538,6 +2555,17 @@ impl App {
             Then::ExportFolder => {
                 if let Some(p) = file {
                     self.export_folder_chosen(p);
+                }
+            }
+            Then::ReplaceAudioExport(files) => {
+                if reply == Reply::Button(Answer::Yes) {
+                    self.confirm_audio_export(files);
+                }
+            }
+            Then::ReplacePlaylistExport(files) => {
+                if reply == Reply::Button(Answer::Yes) {
+                    let message = crate::playlist::export_tracks_replacing(self, &files);
+                    self.say(message);
                 }
             }
             Then::OpenProject => {
@@ -2626,13 +2654,31 @@ impl App {
                     self.template_chosen(p);
                 }
             }
+            Then::ReplaceTemplate(target) => {
+                if reply == Reply::Button(Answer::Yes) {
+                    self.write_template(target);
+                }
+            }
+            Then::UseStartupTemplate(pick) => {
+                if reply == Reply::Button(Answer::Yes) {
+                    self.make_startup_template(&pick);
+                }
+            }
             Then::NewProjectFolder => {
                 if let Some(p) = file {
                     self.new_folder_chosen(p);
                 }
             }
+            Then::RemoveBrowserCollection(i) => {
+                if matches!(reply,Reply::Button(Answer::Yes)) { views::browser::library::remove_collection(self,i); }
+            }
             Then::TrashBrowserSample(path) => {
                 if matches!(reply,Reply::Button(Answer::Yes)) { self.browser_trash_sample(&path); }
+            }
+            Then::DeleteAllPlaylistTracks(number) => {
+                if reply == Reply::Button(Answer::Yes) && self.state.project.arrangement().map_or(0, |a| a.number) == number {
+                    self.state.message = crate::playlist::delete_playlist_rows(self, None);
+                }
             }
             Then::DeleteUnused(files) => self.delete_unused_done(files, &reply),
             Then::SavePreset(key) => {
@@ -2787,11 +2833,30 @@ impl App {
 
     /// The built-in new project (FILE ▸ New with Empty, New from template ▸ Empty).
     pub(crate) fn empty_project(&mut self) {
+        self.start_builtin_project(default_project());
+    }
+
+    pub(crate) fn start_no_tracks(&mut self) {
+        let mut project = empty_project();
+        project.mixer.truncate(2);
+        project.mixer[1].routes.clear();
+        let mut arrangement = os_flp::project::default_arrangement();
+        arrangement.visible_tracks = Some(0);
+        project.arrangements.push(arrangement);
+        self.start_builtin_project(project);
+        self.state.selected_mixer = 0;
+        self.state.selected_channel = 0;
+        self.state.mixer.sel.clear();
+        self.state.mixer.recording = Default::default();
+        crate::attached_mixer::clear(&self.state);
+    }
+
+    fn start_builtin_project(&mut self, project: Project) {
         self.smart_cancel();
         self.transport.stop();
         self.reset_hosted();
         let s = &mut self.state;
-        s.project = default_project();
+        s.project = project;
         crate::project_info::created(s);
         s.file = None;
         s.path = None;
@@ -4186,7 +4251,7 @@ impl App {
     }
 
     /// Typing into the monitor's Find box. True when the key was taken.
-    fn perf_key(&mut self, key: &winit::keyboard::Key, ctrl: bool) -> bool {
+    fn perf_key(&mut self, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> bool {
         use winit::keyboard::{Key, NamedKey};
         let p = &mut self.state.perf;
         match key {
@@ -4194,13 +4259,8 @@ impl App {
                 p.find.clear();
                 p.finding = false;
             }
-            Key::Named(NamedKey::Enter) => p.finding = false,
-            Key::Named(NamedKey::Backspace) => {
-                p.find.pop();
-            }
-            Key::Named(NamedKey::Space) => p.find.push(' '),
-            Key::Character(c) if !ctrl => p.find.push_str(c),
-            _ => return false,
+            Key::Named(NamedKey::Enter | NamedKey::Tab) => p.finding = false,
+            _ => { p.find.key_mod(key, ctrl, alt, self.shift); }
         }
         p.scroll = 0;
         self.damage_win(Win::Perf);
@@ -4834,7 +4894,7 @@ impl App {
             let y=self.mouse.1;
             let delta=if y>grid.bottom()-18. {8.} else if y<grid.y+18. {-8.} else {0.};
             if delta!=0. {
-                let limit=(crate::playlist::Rows::new(&self.state).total()-grid.h).max(0.);
+                let limit=(crate::playlist::Rows::new(&self.state).scroll_height()-grid.h).max(0.);
                 let pos=(self.state.playlist_scroll.1+delta).clamp(0.,limit);
                 if pos!=self.state.playlist_scroll.1 {
                     self.state.playlist_scroll.1=pos;
@@ -6454,6 +6514,7 @@ impl App {
         let previous_mouse=self.mouse;
         if crate::plugin_picker::mouse_move(self,x,y) { return true; }
         self.browser_auto_hide(x,y);
+        views::browser::library::hover(self, x, y);
         self.mouse = (x, y);
         if let Some((lane,r,id))=self.state.mpe.drag{crate::mpe::draw(self,lane,r,id,false);return true;}
         self.hold_moved(x, y);
@@ -6850,6 +6911,7 @@ impl App {
                 Drag::RackGraph => self.rack_graph_at((x, y)),
                 Drag::Dialog { dx, dy } => self.dialog_drag(x - dx, y - dy),
                 Drag::DialogText(target) => self.dialog_text_drag(target,x),
+                Drag::Text(target) => target.drag(self, x),
                 Drag::DialogBar { y0, s0, ratio } => self.dialog_scroll(s0 + (y - y0) * ratio),
                 Drag::PatternBox { y0, p0 } => {
                     let (y0, p0): (f32, u16) = (y0.to_owned(), p0.to_owned());
@@ -7039,6 +7101,7 @@ impl App {
                 }
                 Drag::PlRowResize{row,y0,h0}=>{crate::playlist::resize_track(&mut self.state,row,h0+y-y0);self.invalidate();},
                 Drag::VocalNav(_)=>crate::vocal::navigation::drag(self,x,y),
+                Drag::VocalResize(gesture) => crate::vocal::resize::drag(self, gesture, y),
                 Drag::WarpMarker { index, grab_offset } => crate::warp::drag(self, index, x - grab_offset),
                 Drag::WarpSelection => crate::warp::drag_selection(self, x),
                 Drag::Tempo { y0, t0, step, moved } => {
@@ -7341,6 +7404,7 @@ impl App {
                     | Action::PlTool(_)
                     | Action::PlClips
                     | Action::PlAddInstrument
+                    | Action::PlAddTrack
                     | Action::PlTimelineTracks
                     | Action::PlLed(_)
                     | Action::PlGroupArrow(_)
@@ -7369,11 +7433,25 @@ impl App {
         let previous_control_click = self.control_click.take();
         if crate::input_bindings::press(self, 0) { return; }
         self.placed_cursor_at=None;
+        if !self.modal_open()
+            && let Some(Action::TextCaret(target @ (crate::dialog::text::Target::PickerSearch | crate::dialog::text::Target::PickerName), index)) =
+                self.top_hit(self.mouse.0, self.mouse.1).map(|h| h.action.clone())
+        {
+            self.armed = None;
+            self.armed_right = None;
+            self.hold = None;
+            self.smooth.stop();
+            target.press(self, index);
+            return;
+        }
         if crate::plugin_picker::mouse_down(self) { return; }
         self.invalidate();
         self.hold = None;
         let (x, y) = self.mouse;
         let action = self.top_hit(x, y).map(|h| h.action.clone());
+        if !matches!(action, Some(Action::VocalResize(_))) {
+            self.state.playlist.vocal.size.click = None;
+        }
         if let Some(Action::Mpe(crate::mpe::Hit::Curve(lane,r)))=action{if !self.modal_open(){crate::mpe::begin(self,lane,r,false);return;}}
         // A press stops the views easing where they are drawn; a scroll bar's arrow steps on from where its ease is
         // going (`crate::smooth`).
@@ -7481,21 +7559,36 @@ impl App {
             crate::playlist::commit_edit(&mut self.state);
         }
         // A click anywhere but the Info box being edited accepts it (spec: ui/settings.md "Info").
-        if self.state.settings.info_edit.as_ref().is_some_and(|e| action != Some(Action::Settings(views::settings::SAct::Info(e.field)))) {
+        if self.state.settings.info_edit.as_ref().is_some_and(|e| !matches!(action,
+            Some(Action::Settings(views::settings::SAct::Info(field)) |
+                Action::TextCaret(crate::dialog::text::Target::Info(field), _)) if field == e.field)) {
             crate::project_info::accept_info(&mut self.state);
         }
         // The same for a cell of File ▸ Browser extra search folders.
-        if self.state.settings.folder_edit.as_ref().is_some_and(|e| action != Some(Action::Settings(views::settings::SAct::FolderCell(e.row, e.col)))) {
+        if self.state.settings.folder_edit.as_ref().is_some_and(|e| !matches!(action,
+            Some(Action::Settings(views::settings::SAct::FolderCell(row, col)) |
+                Action::TextCaret(crate::dialog::text::Target::Folder(row, col), _)) if row == e.row && col == e.col)) {
             crate::search_folders::commit(&mut self.state);
         }
         // Clicking anywhere but the search field leaves it (spec: ui/browser.md §5).
-        if action != Some(Action::BrowserSearch) {
+        if !matches!(action, Some(Action::BrowserSearch | Action::TextCaret(crate::dialog::text::Target::Browser, _))) {
             self.state.browser_search_focus = false;
             self.state.browser_tag_edit=None;
+            self.state.browser_library.edit = None;
         }
         // The same for the monitor's Find box (spec: ui/plugin-performance.md §1).
-        if action != Some(Action::Perf(crate::perf::PerfAct::Find)) {
+        if !matches!(action, Some(Action::Perf(crate::perf::PerfAct::Find) | Action::TextCaret(crate::dialog::text::Target::Performance, _))) {
             self.state.perf.finding = false;
+        }
+        use crate::dialog::text::Target as TextTarget;
+        if !matches!(action, Some(Action::Settings(views::settings::SAct::VisibilitySearch) | Action::TextCaret(TextTarget::Visibility, _))) {
+            self.state.settings.visibility_search_focused = false;
+        }
+        if !matches!(action, Some(Action::Settings(views::settings::SAct::MenuLayout(crate::menu_layout::Action::Name)) | Action::TextCaret(TextTarget::MenuName, _))) {
+            self.state.settings.menu_editor.name_focused = false;
+        }
+        if !matches!(action, Some(Action::Settings(views::settings::SAct::Plug(views::settings::Plug::Find)) | Action::TextCaret(TextTarget::PluginManager, _))) {
+            self.state.plugdb.finding = false;
         }
         if self.state.lane_menu && !matches!(action, Some(Action::PianoLanePick(_))) {
             self.state.lane_menu = false;
@@ -7617,6 +7710,11 @@ impl App {
 
     /// Cursor for the current hover / drag.
     pub fn cursor(&self) -> Cursor {
+        if matches!(self.hover, Some(Action::TextCaret(..) | Action::Dlg(crate::dialog::DHit::TextCaret(..))))
+            || matches!(self.drag, Some(Drag::Text(_) | Drag::DialogText(_)))
+        {
+            return Cursor::Text;
+        }
         if matches!(self.drag, Some(Drag::StripDivider { .. }))
             || (self.drag.is_none() && matches!(self.hover, Some(Action::RackStrip(crate::rack_mixer::Command::Divider(..)))))
         {
@@ -7635,6 +7733,9 @@ impl App {
             return Cursor::EwResize;
         }
         if let Some(cursor) = crate::playlist_tools::range_cursor(self) { return cursor; }
+        if matches!((&self.drag, &self.hover), (Some(Drag::VocalResize(_)), _) | (None, Some(Action::VocalResize(_)))) {
+            return Cursor::NsResize;
+        }
         if matches!(self.drag,Some(Drag::PlRowResize{..}|Drag::InspectorResize{..}))||matches!(self.hover,Some(Action::PlRowResize(_)|Action::InspectorResize(..))){return Cursor::NsResize;}
         if matches!(self.hover, Some(Action::PlTrackZoom | Action::PianoVerticalZoom))
             || matches!(self.drag, Some(Drag::TrackSize{..} | Drag::PianoRowZoom{..})) ||
@@ -8101,6 +8202,7 @@ impl App {
                 self.armed_right = toolbar_right(a).map(|run| (a.clone(), run));
                 return self.invalidate();
             }
+            Some(Action::BrowserTab(id)) if views::browser::library::collection_menu(self,*id,x,y) => return,
             Some(Action::BrowserList) => { self.browser_empty_menu(x,y); return; }
             Some(Action::BrowserRow(i)) => {
                 if self.params_browser_right(*i, x, y) || self.browser_row_menu(*i, x, y) {
@@ -8514,6 +8616,7 @@ impl App {
             Some(Drag::Touch) => self.touch_hold(None),
             Some(Drag::BarEdge { .. }) => self.state.piano.bar_span = None,
             Some(Drag::InspectorResize { full, changed: true, .. }) => self.state.playlist.inspector_layouts.save(full),
+            Some(Drag::VocalResize(gesture)) => crate::vocal::resize::release(self, gesture),
             Some(Drag::PlaylistBrightness { .. }) => self.finish_playlist_brightness(),
             Some(Drag::ThemeKnob { .. } | Drag::PickWheel(_) | Drag::PickValue(_)) => self.theme_store(),
             _ => {}
@@ -9029,7 +9132,8 @@ impl App {
             }
             return Some(Win::Playlist);
         }
-        if matches!(area, Some(Action::BrowserScroll | Action::BrowserList | Action::BrowserRow(_) | Action::BrowserTab(_) | Action::PluginDownload(_, _))) {
+        if views::browser::library::wheel(self, x, y, dx + dy) { return None; }
+        if matches!(area, Some(Action::BrowserLibrary(views::browser::library::Control::Star(_)) | Action::BrowserScroll | Action::BrowserList | Action::BrowserRow(_) | Action::BrowserTab(_) | Action::PluginDownload(_, _))) {
             self.browser_wheel(dy + dx);
             return None;
         }
@@ -9354,6 +9458,7 @@ impl App {
 
     pub fn key(&mut self, key: &winit::keyboard::Key, ctrl: bool, alt: bool) {
         self.invalidate();
+        if *key == Key::Named(NamedKey::Escape) && crate::vocal::resize::cancel(self) { return; }
         if matches!(self.drag, Some(Drag::MixerEffect { .. })) {
             if *key == Key::Named(NamedKey::Escape) {
                 self.cancel_effect_drag();
@@ -9434,7 +9539,7 @@ impl App {
                     settings.menu_editor.name_focused = false;
                 }
                 Key::Named(NamedKey::Tab) => settings.menu_editor.name_focused = false,
-                _ => { settings.menu_editor.name.key(key, ctrl, alt); }
+                _ => { settings.menu_editor.name.key_mod(key, ctrl, alt, self.shift); }
             }
             return;
         }
@@ -9449,7 +9554,7 @@ impl App {
                     settings.visibility_search_focused = false;
                 }
                 _ => {
-                    if settings.visibility_search.key(key, ctrl, alt) {
+                    if settings.visibility_search.key_mod(key, ctrl, alt, self.shift) {
                         settings.scroll = 0.0;
                     }
                 }
@@ -9457,6 +9562,9 @@ impl App {
             return;
         }
         if self.theme_editor_key(key, ctrl, alt) || self.info_key(key, ctrl, alt) || self.folder_cell_key(key, ctrl, alt) || self.name_key(key, ctrl, alt) {
+            return;
+        }
+        if self.plugin_find_key(key, ctrl, alt) || (self.state.perf.finding && self.perf_key(key, ctrl, alt)) {
             return;
         }
         use winit::keyboard::{Key, NamedKey};
@@ -9504,6 +9612,7 @@ impl App {
             }
             return;
         }
+        if self.browser_has_focus() && self.browser_key(key, ctrl, alt) { return; }
         // Inline playlist edits own shortcuts as well as printable text.
         if self.state.playlist.edit.is_some() { crate::playlist::key(self,key,ctrl,alt); return; }
         if crate::warp::key_input(self,key,ctrl,alt){return;}
@@ -9558,12 +9667,6 @@ impl App {
             && let Some(n) = crate::recent::alt_digit(c)
         {
             return self.act(Action::MenuItem(0, views::menus::RECENT_PICK + n));
-        }
-        if self.plugin_find_key(key, ctrl) {
-            return;
-        }
-        if self.state.perf.finding && self.perf_key(key, ctrl) {
-            return;
         }
         if crate::patterns::key_mod(&mut self.state, key, ctrl, self.shift) {
             self.rack_pending();
@@ -9853,21 +9956,24 @@ impl App {
         self.state.toggles.contains(&"typing")
     }
 
+    pub(crate) fn text_input_focused(&self) -> bool {
+        let s = &self.state;
+        let settings = &s.settings;
+        self.modal_open() || s.playlist.edit.is_some() || s.pat_ui.name_box.is_some()
+            || self.browser_has_focus() || s.perf.finding || s.plugdb.finding
+            || (s.plugin_picker.open && !s.plugin_picker.minimized)
+            || self.info_editing() || self.folder_cell_editing() || self.name_editing() || self.theme_editor_focused()
+            || (settings.open && ((settings.tab == views::settings::VISIBILITY && settings.visibility_search_focused)
+                || (settings.tab == views::settings::MENUS && settings.menu_editor.name_focused)))
+    }
+
     /// A physical key went down or up. Returns true when the typing keyboard took it (a note key or
     /// the octave keys while the switch is on, or the release of a held note); the caller then
     /// skips the normal shortcut handling. Spec: ui/typing-keyboard.md.
     pub fn typing_key(&mut self, code: KeyCode, pressed: bool, ctrl: bool, alt: bool) -> bool {
         if pressed && (crate::help::is_open(&self.state) || (self.state.settings.open && self.state.settings.tab == views::settings::CONTROLS)) { return false; }
-        if pressed && (self.state.plugin_picker.open || self.state.playlist.popup.is_some()) { return false; }
-        // A playlist text box (track / marker name, point value) takes the letters.
-        if pressed && (self.modal_open() || self.state.playlist.edit.is_some() || self.state.plugdb.finding || self.state.pat_ui.name_box.is_some() || self.state.pat_ui.confirm || self.browser_takes_typing() || self.state.perf.finding) {
-            return false;
-        }
-        // So does a box of the settings window's Info page, and a browser folder cell.
-        let settings = &self.state.settings;
-        let visibility_search = settings.open && settings.tab == views::settings::VISIBILITY && settings.visibility_search_focused;
-        let menu_name = settings.open && settings.tab == views::settings::MENUS && settings.menu_editor.name_focused;
-        if pressed && (self.info_editing() || self.folder_cell_editing() || self.name_editing() || visibility_search || menu_name || self.theme_editor_focused()) {
+        if pressed && (self.text_input_focused() || self.state.playlist.popup.is_some()
+            || self.state.pat_ui.confirm || self.browser_takes_typing()) {
             return false;
         }
         if !pressed {
@@ -10253,6 +10359,9 @@ impl App {
             }
             Action::Warp(c)=>{crate::warp::command(self,c);},
             Action::Vocal(c)=>{if right{crate::vocal::context(self);}else{crate::vocal::command(self,c);}},
+            Action::VocalResize(row) => {
+                if !right { crate::vocal::resize::press(self, row); }
+            }
             Action::PlHeader(t) => {
                 let at = self.top_hit(self.mouse.0, self.mouse.1).map_or(self.mouse, |h| (h.rect.x, h.rect.y));
                 pl::press_header(self, t, right, at);
@@ -10283,6 +10392,14 @@ impl App {
                 if let Some(hit) = self.top_hit(x, y) {
                     let rect = hit.rect;
                     crate::scoring::open_tracks_menu(&mut self.state, rect.x, rect.bottom());
+                }
+            }
+            Action::PlAddTrack if !right => {
+                let row = pl::track_count(&self.state);
+                if row < pl::TRACKS {
+                    self.state.message = pl::run(self, pl::Cmd::TrackInsert(row));
+                    if self.state.message.is_none() && !crate::attached_mixer::active(&self.state) { self.state.playlist.track = row; }
+                    self.invalidate();
                 }
             }
             Action::PlAddInstrument if !right => {
@@ -10523,10 +10640,11 @@ impl App {
         }
         let s = &mut self.state;
         match a {
+            Action::TextCaret(target, index) => target.press(self, index),
             Action::PianoVerticalZoom => {
                 self.drag = Some(Drag::PianoRowZoom { y0: self.mouse.1, row0: s.piano.row_h });
             }
-            Action::Warp(_)|Action::Vocal(_)=>{},
+            Action::Warp(_)|Action::Vocal(_)|Action::VocalResize(_)=>{},
             Action::RackStrip(_)=>{},
             Action::PianoGrid | Action::PianoNote(_) | Action::PianoVelocity | Action::PianoKeys | Action::PianoRuler | Action::PianoSplitter | Action::Scrollbar(_) | Action::ScrollStep(..) => {}
             Action::PianoTool(t) => {
@@ -10957,7 +11075,7 @@ impl App {
                 self.damage_win(Win::PianoRoll);
             }
             Action::CloseWin(w) => s.hide(w),
-            Action::BrowserPreview(_) | Action::StarterPack(_) | Action::PluginDownload(_, _) | Action::BrowserRow(_) | Action::BrowserTab(_) | Action::BrowserList | Action::BrowserScroll | Action::BrowserCollapse | Action::BrowserReread | Action::BrowserMenu | Action::BrowserSearch | Action::BrowserSplitter => {}
+            Action::BrowserLibrary(_) | Action::BrowserPreview(_) | Action::StarterPack(_) | Action::PluginDownload(_, _) | Action::BrowserRow(_) | Action::BrowserTab(_) | Action::BrowserList | Action::BrowserScroll | Action::BrowserCollapse | Action::BrowserReread | Action::BrowserMenu | Action::BrowserSearch | Action::BrowserSplitter => {}
             Action::TypeIn(t) => crate::typein::click(s, t),
             Action::Voice(_) | Action::Ai | Action::Donate | Action::ReportBug | Action::Updates | Action::PlaylistArea | Action::MixerArea | Action::RackArea | Action::RackStepGap | Action::InlineText(_) | Action::Swallow => {}
             Action::PlTool(_)
@@ -10965,6 +11083,7 @@ impl App {
             | Action::PlOptions
             | Action::PlClips
             | Action::PlAddInstrument
+            | Action::PlAddTrack
             | Action::PlTimelineTracks
             | Action::ScoringLane(..) | Action::ScoringVideoClose
             | Action::PlRuler
@@ -12912,6 +13031,64 @@ mod tests {
         mx::select(&mut app.state, 4, false);
         assert_eq!(mx::route(&mut app.state, 6, false, false), None);
         assert!(mx::track(&app.state, 4).unwrap().routes.contains(&6));
+    }
+
+    #[test]
+    fn no_tracks_template_attached_add_preserves_mixer_after_deleting_lanes() {
+        use crate::playlist as pl;
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        let mixer = app.state.project.mixer.clone();
+        assert!(pl::delete_playlist_rows(&mut app, None).is_none());
+        crate::attached_mixer::toggle(&mut app);
+        assert_eq!(crate::attached_mixer::projection(&app.state).lane_count, 0);
+        app.act(Action::PlAddTrack);
+        assert_eq!(pl::track_count(&app.state), 1);
+        assert_eq!(app.state.project.mixer.len(), mixer.len() + 1);
+        assert!(pl::delete_playlist_rows(&mut app, Some(0)).is_none());
+        assert_eq!(pl::track_count(&app.state), 0);
+        assert_eq!(app.state.project.mixer.len(), mixer.len() + 1);
+        crate::history::undo(&mut app.state);
+        assert_eq!(pl::track_count(&app.state), 1);
+    }
+
+    #[test]
+    fn no_tracks_template_delete_add_undo_and_reopen() {
+        use crate::playlist as pl;
+        let mut app = App::new(None);
+        let item = crate::project_files::template_items(&app.state).into_iter()
+            .find(|item| item.label == crate::templates::NO_TRACKS).unwrap();
+        pl::run(&mut app, item.cmd);
+        assert_eq!(pl::track_count(&app.state), 0);
+        assert_eq!(crate::mixer::inserts(&app.state), 0);
+        app.state.z = vec![Win::Playlist];
+        let mut canvas = Canvas::new(1280, 900, 1.).unwrap();
+        frame(&mut app, &mut canvas, None);
+        assert!(!app.hits.iter().any(|h| matches!(h.action, Action::PlHeader(_))));
+        let button = hit_rect(&app, &Action::PlAddTrack);
+        click(&mut app, &mut canvas, button);
+        assert_eq!(pl::track_count(&app.state), 1);
+        let path = std::env::temp_dir().join("playlist-no-tracks-roundtrip.lmn");
+        app.save_to(path.clone());
+        pl::run(&mut app, pl::Cmd::TrackDelete(0));
+        assert_eq!(pl::track_count(&app.state), 0);
+        crate::history::undo(&mut app.state);
+        assert_eq!(pl::track_count(&app.state), 1);
+        crate::history::redo(&mut app.state);
+        assert_eq!(pl::track_count(&app.state), 0);
+        app.save_to(path.clone());
+        app.open(path.clone());
+        assert_eq!(pl::track_count(&app.state), 0);
+        app.empty_project();
+        assert_eq!(pl::track_count(&app.state), pl::TRACKS);
+        let inserts = crate::mixer::inserts(&app.state);
+        pl::run(&mut app, pl::Cmd::TrackDeleteAll);
+        app.dialog_done(crate::dialog::Then::DeleteAllPlaylistTracks(0), crate::dialog::Reply::Button(crate::dialog::Answer::Yes));
+        assert_eq!(pl::track_count(&app.state), 0);
+        assert_eq!(crate::mixer::inserts(&app.state), inserts);
+        assert_eq!(crate::history::undo(&mut app.state), Some("Delete Playlist tracks"));
+        assert_eq!(pl::track_count(&app.state), pl::TRACKS);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -19553,7 +19730,7 @@ LemonStudioStyle.button-radius=8
         for ch in ["z", "z"] {
             app.key(&Key::Character(SmolStr::new(ch)), false, false);
         }
-        assert_eq!(app.state.perf.find, "zz");
+        assert_eq!(app.state.perf.find.as_str(), "zz");
         assert!(app.state.perf.shown().is_empty());
         frame(&mut app, &mut c, None);
         app.key(&Key::Named(NamedKey::Backspace), false, false);
@@ -20114,6 +20291,7 @@ LemonStudioStyle.button-radius=8
     /// Browser (spec: ui/browser.md): tabs, opening nodes, dragging a pattern and a generator onto the playlist.
     #[test]
     fn browser_tree_and_drag() {
+        crate::prefs::set_check(&crate::prefs::LEGACY_BROWSER,true);
         use crate::views::browser::{rows, Item};
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
@@ -22049,7 +22227,7 @@ LemonStudioStyle.button-radius=8
         assert!(search.x>880.);
         click(&mut app,&mut c,search);
         assert!(app.browser_key(&Key::Character("pattern".into()),false,false));
-        assert_eq!(app.state.browser_search,"pattern");
+        assert_eq!(app.state.browser_search.as_str(),"pattern");
         app.browser_key(&Key::Named(NamedKey::Escape),false,false);
         for vintage in [false,true] {
             app.state.vintage_2005=vintage;
@@ -22169,6 +22347,8 @@ LemonStudioStyle.button-radius=8
         app.state.playlist.popup=None;
         app.browser_cmd(crate::browser::BCmd::Toggle(crate::views::browser::OPT_PARENTS));
         assert!(crate::views::browser::opt(&app.state, "parents"));
+        // Refresh the hit regions after dismissing the menu above the search field.
+        frame(&mut app, &mut c, None);
         // Click the search box and type: the whole tree is searched, closed nodes included.
         let r0 = hit_rect(&app, &Action::BrowserSearch);
         click(&mut app, &mut c, r0);
@@ -22176,7 +22356,7 @@ LemonStudioStyle.button-radius=8
         for ch in ["k", "i", "c", "k"] {
             app.key(&Key::Character(SmolStr::new(ch)), false, false);
         }
-        assert_eq!(app.state.browser_search, "kick");
+        assert_eq!(app.state.browser_search.as_str(), "kick");
         let r = rows(&app.state);
         // Parents kept: Current project > Patterns > Kick + Clap, and Generators > Kick.
         assert_eq!(r[0].label, "Current project");
@@ -25839,6 +26019,17 @@ LemonStudioStyle.button-radius=8
         let f = |t: u32| os_engine::laws::tick_to_frame(f64::from(t), 96, app.state.tempo, 44100) as usize;
         assert!(loud(&t1, f(step), f(step + ppq)) && !loud(&t3, f(step), f(step + ppq)), "track 1's clip only in its file");
         assert!(loud(&t3, f(2 * bar), f(2 * bar + ppq)), "track 3's clip in its file");
+        let old = std::fs::read(dir.join("01 Track 1.wav")).unwrap();
+        assert_eq!(pl::export_tracks(&mut app), "Waiting for export confirmation");
+        app.answer(crate::dialog::Reply::Button(crate::dialog::Answer::No));
+        assert_eq!(std::fs::read(dir.join("01 Track 1.wav")).unwrap(), old);
+        crate::export::set_auto_number(true);
+        let numbered = dir.with_file_name(format!("os-export-{} (2) tracks", std::process::id()));
+        assert!(pl::export_tracks(&mut app).contains(&numbered.to_string_lossy().into_owned()));
+        assert!(numbered.join("01 Track 1.wav").is_file());
+        assert!(numbered.join("03 Track 3.wav").is_file());
+        assert_eq!(std::fs::read(dir.join("01 Track 1.wav")).unwrap(), old);
+        let _ = std::fs::remove_dir_all(&numbered);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -27467,6 +27658,126 @@ LemonStudioStyle.button-radius=8
             assert!(settings::page(settings::ABOUT, &app.state).iter().any(|group| group.rows.iter().any(|row| matches!(row, settings::Row::Big(text) if text == "ML Studio"))));
             if let Some(dir) = std::env::var_os("OS_SHOT_DIR") {
                 canvas.pixmap.save_png(PathBuf::from(dir).join(format!("about-{}.png", design.key()))).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn assigned_track_colors_apply_independently_to_real_surfaces() {
+        use crate::advanced_theme::{self as editor, FieldFor, Hit, Row};
+        use crate::mixer::MHit;
+        use crate::views::settings::{self, SAct};
+        use os_model::{Clip, ClipSource, PlaylistTrack, Rgb};
+        use os_theme::Color;
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.startup_layout_pending = false;
+        app.open_settings(settings::THEME);
+        app.start_theme_editor();
+        let mut settings = editor::groups(editor::ASSIGNED_COLOR_SECTION);
+        let (_, rows) = settings.pop().expect("assigned color controls");
+        let fields: Vec<_> = rows.iter().filter_map(|row| if let Row::Style(i) = row { Some(*i) } else { None }).collect();
+        assert_eq!(fields.len(), 5);
+        let assigned = Color::rgb(0xfe13b7);
+        let rgb = Rgb::new(assigned.r, assigned.g, assigned.b);
+        let palette = app.theme.colors.appearance.assigned_colors;
+        assert_eq!(palette.traditional_mixer.fill(Color::rgb(0), Some(assigned)), None);
+        let set = |app: &mut App, field, value: &str| {
+            app.settings_act(SAct::ThemeEditor(Hit::Field(FieldFor::Number(field))));
+            app.key(&winit::keyboard::Key::Character(value.into()), false, false);
+            app.key(&winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter), false, false);
+        };
+        let base = Color::rgb(0x222222);
+        set(&mut app, fields[0], "60");
+        let palette = app.theme.colors.appearance.assigned_colors;
+        assert_eq!(palette.traditional_mixer.fill(base, Some(assigned)), Some(base.mix(assigned, 0.6)));
+        assert_eq!(palette.full_mixer.fill(base, Some(assigned)), None);
+        for field in fields {
+            set(&mut app, field, "100");
+        }
+        let palette = app.theme.colors.appearance.assigned_colors;
+        assert_eq!(palette.full_mixer.fill(base, None), None);
+        crate::workspace_visibility::toggle(editor::ASSIGNED_COLOR_VISIBILITY);
+        assert!(editor::groups(editor::ASSIGNED_COLOR_SECTION).is_empty());
+        assert_eq!(app.theme.colors.appearance.assigned_colors, palette);
+        crate::workspace_visibility::toggle(editor::ASSIGNED_COLOR_VISIBILITY);
+        app.state.settings.open = false;
+
+        let mut canvas = Canvas::new(1600, 1125, 1.25).unwrap();
+        let exact_pixels = |canvas: &Canvas, rect: Rect| {
+            let x0 = (rect.x * canvas.scale).clamp(0.0, canvas.pixmap.width() as f32) as u32;
+            let x1 = (rect.right() * canvas.scale).clamp(0.0, canvas.pixmap.width() as f32) as u32;
+            let y0 = (rect.y * canvas.scale).clamp(0.0, canvas.pixmap.height() as f32) as u32;
+            let y1 = (rect.bottom() * canvas.scale).clamp(0.0, canvas.pixmap.height() as f32) as u32;
+            (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).filter(|&(x, y)| {
+                canvas.pixmap.pixel(x, y).is_some_and(|c| (c.red(), c.green(), c.blue(), c.alpha()) ==
+                    (assigned.r, assigned.g, assigned.b, 255))
+            }).count()
+        };
+        app.state.project.mixer[1].color = Some(rgb);
+        app.state.z = vec![Win::Mixer];
+        app.state.wins[Win::Mixer.slot().unwrap()].maxed = true;
+        for layout in [crate::mixer::TRADITIONAL, crate::mixer::WIDE, crate::rack_mixer::VIEW] {
+            app.state.mixer.layout = layout;
+            for selected in [1, 2] {
+                app.state.selected_mixer = selected;
+                frame(&mut app, &mut canvas, None);
+                let strip = hit_rect(&app, &Action::Mix(MHit::Strip(1)));
+                assert!(exact_pixels(&canvas, strip) > 100, "layout {layout} selected {selected}");
+            }
+        }
+
+        app.state.z = vec![Win::ChannelRack];
+        app.state.project.channels[0].color = Some(rgb);
+        app.state.rack_pos = (32.0, 150.0);
+        frame(&mut app, &mut canvas, None);
+        assert!(exact_pixels(&canvas, hit_rect(&app, &Action::ChannelSelect(0))) > 100);
+
+        app.state.z = vec![Win::Playlist];
+        app.state.wins[Win::Playlist.slot().unwrap()].maxed = true;
+        let a = crate::playlist::arr_mut(&mut app.state);
+        a.tracks.resize_with(1, || PlaylistTrack::new(1));
+        a.tracks[0].color = Some(rgb);
+        let mut clip = Clip::new(0, 384, 0, ClipSource::Pattern(1));
+        clip.color = Some(rgb);
+        a.clips.push(clip);
+        app.state.playlist.header_selection = vec![0];
+        app.state.playlist.sel = vec![0];
+        frame(&mut app, &mut canvas, None);
+        assert!(exact_pixels(&canvas, hit_rect(&app, &Action::PlHeader(0))) > 100);
+        let g = crate::playlist::PGeom::new(&app.state, app.pl_grid().unwrap());
+        assert!(exact_pixels(&canvas, g.body(&crate::playlist::clips(&app.state)[0])) > 100);
+    }
+
+    #[test]
+    fn mixer_inspector_title_clears_the_layout_picker_and_window_controls() {
+        use crate::mixer::{self as mx, MHit};
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.project.mixer[1].name = Some("Instrument Mix — a longer track name".into());
+        app.state.selected_mixer = 1;
+        app.state.startup_layout_pending = false;
+        app.state.z = vec![Win::Mixer];
+        let mut canvas = Canvas::new(1600, 1125, 1.25).unwrap();
+        let slot = Win::Mixer.slot().unwrap();
+        for left in [false, true] {
+            crate::prefs::set_text("mixer_inspector_left", if left { "true" } else { "false" });
+            for layout in [mx::WIDE, crate::rack_mixer::VIEW] {
+                app.state.mixer.layout = layout;
+                for width in [Win::Mixer.min_size().0, 980.0] {
+                    app.state.wins[slot] = WinState { rect: Rect::new(280.0, 150.0, width, 630.0), maxed: false, mini: false };
+                    frame(&mut app, &mut canvas, None);
+                    let caption = app.hits.iter().find(|hit| hit.hint.starts_with("Mixer - Instrument Mix")).unwrap().rect;
+                    let detach = hit_rect(&app, &Action::DetachWin(Win::Mixer));
+                    let input = hit_rect(&app, &Action::Mix(MHit::Input(1)));
+                    assert!(caption.w >= 110.0 && caption.right() + 5.0 <= detach.x);
+                    assert!(caption.x < input.right() && caption.bottom() < input.y);
+                    if layout == mx::WIDE {
+                        let dropdown = hit_rect(&app, &Action::Mix(MHit::Layout));
+                        assert!(caption.intersect(&dropdown).is_empty());
+                        assert_eq!(app.top_hit(dropdown.cx(), dropdown.cy()).unwrap().action, Action::Mix(MHit::Layout));
+                    }
+                }
             }
         }
     }
@@ -29382,7 +29693,7 @@ LemonStudioStyle.button-radius=8
         click_popup_item(&mut app, &mut c, |item| item.label == "Browser find...");
         assert!(app.state.show_browser && app.state.browser_search_focus && app.state.menu_open.is_none());
         app.key(&Key::Character("k".into()), false, false);
-        assert_eq!(app.state.browser_search, "k");
+        assert_eq!(app.state.browser_search.as_str(), "k");
         // Ctrl+F does the same; a name box keeps the keys.
         let windows = app.state.z.clone();
         app.key(&Key::Named(NamedKey::Escape), false, false);

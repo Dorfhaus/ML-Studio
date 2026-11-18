@@ -804,3 +804,22 @@ fn multidelay_parse(k: usize, s: &str) -> Option<i32> {
     let p = MULTIDELAY.settings.get(k)?;
     Some(((v * scale).round() as i32).clamp(p.range.0, p.range.1))
 }
+
+pub static RISER: Spec = Spec {
+    name: "ML Riser",
+    word: "RISER",
+    about: "ML Riser. Based on NULL Riser by Christos Koulaxizis (MIT).",
+    settings: &[Setting { id: "intensity", name: "Intensity", range: (0, 100), start: 0, magnet: None }],
+    studio_settings: 1,
+    version: None, any_version: false, fields: &[], tail: &[],
+    size: (560, 270),
+    cards: &[Card { x0: 16., x1: 206., y0: 28., y1: 200., heading: "INTENSITY" }],
+    controls: &[Control::Knob { id: "intensity", cx: 111., cy: 106., r: 46., caption: "", bipolar: false }],
+    display: None,
+    mark: Mark { x: 542., y: 250., anchor: 1., stacked: false },
+    hint: None, labels: &[],
+    text: |_, v| format!("{v}%"),
+    parse: |_, s| s.trim().trim_end_matches('%').trim().parse::<f64>().ok()
+        .filter(|v| v.is_finite()).map(|v| v.round() as i32),
+    sound: |_, _| unreachable!(), rings: true,
+};

@@ -888,13 +888,17 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
         }
         GENERAL => {
             let mut groups = vec![
-                gf("Workspace", true, vec![Buttons({
+                gf("Workspace", true, {
                     let mut buttons = vec![(OPEN_VISIBILITY, 182.0)];
                     if tab_shown(MENUS) {
                         buttons.push((crate::menu_layout::OPEN, 156.0));
                     }
-                    buttons
-                })]),
+                    let mut rows = vec![Buttons(buttons)];
+                    if crate::workspace_visibility::shown(crate::views::browser::library::VISIBILITY) {
+                        rows.push(Check(crate::prefs::LEGACY_BROWSER.label, false));
+                    }
+                    rows
+                }),
                 // Display and Language apply at once, so they leave off FL's "(requires a restart to take effect)" (spec:
                 // ui/settings.md "General").
                 gf("Display", true, vec![
@@ -1998,10 +2002,9 @@ fn paint_row_at(ui: &mut Ui, s: &State, group: &'static str, row: &Row, g: Rect,
             use crate::menu_layout::Action as M;
             let r = Rect::new(x0, y + 4., 274., 28.);
             let editor = &s.settings.menu_editor;
-            let hover = ui.hit(r, Action::Settings(SAct::MenuLayout(M::Name)), "Name your new submenu");
+            ui.hit(r, Action::Settings(SAct::MenuLayout(M::Name)), "Name your new submenu");
             super::sunken(ui, r, t.sunken);
-            let label = if editor.name.text.is_empty() { "New submenu name…" } else { &editor.name.text };
-            cell_text(ui, r, label, editor.name_focused.then_some(&editor.name), hover);
+            search_field(ui, r, &editor.name, editor.name_focused, crate::dialog::text::Target::MenuName, "New submenu name…");
             menu_button(ui, Rect::new(r.right() + 8., r.y, 126., r.h), "Add submenu",
                 (!editor.name.text.trim().is_empty()).then_some(M::Add), "Create a submenu in the first menu");
         }
@@ -2050,10 +2053,9 @@ fn paint_row_at(ui: &mut Ui, s: &State, group: &'static str, row: &Row, g: Rect,
             let box_rect = Rect::new(x0, y + 4.0, 270.0, 28.0);
             let focused = s.settings.visibility_search_focused;
             let field = &s.settings.visibility_search;
-            let hover = ui.hit(box_rect, Action::Settings(SAct::VisibilitySearch), "Search visibility controls");
+            ui.hit(box_rect, Action::Settings(SAct::VisibilitySearch), "Search visibility controls");
             super::sunken(ui, box_rect, t.sunken);
-            let label = if field.text.is_empty() { "Search visibility controls..." } else { &field.text };
-            cell_text(ui, box_rect, label, focused.then_some(field), hover);
+            search_field(ui, box_rect, field, focused, crate::dialog::text::Target::Visibility, "Search visibility controls...");
         }
         Row::Buttons(bs) => {
             let mut x = x0;
@@ -2342,26 +2344,22 @@ fn info_box(ui: &mut Ui, s: &State, field: InfoField, b: Rect) {
     let well = if edit.is_some() { t.s(0x141516) } else if hov { t.s(0x1d1f21) } else { t.s(0x191b1c) };
     kit::sunken(ui.c, t, b, well);
     let shown = field.get(&s.project.info).as_deref().unwrap_or("");
-    let (text, caret, all) = match edit {
-        Some(e) => (e.text.as_str(), Some(e.caret), e.all && !e.text.is_empty()),
-        None => (shown, None, false),
-    };
     let sel = if super::lemon(ui) { t.brand_sel(os_theme::design::lemon::COLORED_DARK) } else { t.a(0x2d5a8c) };
     let inner = Rect::new(b.x + 6.0, b.y + 3.0, b.w - 12.0, b.h - 6.0);
-    ui.c.push_clip(inner);
     if !field.multiline() {
-        let caret_x = caret.map_or(0.0, |c| ui.c.text_width(f, &text[..byte_at(text, c)]));
-        let x = inner.x - (caret_x - (inner.w - 2.0)).max(0.0);
-        let y = (b.cy() - lh / 2.0).round();
-        if all {
-            let w = ui.c.text_width(f, text);
-            ui.c.fill_rect(Rect::new(x - 1.0, y, w + 2.0, lh), sel);
-        }
-        ui.c.text(f, x, y, t.text, text);
-        if caret.is_some() && !all {
-            ui.c.fill_rect(Rect::new((x + caret_x).round(), y, 1.0, lh), t.text);
-        }
+        use crate::dialog::text;
+        let unedited;
+        let entry = if let Some(entry) = edit { entry } else {
+            unedited = crate::dialog::Field::from(shown);
+            &unedited
+        };
+        let origin = text::paint(ui, inner, entry, edit.is_some(), f, t.text, sel, "");
+        text::carets(ui, b, entry, f, origin, |i| Action::TextCaret(text::Target::Info(field), i), hint);
     } else {
+        let text = edit.map_or(shown, |entry| entry.as_str());
+        let caret = edit.map(|entry| entry.caret);
+        let selection = edit.and_then(crate::dialog::Field::selection);
+        ui.c.push_clip(inner);
         let lines = wrap(ui, f, text, inner.w - 2.0);
         // The caret's line: the last one starting at or before it.
         let at = caret.map(|c| lines.iter().rposition(|&(start, _)| start <= c).unwrap_or(0));
@@ -2369,20 +2367,25 @@ fn info_box(ui: &mut Ui, s: &State, field: InfoField, b: Rect) {
         for (i, &(start, n)) in lines.iter().enumerate().skip(top).take(COMMENT_LINES) {
             let y = inner.y + 1.0 + (i - top) as f32 * COMMENT_LINE_H + ((COMMENT_LINE_H - lh) / 2.0).round();
             let line = &text[byte_at(text, start)..byte_at(text, start + n)];
-            if all {
-                let w = ui.c.text_width(f, line);
-                ui.c.fill_rect(Rect::new(inner.x - 1.0, y, w + 2.0, lh), sel);
+            if let Some((a, b)) = selection {
+                let left = a.clamp(start, start + n);
+                let right = b.clamp(start, start + n);
+                if left < right {
+                    let from = ui.c.text_width(f, &text[byte_at(text, start)..byte_at(text, left)]);
+                    let to = ui.c.text_width(f, &text[byte_at(text, start)..byte_at(text, right)]);
+                    ui.c.fill_rect(Rect::new(inner.x + from, y, to - from, lh), sel);
+                }
             }
             ui.c.text(f, inner.x, y, t.text, line);
             if let (Some(c), Some(l)) = (caret, at) {
-                if l == i && !all {
+                if l == i {
                     let cx = ui.c.text_width(f, &text[byte_at(text, start)..byte_at(text, c)]);
                     ui.c.fill_rect(Rect::new((inner.x + cx).round(), y, 1.0, lh), t.text);
                 }
             }
         }
+        ui.c.pop_clip();
     }
-    ui.c.pop_clip();
 }
 
 /// Byte offset of character `i` in `s` (its length past the end).
@@ -2473,14 +2476,19 @@ fn search_folders(ui: &mut Ui, s: &State, b: Rect) {
         for (col, cr, text, hint) in cells {
             let typing = edit.filter(|e| e.row == i && e.col == col).map(|e| &e.text);
             let hov = ui.hit(cr, Action::Settings(SAct::FolderCell(i, col)), if typing.is_some() { "Enter accepts, Esc cancels" } else { hint });
-            cell_text(ui, cr, text, typing, hov);
+            let origin = cell_text(ui, cr, text, typing, hov);
+            if let Some(entry) = typing {
+                use crate::dialog::text;
+                text::carets(ui, cr, entry, Font::new(13), origin,
+                    |index| Action::TextCaret(text::Target::Folder(i, col), index), "Enter accepts, Esc cancels");
+            }
         }
     }
 }
 
 /// A list cell's text, or the text being typed into it: a darker well, the text scrolled sideways to keep the caret in
 /// view, the caret or the selection.
-pub(crate) fn cell_text(ui: &mut Ui, r: Rect, text: &str, typing: Option<&crate::dialog::Field>, hov: bool) {
+pub(crate) fn cell_text(ui: &mut Ui, r: Rect, text: &str, typing: Option<&crate::dialog::Field>, hov: bool) -> f32 {
     let t = ui.t;
     let f = Font::new(13);
     let lh = ui.c.line_height(f);
@@ -2488,23 +2496,11 @@ pub(crate) fn cell_text(ui: &mut Ui, r: Rect, text: &str, typing: Option<&crate:
     let inner = Rect::new(r.x + 4.0, r.y, r.w - 8.0, r.h);
     let Some(e) = typing else {
         ui.c.text_clip(f, inner.x, y, inner.w, if hov { t.glyph } else { t.text }, text);
-        return;
+        return inner.x;
     };
     ui.c.fill_rect(r, t.s(0x141516));
     let sel = if super::lemon(ui) { t.brand_sel(os_theme::design::lemon::COLORED_DARK) } else { t.a(0x2d5a8c) };
-    ui.c.push_clip(inner);
-    let caret_x = ui.c.text_width(f, e.before_caret());
-    let x = inner.x - (caret_x - (inner.w - 2.0)).max(0.0);
-    let all = e.all && !e.text.is_empty();
-    if all {
-        let w = ui.c.text_width(f, &e.text);
-        ui.c.fill_rect(Rect::new(x - 1.0, y, w + 2.0, lh), sel);
-    }
-    ui.c.text(f, x, y, t.text, &e.text);
-    if !all {
-        ui.c.fill_rect(Rect::new((x + caret_x).round(), y, 1.0, lh), t.text);
-    }
-    ui.c.pop_clip();
+    crate::dialog::text::paint(ui, inner, e, true, f, t.text, sel, "")
 }
 
 /// Search folders (spec: ui/plugin-manager.md §2): a check, the path, the tag; added folders end with a remove button.
@@ -2664,17 +2660,19 @@ fn table(ui: &mut Ui, s: &State, area: Rect) {
     let well = if d.finding { t.s(0x141516) } else if hov { t.s(0x1d1f21) } else { t.s(0x191b1c) };
     kit::sunken(ui.c, t, fr, well);
     crate::icons::draw(ui.c, crate::icons::Icon::Search, Rect::new(fr.x + 5.0, fr.cy() - 6.5, 13.0, 13.0), t.text_dim);
-    let tx = fr.x + 23.0;
-    let ty = (fr.cy() - lh / 2.0).round();
-    if d.find.is_empty() && !d.finding {
-        ui.c.text(f, tx, ty, t.text_dim, "Find");
-    } else {
-        ui.c.text_clip(f, tx, ty, fr.w - 30.0, t.text, &d.find);
-        if d.finding {
-            let cx = (tx + ui.c.text_width(f, &d.find)).min(fr.right() - 6.0);
-            ui.c.fill_rect(Rect::new(cx.round() + 1.0, fr.y + 4.0, 1.0, fr.h - 8.0), t.text);
-        }
-    }
+    let search = Rect::new(fr.x + 19.0, fr.y, fr.w - 19.0, fr.h);
+    search_field(ui, search, &d.find, d.finding, crate::dialog::text::Target::PluginManager, "Find");
+}
+
+fn search_field(
+    ui: &mut Ui, bounds: Rect, field: &crate::dialog::Field, focused: bool,
+    target: crate::dialog::text::Target, placeholder: &'static str,
+) {
+    use crate::dialog::text;
+    let font = Font::new(13);
+    let inner = Rect::new(bounds.x + 6.0, bounds.y, (bounds.w - 12.0).max(0.0), bounds.h);
+    let origin = text::paint(ui, inner, field, focused, font, ui.t.text, ui.t.accent.with_alpha(90), placeholder);
+    text::carets(ui, bounds, field, font, origin, |index| Action::TextCaret(target, index), placeholder);
 }
 
 /// General ▸ Display's PPI ruler from `x` (the page's left margin), centred a little above `cy` (spec:

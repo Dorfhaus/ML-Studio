@@ -272,11 +272,13 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     let inspector = Rect::new(if left { r.x } else { r.right() - panel_w }, r.y, panel_w, r.h);
     let r = if left { Rect::new(r.x + panel_w, r.y, r.w, r.h) } else { r };
     let client = super::window_frame_ex(ui, Win::Mixer, Rect::new(r.x, r.y, r.w - panel_w, r.h), "", 0.0, false, inner.is_some());
-    let size_picker=if mx::view(s)==mx::WIDE && crate::workspace_visibility::shown(mx::FULL_SIZE_VISIBILITY) {
-        let end=full_title.right()-96.;
-        let width=(end-r.x-124.).clamp(64.,152.);
-        Some(Rect::new(end-width,full_title.y+2.,width,20.))
-    }else{None};
+    let buttons_x = full_title.right() - 58.0;
+    let title_right = buttons_x - super::WINDOW_DETACH_OFFSET - 6.0;
+    let size_picker = if mx::view(s) == mx::WIDE && crate::workspace_visibility::shown(mx::FULL_SIZE_VISIBILITY) {
+        let end = if left { full_title.right() - 96.0 } else { inspector.x - 6.0 };
+        let width = (end - r.x - 124.0).clamp(0.0, 152.0);
+        (width >= 64.0).then(|| Rect::new(end - width, full_title.y + 2.0, width, 20.0))
+    } else { None };
     let after_tools = title_tools(ui, s, r, size_picker.map_or(r.right()-panel_w,|p|p.x-8.));
     if mx::view(s)==crate::rack_mixer::VIEW && mx::selected(s).len()==1 {
         let notice=Rect::new(after_tools,r.y+2.,(r.right()-panel_w-after_tools-82.).max(0.),19.);
@@ -286,8 +288,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     if r.h < 2.0 * TITLE_H {
         // Collapsed to the title bar: only the slot panel's title with the window buttons.
         s.cables.borrow_mut().clear();
-        slot_panel(ui, s, inspector);
-        window_buttons(ui, Win::Mixer, full_title.right() - 58.0, full_title.y, ui.t.tx(0xd4dade), ui.t.tx(0xffffff));
+        slot_panel(ui, s, inspector, title_right);
+        window_buttons(ui, Win::Mixer, buttons_x, full_title.y, ui.t.tx(0xd4dade), ui.t.tx(0xffffff));
         return;
     }
     let ly = Ly::for_state(r,s);
@@ -376,10 +378,10 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
 
     ui.part(crate::app::Seg::MixerInspector, inspector, |ui| {
         if !crate::strip_layout::inspector(ui, s, inspector) {
-            slot_panel(ui, s, inspector);
+            slot_panel(ui, s, inspector, title_right);
         }
     });
-    window_buttons(ui, Win::Mixer, full_title.right() - 58.0, full_title.y, ui.t.tx(0xd4dade), ui.t.tx(0xffffff));
+    window_buttons(ui, Win::Mixer, buttons_x, full_title.y, ui.t.tx(0xd4dade), ui.t.tx(0xffffff));
     if let Some(picker) = size_picker {
         let hover = ui.hit(picker, Action::Mix(MHit::Layout), "Full Mixer size");
         os_ui::kit::combo(ui.c, ui.t, picker, mx::full_size(s).0, Font::new(12), os_ui::kit::State::hover(hover));
@@ -751,18 +753,19 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
     let tint = track.and_then(|m| m.color).map(super::rgb);
     let base = if selected { ui.t.s(0x343c40) } else { ui.t.s(0x292f32) };
     let body = tint.map_or(base, |c| mix(base, c, 0.12));
+    let flat_body = t.appearance.assigned_colors.full_mixer.fill(t.mixer_strip, tint);
     let header = tint.map_or(ui.t.s(0x343b40), |c| mix(ui.t.s(0x303639), c, 0.24));
     let lemon = super::lemon(ui);
-    if console || t.style.vintage_2005 {
+    if (console || t.style.vintage_2005) && flat_body.is_none() {
         // Modern selection is drawn once around the whole strip below.
         console_skin::panel(ui,Rect::new(left,ly.y(HEAD_Y1)+1.,width,bottom-ly.y(HEAD_Y1)-1.),body,selected && !attached && t.style.vintage_2005);
     } else if lemon {
         // Lemon (spec: ui/lemon-design.md §8): each strip is a rounded card on the dark gap colour.
         let card = Rect::new(left, ly.y(HEAD_Y1) + 1.0, width, bottom - ly.y(HEAD_Y1) - 1.0);
         ui.c.fill_rect(card, ui.t.s(0x131517));
-        ui.c.fill_rrect(Rect::new(card.x + 1.5, card.y + 1.0, card.w - 3.0, card.h - 4.0), lk::r_panel(t), body);
+        ui.c.fill_rrect(Rect::new(card.x + 1.5, card.y + 1.0, card.w - 3.0, card.h - 4.0), lk::r_panel(t), flat_body.unwrap_or(body));
     } else {
-        ui.c.fill_rect(Rect::new(left, ly.y(HEAD_Y1) + 1.0, width, bottom - ly.y(HEAD_Y1) - 1.0), body);
+        ui.c.fill_rect(Rect::new(left, ly.y(HEAD_Y1) + 1.0, width, bottom - ly.y(HEAD_Y1) - 1.0), flat_body.unwrap_or(body));
         ui.c.fill_rect(Rect::new(left + width - 1.0, ly.y(HEAD_Y1) + 1.0, 1.0, bottom - ly.y(HEAD_Y1) - 1.0), ui.t.s(0x1c1f21));
     }
     // Select from the strip body. Below it, only explicit send controls and the footer take clicks.
@@ -812,7 +815,9 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
 
     if vertical {
         let pane=vertical_rect(left,width,ly);
-        console_skin::panel(ui,Rect::new(left,pane.bottom()+1.,width,bottom-pane.bottom()-17.),body,selected && t.style.vintage_2005);
+        if flat_body.is_none() {
+            console_skin::panel(ui,Rect::new(left,pane.bottom()+1.,width,bottom-pane.bottom()-17.),body,selected && t.style.vintage_2005);
+        }
         let deck=Rect::new(kx-(width-8.).min(112.)/2.,ly.y(LED_Y)-10.,(width-8.).min(112.),bottom-ly.y(LED_Y)-8.);
         console_skin::well(ui,deck);
         crate::rack_mixer::paint_slot(ui,s,n,pane);
@@ -1143,7 +1148,8 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
     let top = ly.y(HEAD_Y0);
     let height = bottom - top - 16.0;
     let border = if selected || also {
-        if full && t.style.vintage_2005 { Color::rgb(0x92a2a7) } else { ui.t.accent }
+        let ink = if full && t.style.vintage_2005 { Color::rgb(0x92a2a7) } else { ui.t.accent };
+        flat_body.map_or(ink, |face| os_theme::fl::readable(ink, face, 0.35))
     } else { ui.t.s(0x464f54) };
     let outline = Rect::new(left + 0.75, top + 0.75, width - 1.5, height - 1.5);
     if t.style.vintage_2005 {
@@ -1646,13 +1652,14 @@ fn attached_traditional(ui: &mut Ui, s: &State, n: u16, strip: Rect) {
     channel_lock(ui,s,n,Rect::new(strip.right()-21.,strip.bottom()-21.,16.,16.));
 }
 
-fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
+fn slot_panel(ui: &mut Ui, s: &State, r: Rect, title_right: f32) {
     let t = ui.t;
     if s.vintage_2005 {
         let title = format!("{} - {}", crate::prefs::language::Language::current().text("Mixer"), mx::name(s, s.selected_mixer));
         let caption = Rect::new(r.x, r.y, r.w, 23.0);
         crate::vintage::window_caption(ui.c, caption);
-        ui.c.text_clip(Font::vintage(12), r.x + 4.0, r.y + 4.0, r.w - 8.0, t.text, &title);
+        let width = (title_right.min(r.right() - 4.0) - r.x - 4.0).max(0.0);
+        ui.c.text_clip(Font::vintage(12), r.x + 4.0, r.y + 4.0, width, t.text, &title);
         ui.hit(caption, Action::WinDrag(Win::Mixer), "Drag to move");
         if r.h >= 2.0 * TITLE_H {
             vintage_compact::inspector(ui, s, r);
@@ -1674,20 +1681,17 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
     ui.c.fill_rect(Rect::new(divider_x, r.y + TITLE_H, 1.0, (r.h - TITLE_H).max(0.0)), ui.t.s(0x1b1e20));
     ui.hit(r, Action::Swallow, "");
     let n = s.selected_mixer;
-    let track = s.project.mixer.iter().find(|m| m.index == n);
-    let title = match track.and_then(|m| m.name.clone()) {
-        Some(nm) => format!("Mixer - {nm}"),
-        None if n == 0 => "Mixer - Master".into(),
-        None => format!("Mixer - Insert {n}"),
-    };
     ui.c.fill_rect(Rect::new(r.x, r.y, r.w, 23.0), t.window_title);
-    if !mx::traditional(s) || mx::inspector_left() {
-    let font = os_ui::kit::title_font(t, console_font(ui,s,17));
-    let width = r.w - if mx::inspector_left() { 12.0 } else { 76.0 };
-    let font = label_font(ui.c, font, &title, width);
-    ui.c.text_clip(font, r.x + 6.0, r.y + 2.0, width, ui.t.tx(0xd4dade), &title);
-    }
     ui.hit(Rect::new(r.x, r.y, r.w, 23.0), Action::WinDrag(Win::Mixer), "Drag to move");
+    if !mx::traditional(s) || mx::inspector_left() {
+        let title = format!("Mixer - {}", mx::name(s, n));
+        let x = r.x + 6.0;
+        let width = (title_right.min(r.right() - 6.0) - x).max(0.0);
+        let font = os_ui::kit::title_font(t, console_font(ui, s, 17));
+        let font = label_font(ui.c, font, &title, width);
+        ui.c.text_clip(font, x, r.y + 2.0, width, ui.t.tx(0xd4dade), &title);
+        ui.hit(Rect::new(x, r.y + 2.0, width, 20.0), Action::WinDrag(Win::Mixer), title);
+    }
 
     if r.h < 2.0 * TITLE_H {
         return;
@@ -1783,7 +1787,7 @@ fn slot_panel(ui: &mut Ui, s: &State, r: Rect) {
     if output_visible {
         ui.c.fill_rect(Rect::new(r.x, panel_bottom, r.w, 1.0), ui.t.s(0x1f2224));
         let row = Rect::new(r.x + 4., panel_bottom + 5., r.w - 8., 24.);
-        let label = track.and_then(|track| track.hardware_output.as_ref()).map_or_else(
+        let label = mx::track(s, n).and_then(|track| track.hardware_output.as_ref()).map_or_else(
             || "Hardware out: Off".to_owned(),
             |out| format!("Hardware out: {} / {}", u32::from(out.first) + 1, u32::from(out.first) + 2),
         );

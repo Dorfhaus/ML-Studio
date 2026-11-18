@@ -990,7 +990,7 @@ pub fn capture(app: &mut App, key: &Key, ctrl: bool, alt: bool) -> bool {
             Key::Named(NamedKey::Escape) => editor.naming = false,
             Key::Named(NamedKey::Enter | NamedKey::Tab) => edit(app, Edit::SaveName),
             _ => {
-                editor.name.key(key, ctrl, alt);
+                editor.name.key_mod(key, ctrl, alt, app.shift);
             }
         }
         app.invalidate();
@@ -1002,7 +1002,7 @@ pub fn capture(app: &mut App, key: &Key, ctrl: bool, alt: bool) -> bool {
                 editor.searching = false
             }
             _ => {
-                editor.search.key(key, ctrl, alt);
+                editor.search.key_mod(key, ctrl, alt, app.shift);
                 editor.page = 0;
             }
         }

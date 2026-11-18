@@ -141,6 +141,13 @@ pub fn render(o: &Opts) -> Result<(), String> {
 
     app.plugins.set_offline(true);
     let project = crate::rack::play_project(&app.state);
+    let preparing = Instant::now();
+    while !crate::plugins::prepare_sampler_playback(&project) {
+        if preparing.elapsed() >= Duration::from_secs(300) {
+            return Err("Timed out preparing samples for the current tempo".into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let mut library = crate::transport::host_library(crate::factory_folder::dir());
     let mut e = Engine::with_instruments(&project, &mut library, o.rate, PlayMode::Song, &app.plugins.instruments());
     e.set_interpolation(512);

@@ -1076,28 +1076,34 @@ pub fn key(app: &mut App, key: &Key, ctrl: bool, alt: bool) {
         app.modal_changed();
         return;
     }
+    let shift = app.shift;
     if let Some(f) = form(app) {
         if matches!(key, Key::Named(NamedKey::Tab)) {
-            f.focus = (f.focus + 1) % 3;
+            f.focus = (f.focus + if shift { 2 } else { 1 }) % 3;
         } else {
             let field = match f.focus {
                 0 => &mut f.name,
                 1 => &mut f.address,
                 _ => &mut f.invite,
             };
-            if ctrl && matches!(key,Key::Character(c) if c.eq_ignore_ascii_case("v")) {
-                if let Ok(text) = arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
-                    if text.len() <= 8192 {
-                        field.insert(text.trim());
-                    }
-                }
-            } else if field.len() < 8192 || !matches!(key, Key::Character(_)) {
-                field.key(key, ctrl, alt);
-            }
+            field.key_limited(key, ctrl, alt, shift, 8192);
         }
     }
     app.invalidate();
 }
+impl Form {
+    pub(crate) fn focus_field(&mut self, index: usize) -> Option<&mut Field> {
+        let field = match index {
+            0 => &mut self.name,
+            1 => &mut self.address,
+            2 => &mut self.invite,
+            _ => return None,
+        };
+        self.focus = index;
+        Some(field)
+    }
+}
+
 pub fn paint(ui: &mut Ui, r: Rect, f: &Form) {
     for (i, label) in [
         "Your name",
@@ -1126,19 +1132,17 @@ pub fn paint(ui: &mut Ui, r: Rect, f: &Form) {
             1 => &f.address,
             _ => &f.invite,
         };
-        ui.c.text_clip(
-            Font::new(12),
-            b.x + 8.,
-            b.y + 8.,
-            b.w - 16.,
-            ui.t.text,
-            &field.text,
-        );
         ui.hit(
             b,
             Action::Dlg(DHit::Collaboration(Command::Field(i))),
             *label,
         );
+        use crate::dialog::{text, TextTarget};
+        let font = Font::new(12);
+        let inner = Rect::new(b.x + 8.0, b.y, b.w - 16.0, b.h);
+        let origin = text::paint(ui, inner, field, f.focus == i, font, ui.t.text, ui.t.accent.with_alpha(90), "");
+        text::carets(ui, b, field, font, origin,
+            |pos| Action::Dlg(DHit::TextCaret(TextTarget::Collaboration(i), pos)), *label);
     }
     for (i, (label, c, enabled)) in [
         ("Host session", Command::Host, !f.active),

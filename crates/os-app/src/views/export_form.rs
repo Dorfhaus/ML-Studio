@@ -36,7 +36,9 @@ pub fn paint(ui: &mut Ui, s: &State, m: &Modal, f: &ExportForm) {
     let advanced = f.advanced || f.to_clip;
     let tabs = !f.to_clip && crate::workspace_visibility::shown(ef::ADVANCED_VISIBILITY);
     let tab_space = if tabs { 32.0 } else { 0.0 };
-    let r = place(s, m, W, if advanced { H + tab_space } else { 292.0 + tab_space });
+    let show_number = crate::workspace_visibility::shown(ef::NUMBER_VISIBILITY);
+    let number_space = if show_number { 26.0 } else { 0.0 };
+    let r = place(s, m, W, if advanced { H } else { 292.0 } + tab_space + number_space);
     frame(ui, r, if f.to_clip { crate::pattern_render::TITLE } else { ef::TITLE });
     let t = ui.t;
     let font = Font::new(13);
@@ -50,7 +52,7 @@ pub fn paint(ui: &mut Ui, s: &State, m: &Modal, f: &ExportForm) {
             kit::pill(ui.c, t, b, caption, font, kit::State::new(hovered, false, advanced == show_advanced));
         }
     }
-    let g = Rect::new(r.x + 8.0, r.y + TOP + tab_space, r.w - 16.0, FILE_H);
+    let g = Rect::new(r.x + 8.0, r.y + TOP + tab_space, r.w - 16.0, FILE_H + number_space);
     section(ui, g, "File");
     let bx = g.x + 80.0;
     let name = Rect::new(bx, g.y + 26.0, 320.0, 24.0);
@@ -63,6 +65,9 @@ pub fn paint(ui: &mut Ui, s: &State, m: &Modal, f: &ExportForm) {
     label(ui, g.x + 12.0, fy, "Folder", true);
     ui.c.text_clip(font, bx, fy, folder.x - 8.0 - bx, t.text_dim, &f.folder.display().to_string());
     tool(ui, folder, Icon::Folder, DHit::Form(FHit::Folder), "Choose the folder the files go to", true);
+    if show_number {
+        check_k(ui, f, g.x + 12.0, g.y + 92.0, 13);
+    }
     if !advanced {
         easy_formats(ui, f, Rect::new(g.x, g.bottom() + GAP, g.w, 108.0));
         bottom(ui, r, f);

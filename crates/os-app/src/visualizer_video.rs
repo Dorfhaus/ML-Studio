@@ -766,6 +766,8 @@ fn begin_audio(app: &mut App) {
         },
         folder,
         name: "master".into(),
+        auto_number: false,
+        approved_replacements: Vec::new(),
         span,
         markers: Vec::new(),
         loop_frames: None,

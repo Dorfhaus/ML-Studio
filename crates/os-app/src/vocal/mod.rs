@@ -6,6 +6,7 @@ pub mod audition;
 pub(crate) mod view;
 mod editing;
 pub mod navigation;
+pub(crate) mod resize;
 use editing::begin;
 pub use editing::drag;
 pub use view::{paint,head,keys,packed_art,TOOLS};
@@ -27,6 +28,7 @@ static NEXT_CACHE_FILE:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64
  pub epoch:Arc<()>,
  pub waiting:Option<crate::warp::Play>,
  pub pending_output:Option<crate::audio_edits::Output>,
+ pub(crate) size: resize::Size,
  pub row:Option<u16>,pub tool:Tool,pub selected:Vec<(u16,usize)>,pub low:f32,pub span:f32,
  pub key:u8,pub scale:u8,pub message:String,pub busy:bool,pub ready:Option<bool>,pub last_edit:Instant,
  pub palette:Option<(f32,f32)>,pub snap:bool,pub marquee:Option<os_ui::Rect>,pub click:Option<(u16,usize,Tool,Instant)>,
@@ -35,7 +37,7 @@ static NEXT_CACHE_FILE:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64
  source_poll: Instant,
  failed:HashSet<String>,
 }
-impl Default for View{fn default()->Self{Self{active:None,epoch:Arc::new(()),waiting:None,pending_output:None,row:None,tool:Tool::Main,selected:vec![],low:48.,span:18.,key:0,scale:0,message:"Choose a vocal clip to edit".into(),busy:false,ready:None,last_edit:Instant::now(),palette:None,snap:true,marquee:None,click:None,contours:Default::default(),observed:Default::default(),source_poll:Instant::now(),failed:HashSet::new()}}}
+impl Default for View{fn default()->Self{Self{active:None,epoch:Arc::new(()),waiting:None,pending_output:None,size:resize::Size::load(),row:None,tool:Tool::Main,selected:vec![],low:48.,span:18.,key:0,scale:0,message:"Choose a vocal clip to edit".into(),busy:false,ready:None,last_edit:Instant::now(),palette:None,snap:true,marquee:None,click:None,contours:Default::default(),observed:Default::default(),source_poll:Instant::now(),failed:HashSet::new()}}}
 pub struct Job{epoch:Arc<()>,rx:mpsc::Receiver<Result<Done,String>>,cancel:Arc<AtomicBool>,expected:Option<Edit>,source:u16,path:String,row:u16,key:String}
 impl Drop for Job{fn drop(&mut self){self.cancel.store(true,Ordering::Relaxed);}}
 enum Done{Installed,Analyzed(Edit,Arc<os_engine::Sample>),Rendered(PathBuf,Arc<os_engine::Sample>)}
@@ -95,8 +97,9 @@ pub fn toggle(app:&mut App,row:u16){
   app.invalidate();
   return;
  }
- if app.state.playlist.vocal.row==Some(row){app.state.playlist.vocal.row=None;app.invalidate();return;}
+ if app.state.playlist.vocal.row==Some(row){resize::restore(&mut app.state);app.state.playlist.vocal.row=None;app.invalidate();return;}
  if let Err(e)=source(app,row){message(app,e);return;}
+ resize::restore(&mut app.state);
  app.state.playlist.warp=None;app.state.playlist.warp_loading=None;
  app.state.playlist.vocal.row=Some(row);app.state.playlist.vocal.active=None;app.state.playlist.vocal.selected.clear();
  if app.state.playlist.vocal.ready.is_none(){app.state.playlist.vocal.ready=Some(engine::ready());}
@@ -317,6 +320,95 @@ pub fn key_input(app:&mut App,key:&winit::keyboard::Key,ctrl:bool,alt:bool)->boo
  }
  fn paint(app:&mut App,c:&mut Canvas){app.paint(c,None);}
  fn hit(app:&App,action:Action)->Rect{app.hits.iter().rev().find(|h|h.action==action).unwrap_or_else(||panic!("missing hit {action:?}")).rect}
+ #[test]
+ fn vocal_editor_resize_keeps_notes_editable_and_remembers_height() {
+     let (mut app, _, ci) = fixture();
+     let mut canvas = Canvas::new(1600, 1125, 1.25).unwrap();
+     let action = Action::VocalResize(2);
+     let rows = pl::Rows::new(&app.state);
+     let base = rows.base_height(2);
+     let original = rows.height(2);
+     let baseline = app.state.project.vocal_edits.clone();
+     paint(&mut app, &mut canvas);
+     let grip = hit(&app, action.clone());
+     let original_note = hit(&app, Action::Vocal(Command::Note(ci, 1)));
+     app.mouse_move(grip.cx(), grip.cy());
+     app.mouse_down();
+     assert!(matches!(app.drag, Some(Drag::VocalResize(_))));
+     app.mouse_move(grip.cx(), grip.cy() + 90.0);
+     app.mouse_up();
+     let custom = original + 90.0;
+     let rows = pl::Rows::new(&app.state);
+     assert_eq!(rows.height(2), custom);
+     assert_eq!(rows.base_height(2), base);
+     assert_eq!(rows.height(1), rows.base_height(1));
+     assert_eq!(app.state.project.vocal_edits, baseline);
+     assert_eq!(View::default().size.extra(&app.state, base), custom - base);
+
+     paint(&mut app, &mut canvas);
+     let grip = hit(&app, action.clone());
+     app.mouse_move(grip.cx(), grip.cy());
+     app.mouse_down();
+     app.mouse_move(grip.cx(), grip.cy() - 55.0);
+     app.key(&winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape), false, false);
+     app.mouse_up();
+     assert_eq!(pl::Rows::new(&app.state).height(2), custom);
+
+     let double_click_grip = |app: &mut App, canvas: &mut Canvas| {
+         paint(app, canvas);
+         let grip = hit(app, action.clone());
+         app.mouse_move(grip.cx(), grip.cy());
+         for _ in 0..2 {
+             app.mouse_down();
+             app.mouse_up();
+         }
+     };
+     let original_scroll = app.state.playlist_scroll.1;
+     double_click_grip(&mut app, &mut canvas);
+     let grid = app.pl_grid().unwrap();
+     let g = pl::PGeom::new(&app.state, grid);
+     assert!((g.y_of(2) - grid.y).abs() < 1.0);
+     assert!((g.rows.height(2) - grid.h).abs() < 1.0);
+     double_click_grip(&mut app, &mut canvas);
+     assert_eq!(app.state.playlist_scroll.1, original_scroll);
+     assert_eq!(pl::Rows::new(&app.state).height(2), custom);
+
+     paint(&mut app, &mut canvas);
+     let note = hit(&app, Action::Vocal(Command::Note(ci, 1)));
+     assert_eq!(original_note.cx(), note.cx());
+     assert_ne!(original_note.cy(), note.cy());
+     let g = pl::PGeom::new(&app.state, grid);
+     let semitone_px = view::pitch_rect(&g, 2).h / app.state.playlist.vocal.span;
+     app.mouse_move(note.cx(), note.cy());
+     app.mouse_down();
+     app.mouse_move(note.cx(), note.cy() - 2.0 * semitone_px);
+     app.mouse_up();
+     assert_eq!(app.state.project.vocal_edits[0].notes[1].shift, 2.0);
+
+     crate::settings_file::set_flag(resize::VISIBILITY, false);
+     paint(&mut app, &mut canvas);
+     assert!(!app.hits.iter().any(|hit| hit.action == action));
+     assert_eq!(pl::Rows::new(&app.state).height(2), custom);
+     command(&mut app, Command::Toggle(2));
+     command(&mut app, Command::Toggle(2));
+     assert_eq!(pl::Rows::new(&app.state).height(2), custom);
+
+     crate::settings_file::set_flag(resize::VISIBILITY, true);
+     paint(&mut app, &mut canvas);
+     let grip = hit(&app, action);
+     app.mouse_move(grip.cx(), grip.cy());
+     app.mouse_down();
+     app.mouse_move(grip.cx(), grip.cy() - custom);
+     app.mouse_up();
+     paint(&mut app, &mut canvas);
+     let g = pl::PGeom::new(&app.state, app.pl_grid().unwrap());
+     assert_eq!(g.rows.height(2) - base, view::minimum_height(grid.w));
+     assert!(view::pitch_rect(&g, 2).h >= 72.0);
+     let pitch = view::pitch_rect(&g, 2);
+     app.state.playlist.vocal.palette = Some((pitch.cx(), pitch.cy()));
+     paint(&mut app, &mut canvas);
+     hit(&app, Action::Vocal(Command::Reset));
+ }
  #[test]fn vocal_inline_input_split_save_undo_and_curve_tools(){
   let(mut app,dir,ci)=fixture();let original_audio=std::fs::read(dir.join("Vocal.wav")).unwrap();let mut canvas=Canvas::new(1280,900,1.).unwrap();paint(&mut app,&mut canvas);
   let g=pl::PGeom::new(&app.state,app.pl_grid().unwrap());let old=app.state.playlist.row_h;

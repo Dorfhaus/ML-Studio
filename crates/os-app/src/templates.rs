@@ -22,6 +22,7 @@ use crate::prefs;
 
 /// The built-in template: Lemon Studio's own new project (one Lemon Sampler channel, 130 BPM).
 pub const EMPTY: &str = "Empty";
+pub const NO_TRACKS: &str = "Empty (no tracks)";
 /// The settings file's keys: the picked template and the project file last opened or saved.
 const TEMPLATE_KEY: &str = "default_template";
 const LAST_KEY: &str = "last_project";
@@ -149,16 +150,32 @@ fn picked() -> String {
     prefs::text(TEMPLATE_KEY).unwrap_or_else(|| EMPTY.into())
 }
 
-/// The picked template's file; `None` for Empty, and for a template whose file has gone (FILE ▸ New gives Empty then).
-pub fn file() -> Option<PathBuf> {
-    let pick = picked();
+fn find_template(pick: &str) -> Option<PathBuf> {
     let (cat, name) = pick.split_once('/')?;
     Some(file_in(&root()?, cat, name)).filter(|f| f.is_file())
+}
+
+/// The picked template's file. Empty and missing templates use the built-in project.
+pub fn file() -> Option<PathBuf> {
+    find_template(&picked())
+}
+
+pub(crate) fn is_startup_template(pick: &str) -> bool {
+    prefs::index(&prefs::STARTUP_PROJECT) == 1 && picked() == pick
+}
+
+fn is_factory_template(path: &Path) -> bool {
+    match path.file_stem().and_then(|name| name.to_str()) {
+        Some(FACTORY_NAME) => factory_contents(path),
+        Some("Lemon Starter" | "Learning Starter") => legacy_factory_contents(path),
+        _ => false,
+    }
 }
 
 /// The Default template as the FILE menu ("New (<name>)") and the settings page show it: the template's name, or
 /// "Empty".
 pub fn name() -> String {
+    if picked() == NO_TRACKS { return NO_TRACKS.into(); }
     match file() {
         Some(_) => picked().split_once('/').map_or_else(|| EMPTY.into(), |(_, n)| n.to_string()),
         None => EMPTY.into(),
@@ -190,8 +207,9 @@ impl App {
     /// submenu per category, the current pick marked.
     pub(crate) fn template_menu(&mut self, x: f32, y: f32) {
         use crate::playlist::{Cmd, Mark, PItem, Popup};
-        let now = if file().is_some() { picked() } else { EMPTY.into() };
+        let now = if picked() == NO_TRACKS || file().is_some() { picked() } else { EMPTY.into() };
         let mut items = vec![PItem::new(EMPTY, Cmd::Template(EMPTY.into())).mark(Mark::Radio(now == EMPTY))];
+        items.push(PItem::new(NO_TRACKS, Cmd::Template(NO_TRACKS.into())).mark(Mark::Radio(now == NO_TRACKS)));
         for c in root().map(|r| scan(&r)).unwrap_or_default() {
             let children = c
                 .templates
@@ -215,9 +233,23 @@ impl App {
         Some(format!("Default template: {}", name()))
     }
 
+    pub(crate) fn make_startup_template(&mut self, pick: &str) {
+        self.state.message = Some(if find_template(pick).is_some() {
+            crate::settings_file::write_all(&[
+                (TEMPLATE_KEY.into(), pick.into()),
+                (prefs::STARTUP_PROJECT.key.into(), prefs::STARTUP_PROJECT.choices[1].into()),
+            ]);
+            format!("Startup template: {}", name())
+        } else {
+            "The saved template is no longer available".into()
+        });
+        self.invalidate();
+    }
+
     /// FILE ▸ New with a template picked: the template opened as an untitled project (Save asks where), started now.
     /// False for Empty and when the template does not load: the caller makes the built-in project then.
     pub(crate) fn new_from_template(&mut self) -> bool {
+        if picked() == NO_TRACKS { self.start_no_tracks(); return true; }
         let Some(path) = file() else { return false };
         self.new_from_file(&path, &name())
     }
@@ -238,12 +270,7 @@ impl App {
         let s = &mut self.state;
         s.path = None;
         // Apply the factory mix defaults only to the original starter, never to a saved user mix.
-        let factory_mix = match path.file_stem().and_then(|name| name.to_str()) {
-            Some(FACTORY_NAME) => factory_contents(&path),
-            Some("Lemon Starter" | "Learning Starter") => legacy_factory_contents(&path),
-            _ => false,
-        };
-        if factory_mix {
+        if is_factory_template(&path) {
             for m in &mut s.project.mixer { m.slots_enabled = m.is_fx_return(); }
         }
         crate::project_info::created(s);
@@ -272,14 +299,23 @@ impl App {
                 }
             }
         }
-        if self.new_from_template() {
-            // A fresh startup mix starts at unity, including templates from older builds.
-            // Opening an existing project above returns before this default is applied.
-            for m in &mut self.state.project.mixer { m.volume = Some(0.8); }
-            for c in &mut self.state.project.init_controls {
-                if matches!(os_model::target::decode(c.target), os_model::target::Target::MixerVolume(_)) { c.value = 12800; }
+        if picked() == NO_TRACKS {
+            self.start_no_tracks();
+            if crate::settings_file::get("startup_show_mixer").as_deref() == Some("1") { self.state.raise(crate::app::Win::Mixer); }
+            return;
+        }
+        if let Some(path) = file()
+            && self.new_from_file(&path, &name())
+        {
+            // Preserve the existing startup mix for the factory and legacy FLP templates.
+            // Native user templates keep the saved faders and their initial automation values.
+            if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("flp")) || is_factory_template(&path) {
+                for m in &mut self.state.project.mixer { m.volume = Some(0.8); }
+                for c in &mut self.state.project.init_controls {
+                    if matches!(os_model::target::decode(c.target), os_model::target::Target::MixerVolume(_)) { c.value = 12800; }
+                }
+                self.mark_saved();
             }
-            self.mark_saved();
             if crate::settings_file::get("startup_show_mixer").as_deref() == Some("1") {
                 self.state.raise(crate::app::Win::Mixer);
             }
@@ -297,7 +333,7 @@ mod tests {
     #[test]
     fn startup_mix_buses_are_unity() {
         let dir=std::env::temp_dir().join(format!("lemon-unity-{}",std::process::id()));
-        let path=file_in(&dir,"Michael Lane","TECHNO MAIN");
+        let path=file_in(&dir,"Michael Lane","TECHNO MAIN").with_extension("flp");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let source=std::env::var_os("LEMON_UNITY_TEMPLATE").map(PathBuf::from);
         let bytes=source.map(|p|std::fs::read(p).unwrap()).unwrap_or_else(||include_bytes!("../assets/templates/ML Mix Template.flp").to_vec());
@@ -421,9 +457,9 @@ mod tests {
         app.act(Action::Settings(SAct::Combo(settings::DEFAULT_TEMPLATE, 10.0, 20.0)));
         let p = app.state.playlist.popup.as_ref().expect("the tree");
         let labels: Vec<&str> = p.items.iter().map(|i| i.label.as_ref()).collect();
-        assert_eq!(labels, ["Empty", "Minimal", "Utility"]);
-        assert_eq!((p.items[0].mark, p.items[1].children.len()), (Mark::Radio(true), 1));
-        let pick = p.items[1].children[0].clone();
+        assert_eq!(labels, ["Empty", "Empty (no tracks)", "Minimal", "Utility"]);
+        assert_eq!((p.items[0].mark, p.items[2].children.len()), (Mark::Radio(true), 1));
+        let pick = p.items[2].children[0].clone();
         assert_eq!((pick.label.as_ref(), &pick.cmd), ("Basic with limiter", &Cmd::Template("Minimal/Basic with limiter".into())));
         let msg = crate::playlist::run(&mut app, pick.cmd);
         assert_eq!(msg.as_deref(), Some("Default template: Basic with limiter"));
@@ -431,7 +467,7 @@ mod tests {
         assert_eq!(file_new_label(), "New (Basic with limiter)");
         app.act(Action::Settings(SAct::Combo(settings::DEFAULT_TEMPLATE, 10.0, 20.0)));
         let p = app.state.playlist.popup.as_ref().unwrap();
-        assert_eq!((p.items[0].mark, p.items[1].children[0].mark), (Mark::Radio(false), Mark::Radio(true)));
+        assert_eq!((p.items[0].mark, p.items[2].children[0].mark), (Mark::Radio(false), Mark::Radio(true)));
         // The settings page's combo shows the pick and opens the tree.
         if let Ok(mut c) = os_ui::Canvas::new(1920, 1080, 1.0) {
             app.state.playlist.popup = None;

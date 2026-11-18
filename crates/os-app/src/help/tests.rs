@@ -96,6 +96,7 @@ fn guide_catalog_links_images_and_stock_plugins() {
         }
     }
     let instruments = [
+        "ML Pure Player",
         "ML Sampler",
         "ML Trio",
         "ML Wave",

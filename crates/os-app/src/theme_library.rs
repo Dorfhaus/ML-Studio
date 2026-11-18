@@ -487,7 +487,7 @@ impl App {
             Key::Named(NamedKey::Escape) => self.name_close(),
             Key::Named(NamedKey::Enter) => self.name_ok(),
             _ if e.target.typed() => {
-                e.text.key(key, ctrl, alt);
+                e.text.key_mod(key, ctrl, alt, self.shift);
                 self.invalidate();
             }
             _ => {}

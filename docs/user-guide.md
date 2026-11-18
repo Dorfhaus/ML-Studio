@@ -469,6 +469,7 @@ Use a guide that already has the timing you want. Check sustained, quiet or poor
 Keywords: pitch correction vocal tuning melody notes formant tune
 Guide: vocal
 Click the microphone icon on the track with the vocal clip to expand the tuning editor. Let it detect notes, then use the editing tools to select notes and adjust pitch or timing where supported.
+Drag the grip along the bottom of the editor to change its height. Double-click the grip to fill the available Playlist space, then double-click it again to return to your previous height. ML Studio remembers your custom height. You can hide the grip under Settings > Visibility > Playlist > Vocal editor resize grip.
 Pitch edits and timing share the original recording and remain independently editable. Use Undo/Redo pitch edits or Undo/Redo timing for the active clip, or Ctrl+Z/Ctrl+Y for project history. Copies and slices inherit edits and then become independent. Undo timing on a slice keeps its timeline boundaries fixed. Up to 64 steps per layer are saved with the project. Closing an editor keeps completed edits; Escape cancels the current drag. Workspace Visibility can hide editor and clip-history controls without changing playback.
 
 Fresh playback, export, and consolidation wait for current audio edits. A failed update retains previous audio and offers Retry. Existing rendered projects remain playable; older baked edits can only be recovered when their original sources and metadata are available.
@@ -502,6 +503,15 @@ Keywords: playlist overview minimap group clips ruler zoom scroll
 Guide: playlist-overview
 Use the overview above the Playlist to navigate. Drag the thumb to move the view and drag its ends to change the horizontal range.
 Group related clips when they should move together. Use time markers to label sections and, where applicable, set start, loop or skip behavior. Use the Playlist snap choice before moving an entire section.
+
+### Start with no tracks or remove Playlist tracks
+Keywords: empty template delete all tracks remove lanes blank Playlist plus add Mixer recording undo
+
+Choose **File > New from Template > Empty (no tracks)** to start with a blank Playlist and just the Master in the Mixer. **Empty** still opens the original template. You can also choose **Empty (no tracks)** as your default template in General settings.
+
+Right-click a track header and choose **Delete track**, **Delete selected tracks**, or **Delete all Playlist tracks**. The last option asks for confirmation. Deletion removes those lanes and their clip placements from the current arrangement. Save the project to keep that layout, or use Undo to restore the edit. Locked or frozen tracks must be unlocked or unfrozen before deletion.
+
+Click **+** below the track headers to add a lane. On a completely empty Playlist the button is always available. When the Mixer is attached, adding a lane also adds a linked Mixer insert. Recording from an armed Mixer insert can create its own destination lane even if you start with zero Playlist tracks.
 
 ### Select, group and move Playlist tracks
 Keywords: folder grouped tracks drag header selection collapse multi-track marquee height reorder
@@ -881,7 +891,13 @@ Reopen a clip’s editor from the named ARA entry in a free insert slot on the M
 Keywords: browser folders sample preview presets plugin downloads changelog
 ![browser | Samples Browser with library actions](assets/guide/browser.jpg)
 Guide: browser
-Use the Browser tabs to find samples, presets, projects and plugin downloads. Add your own folders in Settings > File to keep libraries easy to find.
+Hover over the narrow handle on the left edge of the Browser list to reveal its categories. Choose a category, then move back over the list to fold the sidebar away. This works when the Browser is docked on either side and in its detached window. Search at the top filters the current category. All searches installed plugins, their presets, the current project and sample libraries together. Download opens the catalog for your platform. Sample totals appear after indexing finishes.
+
+Open Plugins or Effects, expand a source folder, then click a plugin to see its presets. Installed catalog plugins appear under ML Studio Community Plugins. Drag a plugin or preset to its usual destination. Click a star to add or remove a favorite. Recent keeps up to 72 distinct browser items per profile.
+
+Click **+** beside **Collections**, type a name in the field at the top and press Enter. Right-click a sample, preset, file or plugin and choose **Add to collection**. Inside a collection, right-click an item to remove it. Right-click a collection name in the sidebar to rename or remove it. Collections store links and leave the original files in place. To switch back to the original tab strip, enable **Settings > General > Workspace > Use legacy browser**. Turn it off to return to the hover sidebar. This preference applies immediately and is saved for your profile. Both layouts share your sample folders and favorites.
+
+Add your own folders in Settings > File to keep libraries easy to find.
 Use the sample preview controls to audition files before placing them. Open Help > Change Log to browse or search the bundled release history offline.
 
 ### Discover free plugins
@@ -1309,6 +1325,32 @@ Add **ML Waveshaper** for editable distortion. Increase **Drive**, adjust **Bias
 
 All three effects appear in normal Mixer effect selection without an external plugin scan or download. Extra editor controls follow **Settings > Visibility > Stock plugins > Advanced DSP controls**; hiding controls preserves processing and saved state.
 
+### ML Pure Player
+Keywords: SoundFont SF2 FluidSynth GeneralUser GS instruments piano bass strings guitar brass flute drums library download pure player
+
+Add **ML Pure Player** from **Add instrument > Sampling**, the Channel Rack instrument menu or the Plugin picker. It is a stereo SoundFont instrument powered by the bundled FluidSynth engine. No separate plugin scan or engine installer is needed. Write notes in the Piano Roll or play a MIDI keyboard as with other ML instruments.
+
+On first opening, if the optional library is missing, a setup popup offers **Download library**, **Load my own SF2...** or **Not now**. The suggested library is **GeneralUser GS 2.0.3** by S. Christian Collins: a complete General MIDI instrument collection with pianos, organs, guitars, basses, strings, voices, brass, woodwinds, synths, percussion and drum kits. The approximately 32.3 MB download comes directly from the author's official GitHub repository. ML Studio does not host a second copy. Download progress shows bytes and percentage; **Cancel download** stops the transfer. A failed or cancelled transfer does not become an installed library. Retry with **Download / repair library**. Downloaded files are checked for the expected size and SHA-256 before installation.
+
+Once installed, the library works offline, is shared between instances and survives app updates. Opening another player reuses it. **Library folder...** changes the managed library location for the current profile; it does not move or delete your existing library. Download again into the chosen folder or put the managed file there. On this Windows workstation, the default is E:/ML Studio/Libraries/ML Pure Player; other systems normally use a Libraries folder in their ML Studio profile. Your own **.sf2** files can be opened with **Load .sf2...** or dropped onto the plugin editor. These are referenced in place rather than copied into every project. Keep them available when reopening or moving a project. This version loads uncompressed SF2 files up to 512 MB; SF3 and DLS are not enabled.
+
+Select **Family** to browse categories, including Bass, Strings, Ensemble / voices and Drum kits. Click an instrument name to select it; scroll the list or use **Previous / Next** for more sounds. Names and bank/program numbers are read from the loaded file. The displayed Program is 1-based; its automation value is 0–127. **Audition** plays a short C4 note, or a kick note for the standard drum bank. Play other notes from the Piano Roll or your keyboard. The GeneralUser drum bank is 128; its keys trigger different percussion sounds. The host's **Presets** menu also provides eight General MIDI starting points (Grand Piano, Clean Guitar, Fingered Bass, Strings, Brass, Flute, Warm Pad and Standard Drums). These use standard bank/program mappings; a custom SoundFont can map those numbers differently. One player instance selects one instrument or drum kit; add more instances for separate instruments.
+
+**Output** adjusts the engine level; **Reverb** and **Chorus** control FluidSynth's built-in effects. Bank, Program and these controls can be automated through the normal parameter menu. The window uses the standard ML detach/attach control. Instrument selection and library paths are saved in the project, without embedding the entire library in every song. Missing files produce a visible message; download the managed library again or locate the custom SF2. An unavailable bank/program falls back to the first preset in that file. MIDI note velocity, sustain, pitch bend, channel pressure and controller messages are passed to the engine on its instrument channel. Polyphony is limited to 128 voices per instance. At device rates above 96 kHz, ML Pure Player upsamples the 96 kHz FluidSynth output to keep pitch and duration correct. Loading another SoundFont occurs in the background; initialization from a saved project loads the existing bank before playback/export. Program changes stop the old preset's voices.
+
+**Settings > Visibility > Stock plugins > Advanced DSP controls** hides the editor's controls and setup popup while preserving processing and saved data. Show it again to browse or download sounds. Undo uses the standard host workflow for knob changes, instrument selection and file selection. Library installation itself is a shared file operation and is not undone with project Undo. FluidSynth and GeneralUser GS credits and licences are included in Credits; the library's licence is also saved alongside the downloaded file.
+
+### ML Riser
+Keywords: riser build up buildup tension sweep noise transition drop intensity NULL Riser
+
+Choose **ML Riser** in a Mixer effect slot under **Modulation**. It is bundled with ML Studio and needs no separate download or plugin scan. Its large **Intensity** knob runs from 0% to 100%. Raising it combines a resonant high-pass sweep from 20 Hz to 2.5 kHz, rising filtered noise, wider stereo and a diffuse echo wash. It does not change the project tempo or automatically follow a bar count.
+
+For a build-up, start at 0%, right-click **Intensity** and create an automation clip using the normal plugin parameter menu. Draw a rising ramp over the bars before the drop, then return it to 0% at the drop. Intensity glides over about 30 ms to reduce abrupt changes; 0% settles to the original dry signal. The effect can generate noise even with silent input when Intensity is above zero. Use the Mixer slot bypass to hear the unprocessed signal immediately. Watch your channel and Master levels, particularly near 100%.
+
+The plugin window's **Presets** menu contains **Default** (0%), **First Bars** (10%), **Build Start** (25%), **Pre-Chorus Lift** (40%), **Build Middle** (50%), **Tension Peak** (75%), **Big Sweep Up** (90%) and **Pre-Drop Max** (100%). These are starting intensity settings of the same processing chain, not different algorithms or automatically animated patterns. Save your own with **Save preset as...**. Intensity, automation and bypass are stored with the project; normal parameter edits and preset changes support Undo.
+
+The interface uses ML's stock plugin controls, including precise value entry and the shared detach/attach window button. **Settings > Visibility > Stock plugins > Advanced DSP controls** hides the additional control panel without deleting the effect or changing its sound. Based on the MIT-licensed NULL Riser by Christos Koulaxizis; attribution is included in Credits.
+
 ### ML Tuner
 Keywords: tuner tuning note pitch cents A4 guitar bass mute
 
@@ -1641,6 +1683,8 @@ Keywords: settings theme appearance skins adjustments theme editor mixer skin de
 Settings > Theme lets you choose a skin and theme and adjust colors and brightness. Audio and automation clips use note colors changes how clip colors are derived. The Playlist scrollbar style is also adjustable when its visibility option is enabled.
 Open Theme Editor for individual color and shape settings or Mixer Skin Designer for mixer-specific appearance. Editing a mixer body, panel, slot or fader color selects the editable Theme colors finish automatically; the Traditional and Full layouts both use those colors. Editing a skin component color enables that custom component. Apply keeps the changes, and Cancel restores the previous appearance. Icons & Fonts lets you choose icon and cursor packs independently, override individual glyphs, and change the interface font. Save a preset or export the theme to reuse the appearance.
 
+In **Settings > Theme > Open Theme Editor > Track & clip colors**, set how strongly assigned colors fill the Traditional Mixer strips, Full Mixer and Channel Strip, Playlist headers, Playlist clip bodies, and Channel Rack names. Leave a field on **Inherit** for the theme's original shading. Enter **0** for the theme's base color, **100** for the exact assigned color, or a percentage in between for a flat blend. Mixer selection still shows its outline. The controls save and export with the theme. You can hide them under **Settings > Visibility > Theme customization > Track & clip colors**.
+
 ### Project data, time and credits
 Keywords: settings project data folder ask copy used samples ppq timebase signature division panning law crossfades info debug about licence
 Project > Data folder controls where project audio is stored. Choose when to ask for a data folder and whether to Copy used samples to the project folder. Time settings sets Timebase (PPQ) and a time signature or time division. Changing the signature changes the bar grid. Use the tempo control to change BPM.
@@ -1694,6 +1738,7 @@ Related: Send a project with its audio files | Freeze or bounce a track
 Guide: export
 Choose Song mode and confirm the arrangement. Use File > Export audio to open the export form.
 Export audio opens in Easy mode with 24-bit WAV and 320 kbps MP3 options. Pick either or both. Easy uses stereo and the standard render settings. The Advanced tab has additional formats, source range, quality, effects, and split mixer tracks. Advanced export choices save separately.
+By default, ML Studio asks before replacing existing export files. Enable **Auto-number duplicate exports** in the File section to keep the existing files and give the new export a name such as **My Song (2)**. One number is shared by the mix formats and their stems folder. The setting also applies to Playlist track exports, and ML Studio remembers it for your profile.
 Use WAV for a full-quality mix, MP3 when a smaller listening copy is useful, and MIDI for notes and timing. Use split Mixer tracks when you need separate audio stems.
 Listen to the exported file and verify its start, end, levels and effects before sending it.
 
@@ -1712,7 +1757,7 @@ Reopen Collaborate for session status, playback following, conflict resolution, 
 Keywords: lmn flp extension file format project data folder copy used samples save new version template delete unused
 New saves, backups and ZIP projects use .lmn. File > Open also accepts compatible .flp files and zipped projects. Save on an existing .flp keeps that name. Use Save As to make a separate .lmn copy before editing a migrated project.
 Use Save new version for a numbered sibling or Save to new project folder to gather the session in a different folder. Under Settings > Project, choose the project data location and whether to copy used samples. Recording and render folders are part of a portable audio project.
-Use Save as template and select it from File > New from template or set it as the General default. Revert to last backup when that is the desired recovery point. Delete unused files and save project is a project cleanup action. Read its confirmation and keep wanted source and archived versions before running it.
+Use **File > Save as template…** to save a named copy of your current project. Choose **Yes** when asked to use it at startup. ML Studio uses that template at launch and when you choose **File > New**. Each new project starts untitled, with the mixer levels saved in your template. Choose **No** to save the template for later use under **File > New from template > User**. To switch defaults later, go to **Settings > General > Startup and templates**, select your **Default template**, and set **Startup project** to **Default template**. To hide the prompt, turn off **Offer to use saved templates at startup** in **Settings > Visibility > Project templates**. Revert to last backup when that is the desired recovery point. Delete unused files and save project is a project cleanup action. Read its confirmation and keep wanted source and archived versions before running it.
 Related: Save, reopen and recover a project | Import a project from FL Studio | Send a project with its audio files
 
 ### Import and export MIDI files
@@ -2301,6 +2346,8 @@ Related: Select multiple Mixer channels | Set levels, pan and routing
 
 ### Manage files inside Open and Save dialogs
 Keywords: file explorer save open copy cut paste clipboard rename F2 delete new folder properties Windows
+Click inside a name, location, or search field to place the caret. Drag or hold Shift while moving the caret to select text. Use Ctrl+A to select all, Ctrl+C/X/V to copy, cut, or paste, and Ctrl+Z to undo typing. Use Command for those shortcuts on macOS. Space types a space while the field is focused. In Plugin Picker, Tab switches between the search field and the results, and Up/Down moves through the results.
+
 On Windows, right-click a file or folder in the dialog for its Explorer context menu. Right-click empty list space for the current folder's actions, including Paste. With the file list focused, Ctrl+C copies, Ctrl+X cuts and Ctrl+V pastes through the Windows file clipboard, including files copied in Explorer. Delete uses the shell delete action; Shift+F10 or the context-menu key opens the menu. The list refreshes after an action; F5 refreshes it manually. Text fields retain normal text clipboard editing.
 
 Select a file or folder and press F2 to rename it in the name field. Enter or Rename applies; Escape cancels the rename. Existing names are not overwritten. F2 rename, the New folder button, Ctrl+Shift+N, F5, Ctrl+L for the location, and Alt+Up for the parent folder are available on all platforms. Explorer shell clipboard/context actions are Windows-specific. File operations alter actual disk files and do not participate in project Undo; moving or renaming a used sample does not rewrite references in an open project.

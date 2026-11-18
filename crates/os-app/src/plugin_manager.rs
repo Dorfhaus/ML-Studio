@@ -90,7 +90,7 @@ impl App {
     }
 
     /// Typing into the plugin table's Find box (§2). True when the key was taken.
-    pub(crate) fn plugin_find_key(&mut self, key: &Key, ctrl: bool) -> bool {
+    pub(crate) fn plugin_find_key(&mut self, key: &Key, ctrl: bool, alt: bool) -> bool {
         let s = &mut self.state;
         if !(s.settings.open && s.settings.tab == settings::PLUGINS && s.plugdb.finding) {
             s.plugdb.finding = false;
@@ -98,17 +98,12 @@ impl App {
         }
         let d = &mut s.plugdb;
         match key {
-            Key::Named(NamedKey::Enter) => d.finding = false,
+            Key::Named(NamedKey::Enter | NamedKey::Tab) => d.finding = false,
             Key::Named(NamedKey::Escape) => {
                 d.finding = false;
                 d.find.clear();
             }
-            Key::Named(NamedKey::Backspace) => {
-                d.find.pop();
-            }
-            Key::Named(NamedKey::Space) => d.find.push(' '),
-            Key::Character(c) if !ctrl => d.find.push_str(c),
-            _ => return true,
+            _ => { d.find.key_mod(key, ctrl, alt, self.shift); }
         }
         d.top = 0;
         d.refilter();

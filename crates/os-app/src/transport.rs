@@ -1553,8 +1553,10 @@ fn engine(project: &Project, library: &mut SampleLibrary, rate: u32, mode: PlayM
 /// `job`; returns the written length in seconds and the files. Runs on the audio thread with no stream open.
 // spec: audio/export.md
 fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job, library: &mut SampleLibrary, inst: &Instruments, shared: &Shared, cancel: Option<&AtomicBool>) -> Result<(f64, Vec<PathBuf>), String> {
+    let mut job = job.clone();
+    job.prepare_destination().map_err(|err| format!("Could not export to {}: {err}", job.folder.display()))?;
     if !job.options.playlist_solo {
-        return export_one(project,mode,rate,job,library,inst,shared,cancel,0,1);
+        return export_one(project,mode,rate,&job,library,inst,shared,cancel,0,1);
     }
     if mode != PlayMode::Song || job.playlist_solos.is_empty() {
         return Err("No audible Playlist tracks to export".into());
@@ -1575,8 +1577,9 @@ fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job
         part.options.insert_fx=true;
         part.options.master_fx=true;
         part.playlist_solos.clear();
-        part.folder=job.folder.join(format!("{} tracks",job.name));
+        part.folder=job.playlist_folder();
         part.name=name.clone();
+        crate::export::check_directory(&part.folder).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&part.folder).map_err(|e|format!("{}: {e}",part.folder.display()))?;
         reset_instruments(inst);
         shared.export_stage.store(0,Ordering::Relaxed);

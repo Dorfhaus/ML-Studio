@@ -196,7 +196,7 @@ impl App {
             Key::Named(NamedKey::Escape) => s.settings.folder_edit = None,
             Key::Named(NamedKey::Enter) => commit(s),
             _ => {
-                e.text.key(key, ctrl, alt);
+                e.text.key_mod(key, ctrl, alt, self.shift);
             }
         }
         self.invalidate();

@@ -382,6 +382,44 @@ fn ctrl(m: ModifiersState) -> bool {
     m.control_key() || (cfg!(target_os = "macos") && m.super_key())
 }
 
+/// Route native keystrokes the same way in the main window and detached workspaces.
+fn keyboard_input(app: &mut app::App, event: winit::event::KeyEvent, mods: ModifiersState) {
+    use winit::keyboard::{Key, KeyCode, PhysicalKey};
+    let pressed = event.state == ElementState::Pressed;
+    let (command, alt) = (ctrl(mods), mods.alt_key());
+    app.shift = mods.shift_key();
+    if let PhysicalKey::Code(code) = event.physical_key {
+        if code == KeyCode::ShiftRight { app.rshift = pressed; }
+        if app.typing_key(code, pressed, command, alt) { return; }
+    }
+    if !pressed { return; }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    let key = {
+        use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+        let printable = event.text.as_ref().filter(|s| !s.is_empty() && !s.chars().any(char::is_control));
+        let unmodified = || match event.key_without_modifiers() {
+            Key::Character(c) if mods.shift_key() => Key::Character(c.to_uppercase().into()),
+            k => k,
+        };
+        if cfg!(target_os = "macos") && (mods.super_key() || (alt && !app.text_input_focused())) {
+            unmodified()
+        } else if matches!(event.logical_key, Key::Unidentified(_)) {
+            match printable {
+                Some(text) if !command || alt => Key::Character(text.clone()),
+                _ => unmodified(),
+            }
+        } else {
+            event.logical_key
+        }
+    };
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let key = event.logical_key;
+    app.repeat = event.repeat;
+    app.key(&key, command, alt);
+    app.repeat = false;
+}
+
 #[derive(Clone, Copy)]
 struct Grab {
     cursor: (i32, i32),
@@ -1139,6 +1177,12 @@ impl ApplicationHandler for Shell {
                 self.sync_mods();
                 self.sync_cursor(&window,el);
             }
+            WindowEvent::CursorLeft { .. } if !self.app.state.native_detached.contains(&app::Win::Browser) => {
+                if self.app.state.browser_library.open {
+                    views::browser::library::leave(&mut self.app);
+                    window.request_redraw();
+                }
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 // Locked: turn the offset from the anchor into virtual movement, then warp back.
                 // Locked: movement comes from raw motion (`device_event`); positions are ignored,
@@ -1268,61 +1312,9 @@ impl ApplicationHandler for Shell {
                 self.pending |= self.app.has_damage();
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                let pressed = event.state == ElementState::Pressed;
-                // Right Shift on its own: the playlist's quick slice (spec: ui/playlist.md §3).
-                if event.physical_key == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::ShiftRight) {
-                    self.app.rshift = pressed;
-                }
-                // The typing keyboard plays notes by physical key (spec: ui/typing-keyboard.md).
-                if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-                    if self.app.typing_key(code, pressed, ctrl(self.mods), self.mods.alt_key()) {
-                        if self.app.has_damage() {
-                            window.request_redraw();
-                        }
-                        return;
-                    }
-                }
-                // Repeats go on too: a dialog, an Info box or a browser folder cell takes them (typing, moving through a
-                // list), and `App::key` keeps those of the piano roll's moving and copying keys (spec: ui/piano-keys.md
-                // §4 rule 1).
-                if pressed {
-                    // macOS: Option and Command change the character a key types (Option+S is "ß"); shortcuts go by the
-                    // key itself.
-                    #[cfg(target_os = "macos")]
-                    let event = {
-                        use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
-                        let mut event = event;
-                        if self.mods.alt_key() || self.mods.super_key() {
-                            event.logical_key = match event.key_without_modifiers() {
-                                winit::keyboard::Key::Character(c) if self.mods.shift_key() => winit::keyboard::Key::Character(c.to_uppercase().into()),
-                                k => k,
-                            };
-                        }
-                        event
-                    };
-                    // Windows: Ctrl+Alt is AltGr there, so a key that types nothing with it (Ctrl+Alt+Z, the redo) comes
-                    // with no character; shortcuts go by the key itself. A character AltGr does type is kept. Text sent
-                    // as characters rather than keys (an on-screen keyboard, a remote desktop, the emoji panel) comes as
-                    // an unidentified key carrying its text: it types that text.
-                    #[cfg(windows)]
-                    let event = {
-                        use winit::keyboard::Key;
-                        use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
-                        let mut event = event;
-                        if matches!(event.logical_key, Key::Unidentified(_)) {
-                            event.logical_key = match (event.key_without_modifiers(), &event.text) {
-                                (Key::Character(c), _) if self.mods.shift_key() => Key::Character(c.to_uppercase().into()),
-                                (Key::Character(c), _) => Key::Character(c),
-                                (_, Some(t)) if !t.chars().any(char::is_control) => Key::Character(t.clone()),
-                                (k, _) => k,
-                            };
-                        }
-                        event
-                    };
-                    self.app.repeat = event.repeat;
-                    self.app.key(&event.logical_key, ctrl(self.mods), self.mods.alt_key());
-                    self.sync_cursor(&window,el);
-                    self.app.repeat = false;
+                keyboard_input(&mut self.app, event, self.mods);
+                if self.app.has_damage() {
+                    self.sync_cursor(&window, el);
                     window.request_redraw();
                 }
             }
@@ -1782,7 +1774,7 @@ fn screenshot(args: &[String]) {
         app.state.browser_folders.push(dir);
     }
     if let Some(q) = browser_search {
-        app.state.browser_search = q;
+        app.state.browser_search.set(&q);
         app.state.browser_search_focus = true;
     }
     if browser_menu {
@@ -2061,6 +2053,7 @@ fn apply_window_cursor(window: &Window, el: &ActiveEventLoop, c: app::Cursor, sc
                 app::Cursor::Playlist(_,playlist_tools::GRABBING | playlist_tools::COPYING) => CursorIcon::Grabbing,
                 app::Cursor::Playlist(..) => CursorIcon::Default,
                 app::Cursor::Default => CursorIcon::Default,
+                app::Cursor::Text => CursorIcon::Text,
                 app::Cursor::EwResize => CursorIcon::EwResize,
                 app::Cursor::NsResize => CursorIcon::NsResize,
                 app::Cursor::NwseResize => CursorIcon::NwseResize,
@@ -2134,9 +2127,9 @@ fn main() {
         layout::restore(&mut app.state);
         workspace_layout::restore_session(&mut app);
         let report = format!(
-            "user_dir={:?}\nstartup={}\ntemplate={:?}\ntitle={}\ntempo={}\nmixer_tracks={}\nmessage={:?}\nmix_reference_profiles={}\n",
+            "user_dir={:?}\nstartup={}\ntemplate={:?}\ntitle={}\ntempo={}\nmixer_tracks={}\nplaylist_tracks={}\nmessage={:?}\nmix_reference_profiles={}\n",
             os_paths::user_dir(), prefs::choice(&prefs::STARTUP_PROJECT), templates::file(),
-            app.title(), app.state.tempo, app.state.project.mixer.len(), app.state.message,
+            app.title(), app.state.tempo, app.state.project.mixer.len(), playlist::track_count(&app.state), app.state.message,
             mix_assistant::startup_profile_count(),
         );
         std::fs::write(output, report).expect("write startup report");

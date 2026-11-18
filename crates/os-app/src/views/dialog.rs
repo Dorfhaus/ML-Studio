@@ -444,14 +444,14 @@ fn file_box(ui: &mut Ui, s: &State, m: &Modal, f: &FileDlg) {
     if let Some(n) = l.new_folder {
         tool(ui, n, Icon::FolderPlus, DHit::NewFolder, "New folder", true);
     }
-    field(ui, l.path, &f.path, f.focus == Focus::Path, DHit::PathField, "The folder shown: type a path and press Enter to go there");
+    field(ui, l.path, &f.path, f.focus == Focus::Path && !f.list_focus, DHit::PathField, "The folder shown: type a path and press Enter to go there");
     places(ui, f, l.places);
     list(ui, f, l.list);
     let font = Font::new(13);
     let lh = ui.c.line_height(font);
     let label = if f.mode == Mode::Folder { "Folder" } else { "File name" };
     ui.c.text(font, l.panel.x + 10.0, (l.name_y + 13.0 - lh / 2.0).round(), t.text, tr(label));
-    field(ui, l.name, &f.name, f.focus == Focus::Name, DHit::NameField, "");
+    field(ui, l.name, &f.name, f.focus == Focus::Name && !f.list_focus, DHit::NameField, "");
     if let Some(c) = l.combo {
         let hov = hit(ui, c, DHit::Filter, "The type of file listed");
         let label = f.chosen().map(fd::Filter::label).unwrap_or_default();
@@ -656,45 +656,16 @@ pub(super) fn field(ui: &mut Ui, r: Rect, fl: &Field, focused: bool, h: DHit, hi
     hit(ui, r, h, hint);
     well(ui, r, focused.then_some(if lemon { t.brand_sel(brand::MAIN) } else { FOCUS_BLUE }));
     let f = Font::new(13);
-    let lh = ui.c.line_height(f);
     let inner = Rect::new(r.x + 7.0, r.y + 2.0, r.w - 14.0, r.h - 4.0);
-    let caret_x = ui.c.text_width(f, fl.before_caret());
-    let shift = (caret_x - (inner.w - 2.0)).max(0.0);
-    let (x, y) = (inner.x - shift, (r.cy() - lh / 2.0).round());
-    ui.c.push_clip(inner);
-    let ink = t.text;
-    if let Some((a,b)) = fl.selection().filter(|_|focused) {
-        let left=ui.c.text_width(f,&fl.text[..fl.at(a)]);
-        let w=ui.c.text_width(f,&fl.text[..fl.at(b)])-left;
-        ui.c.fill_rect(Rect::new(x + left - 1.0, y, w + 2.0, lh), if lemon { t.brand_sel(brand::COLORED_DARK) } else { SEL_BLUE });
-
-    }
-    ui.c.text(f, x, y, ink, &fl.text);
-    if focused {
-        ui.c.fill_rect(Rect::new((x + caret_x).round(), y, 1.0, lh), t.glyph);
-    }
-    ui.c.pop_clip();
+    let selection = if lemon { t.brand_sel(brand::COLORED_DARK) } else { SEL_BLUE };
+    let x = crate::dialog::text::paint(ui, inner, fl, focused, f, t.text, selection, "");
     use crate::dialog::TextTarget as Target;
     let target=match h { DHit::NameField=>Some(Target::Name), DHit::PathField=>Some(Target::Path),
-        DHit::Form(crate::project_forms::FHit::Field(i))=>Some(Target::Project(i)), _=>None };
+        DHit::Form(crate::project_forms::FHit::Field(i))=>Some(Target::Project(i)),
+        DHit::HeadphoneSearch=>Some(Target::HeadphoneSearch), DHit::RouteSearch=>Some(Target::RouteSearch),
+        DHit::MixerCount=>Some(Target::MixerCount), _=>None };
     if let Some(target)=target {
-        // Half-character cells place the caret at the closest glyph boundary.
-        let bytes:Vec<_>=fl.text.char_indices().map(|(i,_)|i).chain(std::iter::once(fl.text.len())).collect();
-        // Skip the offscreen prefix without measuring every prefix of a long pasted path.
-        let (mut lo,mut hi)=(0,bytes.len());
-        while lo<hi { let mid=(lo+hi)/2; if x+ui.c.text_width(f,&fl.text[..bytes[mid]])<r.x {lo=mid+1;} else {hi=mid;} }
-        let mut left=r.x;
-        for i in lo.saturating_sub(1)..bytes.len() {
-            let boundary=x+ui.c.text_width(f,&fl.text[..bytes[i]]);
-            let next=if i+1==bytes.len() {r.right()} else {x+ui.c.text_width(f,&fl.text[..bytes[i+1]])};
-            let right=if i+1==bytes.len() {r.right()} else {(boundary+next)*0.5};
-            if right>r.x && left<r.right() {
-                let l=left.max(r.x); let rr=right.min(r.right());
-                if rr>l { hit(ui,Rect::new(l,r.y,rr-l,r.h),DHit::TextCaret(target,i),hint); }
-            }
-            left=right;
-            if left>=r.right() {break;}
-        }
+        crate::dialog::text::carets(ui, r, fl, f, x, |i| Action::Dlg(DHit::TextCaret(target, i)), hint);
     }
 }
 

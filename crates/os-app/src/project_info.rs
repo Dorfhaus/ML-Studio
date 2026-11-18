@@ -286,9 +286,12 @@ impl App {
             Key::Named(NamedKey::Escape) => s.settings.info_edit = None,
             Key::Named(NamedKey::Enter) if e.field.multiline() => e.text.insert("\n"),
             Key::Named(NamedKey::Enter) => accept_info(s),
-            Key::Named(k @ (NamedKey::Home | NamedKey::End | NamedKey::ArrowUp | NamedKey::ArrowDown)) if e.field.multiline() => line_key(&mut e.text, *k),
+            Key::Named(k @ (NamedKey::Home | NamedKey::End | NamedKey::ArrowUp | NamedKey::ArrowDown)) if e.field.multiline() && !ctrl => line_key(&mut e.text, *k, self.shift),
+            _ if e.field.multiline() => {
+                e.text.key_multiline(key, ctrl, alt, self.shift);
+            }
             _ => {
-                e.text.key(key, ctrl, alt);
+                e.text.key_mod(key, ctrl, alt, self.shift);
             }
         }
         self.invalidate();
@@ -477,7 +480,7 @@ pub(crate) fn accept_info(s: &mut State) {
 
 /// Home / End / Up / Down in Comments go by its lines (between line breaks): Up and Down keep the caret's column, in
 /// characters, and go to the start / end of the text from the first / last line.
-fn line_key(f: &mut Field, key: NamedKey) {
+fn line_key(f: &mut Field, key: NamedKey, extend: bool) {
     let chars: Vec<char> = f.text.chars().collect();
     let c = f.caret.min(chars.len());
     let start = |i: usize| chars[..i].iter().rposition(|&ch| ch == '\n').map_or(0, |p| p + 1);
@@ -498,7 +501,7 @@ fn line_key(f: &mut Field, key: NamedKey) {
         }
         _ => c,
     };
-    f.place(caret, false);
+    f.place(caret, extend);
 }
 
 #[cfg(test)]

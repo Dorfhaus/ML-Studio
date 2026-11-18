@@ -10,6 +10,13 @@ pub enum Command{Field(usize),Slide,Porta,Apply,Cancel}
 const LABELS:[&str;8]=["Velocity (0–128)","Pan (64 = center)","Release (0–128)","Fine pitch (120 = center)","Cutoff (0–255)","Resonance (0–255)","Color group (1–16)","Length (ticks)"];
 fn values(n:Note)->[u32;8]{[n.velocity.into(),n.pan.into(),n.release.into(),n.fine_pitch.into(),n.mod_x.into(),n.mod_y.into(),u32::from(n.group&15)+1,n.length]}
 pub struct Form{pattern:u16,channel:u16,original:Vec<(usize,Note)>,anchor:Note,fields:[Field;8],focus:usize,slide:bool,porta:bool,message:String}
+impl Form {
+    pub(crate) fn focus_field(&mut self, index: usize) -> Option<&mut Field> {
+        let field = self.fields.get_mut(index)?;
+        self.focus = index;
+        Some(field)
+    }
+}
 fn form(app:&mut App)->Option<&mut Form>{match &mut app.state.dialogs.last_mut()?.body{Body::NoteProperties(f)=>Some(f),_=>None}}
 /// A newly drawn note does not count as the first click of a properties gesture.
 pub fn double_click(app:&mut App,i:usize)->bool{
@@ -65,11 +72,12 @@ pub fn command(app:&mut App,c:Command){
     app.invalidate();
 }
 pub fn key(app:&mut App,key:&Key,ctrl:bool,alt:bool){
+    let shift = app.shift;
     match key{
         Key::Named(NamedKey::Escape)=>command(app,Command::Cancel),
         Key::Named(NamedKey::Enter)=>command(app,Command::Apply),
         Key::Named(NamedKey::Tab)=>{let backwards=app.shift;if let Some(f)=form(app){f.focus=(f.focus+if backwards{7}else{1})%8;f.fields[f.focus].select_all();}},
-        _=>{if let Some(f)=form(app){let input=&mut f.fields[f.focus];if input.len()<12||!matches!(key,Key::Character(_)){input.key(key,ctrl,alt);}}}
+        _=>{if let Some(f)=form(app){f.fields[f.focus].key_limited(key, ctrl, alt, shift, 12);}}
     }app.invalidate();
 }
 pub fn paint(ui:&mut Ui,r:Rect,f:&Form){
@@ -80,10 +88,13 @@ pub fn paint(ui:&mut Ui,r:Rect,f:&Form){
         ui.c.text(Font::new(11),x,y,ui.t.text_dim,label);
         let rect=Rect::new(x,y+16.,208.,28.);let on=f.focus==i;
         ui.c.fill_rrect(rect,4.,ui.t.sunken);ui.c.stroke_rrect(rect,4.,1.,if on{ui.t.accent}else{ui.t.button});
-        if on&&f.fields[i].all{ui.c.fill_rrect(rect.inset(4.),2.,ui.t.button_hi);}
-        ui.c.text(Font::new(13),x+8.,rect.y+6.,ui.t.text,&f.fields[i].text);
-        if on{let caret=x+8.+ui.c.text_width(Font::new(13),f.fields[i].before_caret());ui.c.line(caret,rect.y+5.,caret,rect.bottom()-5.,1.,ui.t.accent);}
         ui.hit(rect,Action::Dlg(DHit::NoteProperties(Command::Field(i))),*label);
+        use crate::dialog::{text, TextTarget};
+        let font = Font::new(13);
+        let inner = Rect::new(rect.x + 8.0, rect.y, rect.w - 16.0, rect.h);
+        let origin = text::paint(ui, inner, &f.fields[i], on, font, ui.t.text, ui.t.accent.with_alpha(90), "");
+        text::carets(ui, rect, &f.fields[i], font, origin,
+            |pos| Action::Dlg(DHit::TextCaret(TextTarget::NoteProperty(i), pos)), *label);
     }
     for (i,(label,on,c)) in [("Slide / glide",f.slide,Command::Slide),("Portamento",f.porta,Command::Porta)].into_iter().enumerate(){
         let rect=Rect::new(r.x+18.+i as f32*216.,r.y+304.,208.,30.);

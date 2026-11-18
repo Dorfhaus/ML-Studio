@@ -2642,10 +2642,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-pure-player"
+version = "0.0.1"
+dependencies = [
+ "cc",
+ "lemon-small-fx",
+ "nih_plug",
+ "os-clap",
+ "os-engine",
+ "os-host",
+ "os-paths",
+ "os-plugkit",
+ "os-theme",
+ "os-ui",
+ "rfd",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
 name = "ml-reference"
 version = "0.0.1"
 dependencies = [
  "ml-mix-core",
+ "nih_plug",
+ "os-plugkit",
+]
+
+[[package]]
+name = "ml-riser"
+version = "0.0.1"
+dependencies = [
+ "ml-utility-core",
  "nih_plug",
  "os-plugkit",
 ]
@@ -3400,7 +3430,9 @@ dependencies = [
  "ml-phase",
  "ml-pitch-shift",
  "ml-plasma",
+ "ml-pure-player",
  "ml-reference",
+ "ml-riser",
  "ml-split",
  "ml-time-shaper",
  "ml-tuner",

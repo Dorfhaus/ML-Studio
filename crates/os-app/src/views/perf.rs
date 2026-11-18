@@ -98,10 +98,10 @@ pub fn paint(ui: &mut Ui, s: &State, _f: &FrameInfo) {
     } else {
         kit::sunken(ui.c, t, fbox, well);
     }
-    let tw = ui.c.text(f, fbox.x + 6.0, ty, t.text, &p.find);
-    if p.finding {
-        ui.c.fill_rect(Rect::new(fbox.x + 7.0 + tw, cy - 7.0, 1.0, 14.0), t.text);
-    }
+    use crate::dialog::text;
+    let inner = Rect::new(fbox.x + 6.0, fbox.y, (fbox.w - 12.0).max(0.0), fbox.h);
+    let origin = text::paint(ui, inner, &p.find, p.finding, f, t.text, t.accent.with_alpha(90), "");
+    text::carets(ui, fbox, &p.find, f, origin, |i| Action::TextCaret(text::Target::Performance, i), "Filter plugins");
 
     // The list (§2): header, then rows.
     let lx = win.x + 6.0;

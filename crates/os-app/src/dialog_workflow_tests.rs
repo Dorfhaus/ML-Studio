@@ -15,6 +15,67 @@ fn save(app: &App) -> &crate::save_form::SaveForm {
 }
 
 #[test]
+fn text_fields_share_selection_clipboard_and_shortcut_focus() {
+    use crate::app::Cursor;
+    use crate::dialog::text::Target;
+    let mut app = App::new(None);
+    app.state.project = crate::app::test_project();
+    app.state.show_browser = true;
+    let mut canvas = Canvas::new(1600, 1000, 1.25).unwrap();
+    app.paint(&mut canvas, None);
+    let search = hit(&app, Action::TextCaret(Target::Browser, 0));
+    click(&mut app, search);
+    typed(&mut app, "Café");
+    named(&mut app, NamedKey::Space);
+    typed(&mut app, "Kicks");
+    assert_eq!(app.state.browser_search.as_str(), "Café Kicks");
+    assert!(!app.transport.playing());
+    app.paint(&mut canvas, None);
+    let from = hit(&app, Action::TextCaret(Target::Browser, 0));
+    let to = hit(&app, Action::TextCaret(Target::Browser, 4));
+    app.mouse_move(from.cx(), from.cy());
+    assert_eq!(app.cursor(), Cursor::Text);
+    app.mouse_down();
+    app.mouse_move(to.cx(), to.cy());
+    app.mouse_up();
+    assert_eq!(app.state.browser_search.selection(), Some((0, 4)));
+    shortcut(&mut app, "c");
+    named(&mut app, NamedKey::End);
+    app.shift = true;
+    named(&mut app, NamedKey::ArrowLeft);
+    app.shift = false;
+    shortcut(&mut app, "x");
+    assert_eq!(app.state.browser_search.as_str(), "Café Kick");
+    shortcut(&mut app, "z");
+    assert_eq!(app.state.browser_search.as_str(), "Café Kicks");
+    shortcut(&mut app, "a");
+    shortcut(&mut app, "c");
+
+    crate::plugin_picker::open(&mut app, crate::plugin_menu::Target::All);
+    shortcut(&mut app, "v");
+    assert_eq!(app.state.plugin_picker.query.as_str(), "Café Kicks");
+    app.paint(&mut canvas, None);
+    let from = hit(&app, Action::TextCaret(Target::PickerSearch, 5));
+    let to = hit(&app, Action::TextCaret(Target::PickerSearch, 10));
+    app.mouse_move(from.cx(), from.cy());
+    app.mouse_down();
+    app.mouse_move(to.cx(), to.cy());
+    app.mouse_up();
+    assert_eq!(app.state.plugin_picker.query.selection(), Some((5, 10)));
+    typed(&mut app, "Lead");
+    assert_eq!(app.state.plugin_picker.query.as_str(), "Café Lead");
+    shortcut(&mut app, "a");
+    typed(&mut app, "ML");
+    named(&mut app, NamedKey::Space);
+    typed(&mut app, "Sampler");
+    assert_eq!(app.state.plugin_picker.query.as_str(), "ML Sampler");
+    assert!(!app.transport.playing());
+    named(&mut app, NamedKey::Escape);
+    assert!(!app.state.plugin_picker.open);
+    assert!(!app.hits.iter().any(|item| matches!(item.action, Action::TextCaret(Target::PickerSearch, _))));
+}
+
+#[test]
 fn language_files_save_name_clipboard_mouse_selection_and_reopen() {
     let dir=std::env::temp_dir().join(format!("lemon_text_save_{}",std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -420,6 +420,9 @@ fn controls(
     let name = Rect::new(x + columns.name_x, y, columns.name_w, ROW_H - 2.0);
     let selected = s.rack.sel.contains(&index);
     let focused = index == s.selected_channel;
+    let base = ui.t.s(FACE);
+    let assigned = channel.color.map(rgb);
+    let flat = ui.t.appearance.assigned_colors.rack_channels.fill(base, assigned);
     if row.zipped {
         let strip = Rect::new(name.x, y + 2.0, name.w, rk::ZIP_H - 4.0);
         face(
@@ -429,10 +432,13 @@ fn controls(
             "Zipped channel - Alt+U unzips all",
             selected,
         );
-        if !selected {
-            if let Some(color) = channel.color {
-                ui.c.fill_rrect(strip, 2.0, rgb(color).mix(ui.t.s(FACE), 0.45));
+        if let Some(color) = flat {
+            ui.c.fill_rrect(strip, RADIUS, color);
+            if selected || focused {
+                ui.c.stroke_rrect(strip.inset(0.5), RADIUS, 1.0, os_theme::fl::readable(ui.t.accent, color, 0.35));
             }
+        } else if let Some(color) = assigned.filter(|_| !selected) {
+            ui.c.fill_rrect(strip, 2.0, color.mix(base, 0.45));
         }
         super::midi_glow(ui, s, channel, strip);
         return;
@@ -479,13 +485,12 @@ fn controls(
         Action::ChannelSelect(index),
         "Click: plug-in window; drag: select channels; Ctrl+drag: move rows",
     );
-    let base = ui.t.s(FACE);
-    let base = channel
-        .color
-        .map_or(base, |color| base.mix(rgb(color), 0.27));
-    ui.c.fill_rrect(name, RADIUS, if hot { base.shade(0.10) } else { base });
+    let legacy = assigned.map_or(base, |color| base.mix(color, 0.27));
+    ui.c.fill_rrect(name, RADIUS, flat.unwrap_or_else(|| if hot { legacy.shade(0.10) } else { legacy }));
     if focused || selected {
-        ui.c.stroke_rrect(name.inset(0.5), RADIUS, 1.0, ui.t.accent);
+        let accent = ui.t.accent;
+        let outline = flat.map_or(accent, |fill| os_theme::fl::readable(accent, fill, 0.35));
+        ui.c.stroke_rrect(name.inset(0.5), RADIUS, 1.0, outline);
     }
     super::midi_glow(ui, s, channel, name);
     let route_w = if s.rack.show_mixer { 24.0 } else { 0.0 };
@@ -500,11 +505,12 @@ fn controls(
         &name_text,
         (label_rect.w - 15.0).max(0.0),
     );
+    let ink = text(ui, focused || hot);
     label(
         ui,
         label_rect,
         &name_text,
-        text(ui, focused || hot),
+        flat.map_or(ink, |fill| os_theme::fl::readable(ink, fill, 0.45)),
         s.rack.align_left.unwrap_or(true),
     );
     if s.rack.show_mixer {

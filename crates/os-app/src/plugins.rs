@@ -317,12 +317,14 @@ pub struct Plugins {
 /// plugins/lemon-3x-osc.md §6, plugins/citrus.md).
 pub fn builtin() -> Vec<Available> {
     lemon_chop::set_separator(crate::stem_separation::separate_for_chop);
+    static PURE: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static WAVE: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static CHOP: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static LIB: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static OSC3: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static CITRUS: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     let mut v = linked(&LIB, &lemon_sampler::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, LEMON_SAMPLER);
+    v.extend(linked(&PURE, &ml_pure_player::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, "ML Pure Player"));
     v.extend(linked(&OSC3, &lemon_3x_osc::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, crate::osc3::LEMON_TRIO));
     v.extend(linked(&WAVE, &lemon_wave::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, "ML Wave"));
     match ml_plasma::library() {
@@ -373,6 +375,7 @@ pub fn builtin_effects() -> Vec<Available> {
         &ml_time_shaper::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
         &ml_vocal_tune::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
         &ml_amp::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
+        &ml_riser::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void,
 
 
 
@@ -1700,7 +1703,7 @@ pub const LEMON_EQ: &str = "ML EQ";
 /// Lemon Studio's effects compiled in besides the EQ (`builtin_effects`, in this order). They have no file plugin of
 /// their own to be stored as, so a project stores them wrapped, as it stored their plugin files
 /// (`project_plugins::is_wrapped`).
-pub const LINKED_EFFECTS: [&str; 28] = [
+pub const LINKED_EFFECTS: [&str; 29] = [
     "ML Limiter",
     "ML Reverb",
     "ML Delay",
@@ -1729,6 +1732,7 @@ pub const LINKED_EFFECTS: [&str; 28] = [
     "ML Time Shaper",
     "ML Vocal Tune",
     "ML Amp",
+    "ML Riser",
 ];
 /// Lemon Studio's effects compiled in that a project stores under the FL plugin they recreate, with that plugin's
 /// state (`new_slot`, `store_builtin_states`), so they are never saved wrapped.
@@ -2168,6 +2172,19 @@ pub fn tag_params(ch: &os_model::Channel) -> Vec<(&'static str, serde_json::Valu
     set
 }
 
+/// Check the linked samplers before starting a fresh pass. Their file processing
+/// depends on the song tempo even while the transport is stopped.
+pub(crate) fn sampler_loads_pending(state: &crate::app::State) -> bool {
+    state.sample_loads.iter().any(|(row, _)| state.hosted_rows.contains(row))
+}
+
+pub(crate) fn prepare_sampler_playback(project: &os_model::Project) -> bool {
+    let paths: Vec<_> = project.channels.iter().filter_map(|channel| {
+        channel.sample_path.as_deref().map(resolve_sample)
+    }).collect();
+    lemon_sampler::playback::prepare(project.tick_tempo(project.tempo.unwrap_or(130.0)), &paths)
+}
+
 /// Writes an edit of one of Lemon Sampler's root note page parameters (`name`, at normalized value `norm`) into the
 /// channel's settings, so playback follows it (the engine applies the main pitch). False for other parameters.
 pub fn misc_param(name: &str, norm: f64, misc: &mut os_model::ChannelMisc) -> bool {
@@ -2418,6 +2435,69 @@ pub type ChannelInfoT = ();
 #[cfg(all(test, windows))]
 mod tests {
     #[test]
+    fn ml_pure_player_stock_insert_midi_and_project_state() {
+        let mut pl=Plugins{available:builtin(),rate:48000,scale:1.,..Plugins::default()};
+        let index=pl.available.iter().position(|p|p.desc.name=="ML Pure Player").expect("stock instrument without a scan");
+        assert_eq!(pl.available.iter().filter(|p|p.desc.name=="ML Pure Player").count(),1);
+        pl.create(0,index).unwrap();
+        let original=pl.state(0).unwrap();
+        let json=if original[0]==b'{'{&original[..]}else{&original[8..]};
+        let mut state:serde_json::Value=serde_json::from_slice(json).unwrap();
+        state["fields"]["pure_soundfont"]=serde_json::Value::String(serde_json::json!({"path":std::env::var("ML_PURE_TEST_FONT").unwrap()}).to_string());
+        let json=state.to_string();let mut blob=(json.len() as u64).to_le_bytes().to_vec();blob.extend_from_slice(json.as_bytes());
+        let next=pl.prepare_preset(0,&blob).unwrap();pl.install_preset(0,next);
+        let mut plugin=pl.hosted[&0].plugin.lock().unwrap();
+        plugin.note_on(0,60,0.8);let mut l=[0.;4096];let mut r=l;plugin.process(48000,&mut l,&mut r);
+        assert!(l.iter().any(|v|v.abs()>0.001));plugin.note_off(0,60);
+        let saved=plugin.save_state().unwrap();drop(plugin);
+        let next=pl.prepare_preset(0,&saved).unwrap();pl.install_preset(0,next);
+        assert_eq!(pl.state(0).unwrap(),saved);
+        let presets=crate::presets::factory("ML Pure Player");assert_eq!(presets.len(),8);
+        for preset in presets {
+            let (_,body)=crate::presets::load(&preset.path,&pl.descriptor(0).unwrap().uid()).unwrap();
+            let crate::presets::Body::Params(values)=body else{panic!("parameter preset")};assert!(pl.apply_params(0,&values).unwrap().is_empty());
+        }
+        // Test the real project wrapper, not just the plugin's private state blob.
+        assert!(crate::project_plugins::is_wrapped(&pl.descriptor(0).unwrap()));
+        let reference=crate::project_plugins::plugin_ref(&pl.descriptor(0).unwrap(),pl.state(0).unwrap());
+        assert!(reference.path.ends_with("ML Pure Player.clap"));
+        let mut project=crate::app::test_project();project.channels[0].kind=os_model::ChannelKind::Plugin;
+        crate::project_plugins::store_hosted(&mut project,&pl).unwrap();
+        assert!(crate::project_plugins::wrapped_channel(&project.channels[0]).is_some());
+        let file=std::path::PathBuf::from(std::env::var("ML_TOOLS_RENDER_DIR").unwrap()).join("Pure Player project test.lmn");
+        let mut app=crate::app::App::new(None);app.state.project=project;app.state.file=None;app.state.path=None;app.plugins=pl;app.state.hosted_rows.push(0);app.save_to(file.clone());
+        let mut reopened=crate::app::App::new(None);reopened.plugins.available=builtin();reopened.open(file);reopened.sync_wrapped();
+        assert!(reopened.plugins.hosted.contains_key(&0),"player reopens from a real project");
+        assert_eq!(reopened.plugins.descriptor(0).unwrap().name,"ML Pure Player");
+    }
+
+    #[test]
+    fn ml_riser_stock_picker_presets_audio_and_reload() {
+        let mut pl = Plugins { effects: builtin_effects(), scale: 1., rate: 48000, ..Plugins::default() };
+        let index = pl.effect_index("ML Riser").expect("bundled stock effect without plugin scan");
+        pl.create_effect(1, 0, index, None).unwrap();
+        let key = fx_key(1, 0);
+        let presets = crate::presets::factory("ML Riser");
+        assert_eq!(presets.len(), 8);
+        for preset in presets {
+            let descriptor = pl.descriptor(key).unwrap();
+            let (_, body) = crate::presets::load(&preset.path, &descriptor.uid()).unwrap();
+            let crate::presets::Body::Params(values) = body else { panic!("parameter preset") };
+            assert!(pl.apply_params(key, &values).unwrap().is_empty());
+            let mut plugin = pl.hosted[&key].plugin.lock().unwrap();
+            let mut l = [0.1; 512];
+            let mut r = l;
+            plugin.process_fx(48000, &mut l, &mut r);
+            let info = plugin.param_info(0).unwrap();
+            assert_eq!((plugin.param_value(info.id).unwrap() * 100.).round(), values[0].1);
+            let saved = plugin.save_state().unwrap();
+            drop(plugin);
+            pl.create_effect(2, 0, index, Some(&saved)).unwrap();
+            assert_eq!(pl.state(fx_key(2, 0)).unwrap(), saved);
+        }
+    }
+
+    #[test]
     fn ml_phase_stock_picker_insert_and_reload() {
         let mut pl = Plugins { effects: builtin_effects(), scale: 1.0, rate: 48000, ..Plugins::default() };
         let index = pl.effect_index("ML Phase").expect("ML Phase in stock effect picker without scanning files");
@@ -2434,7 +2514,7 @@ mod tests {
 
     #[test]
     fn ml_tools_batch_stock_picker_insert_and_reload() {
-        for name in ["ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Convolver", "ML Vocoder", "ML Reference", "ML Split", "ML Waveshaper", "ML Tuner", "ML Frequency Shift", "ML Multiband Delay", "ML Time Shaper", "ML Vocal Tune", "ML Amp"] {
+        for name in ["ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Convolver", "ML Vocoder", "ML Reference", "ML Split", "ML Waveshaper", "ML Tuner", "ML Frequency Shift", "ML Multiband Delay", "ML Time Shaper", "ML Vocal Tune", "ML Amp", "ML Riser"] {
             let mut pl = Plugins { effects: builtin_effects(), scale: 1.0, rate: 48000, ..Plugins::default() };
             let index = pl.effect_index(name).expect("stock effect available without file scanning");
             assert_eq!(pl.effects.iter().filter(|x| x.desc.name == name).count(), 1);

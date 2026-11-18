@@ -1803,7 +1803,7 @@ mod tests {
         app.paint(&mut c, None);
         assert_eq!(choice(&TOOLBARS_SCALING), "Main");
         assert_eq!((crate::views::band_h(&app.state), app.state.work_rect().y), (83.0, 83.0));
-        let (clock, tab) = (hit(&app, &Action::Clock), hit(&app, &Action::BrowserTab(0)));
+        let (clock, tab) = (hit(&app, &Action::Clock), hit(&app, &Action::BrowserMenu));
         assert_eq!(app.state.win_rect(Win::Playlist).y, 83.0, "docked under the band");
 
         app.open_settings(crate::views::settings::GENERAL);
@@ -1830,7 +1830,7 @@ mod tests {
         assert_eq!(hit(&app, &Action::Clock), twice(clock));
         let drag = app.hits.iter().find(|h| h.action == Action::DragWindow).map(|h| h.rect);
         assert_eq!(drag, Some(Rect::new(0.0, 0.0, 4600.0, 162.0)));
-        assert_eq!(hit(&app, &Action::BrowserTab(0)), Rect { y: tab.y + 83.0, ..tab });
+        assert_eq!(hit(&app, &Action::BrowserMenu), Rect { y: tab.y + 83.0, ..tab });
         assert_eq!(app.state.win_rect(Win::Playlist).y, 166.0, "docked under the band");
         // A floating window keeps its distance to the band when the band shrinks back.
         app.state.wins[0].maxed = false;

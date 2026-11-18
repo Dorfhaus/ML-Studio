@@ -1,0 +1,3 @@
+OSPRESET 1
+plugin=ML Riser	id=clap:com.mlstudio.riser	format=clap	body=params
+Intensity = 0

@@ -804,6 +804,8 @@ mod tests {
         let mut canvas = os_ui::Canvas::new(1280, 800, 1.).unwrap();
         a.state.show_browser = true;
         a.paint(&mut canvas, None);
+        a.mouse_move(4.,view::list_top(&a.state)+8.);
+        a.paint(&mut canvas,None);
         assert!(a.hits.iter().any(|h| h.action == Action::BrowserTab(view::PARAMETERS_TAB)));
         let keys = [fx_key(2, 1), fx_key(2, 2)];
         for key in keys { a.state.browser_open.insert(view::parameter_node_key(key)); }

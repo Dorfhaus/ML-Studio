@@ -293,6 +293,7 @@ pub fn open(app: &mut App, i: usize) -> Result<(), String> {
     let ppq = app.state.project.ppq;
     let arrangement = app.state.project.arrangement_index();
     let done = Arc::new(Mutex::new(None));
+    crate::vocal::resize::restore(&mut app.state);
     app.state.playlist.vocal.row = None;
     clear_form(app);
     app.state.playlist.warp_loading = Some(Loading {

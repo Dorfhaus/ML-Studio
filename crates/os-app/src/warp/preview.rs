@@ -102,6 +102,12 @@ pub(crate) fn cancel_play(app: &mut App) -> bool {
 /// auditions the previous warp while a new version is being rendered.
 pub(crate) fn wait_for_play(app: &mut App, play: Play) -> bool {
     if crate::audio_edits::pending(&app.state.project){app.state.playlist.vocal.waiting=Some(play);app.state.message=Some("Preparing current audio edits before playback...".into());app.invalidate();return true;}
+    if crate::plugins::sampler_loads_pending(&app.state) || !crate::plugins::prepare_sampler_playback(&crate::rack::play_project(&app.state)) {
+        app.state.playlist.vocal.waiting = Some(play);
+        app.state.message = Some("Preparing audio for the current tempo...".into());
+        app.invalidate();
+        return true;
+    }
     if !usable(&app.state) || !app.state.song_mode {
         return false;
     }
@@ -128,6 +134,10 @@ pub(crate) fn mark_started(app: &mut App, sample: Option<&Arc<Sample>>) {
 
 pub(crate) fn resume(app: &mut App) {
     if crate::audio_edits::pending(&app.state.project){wait_for_play(app,Play::Resume);return;}
+    if crate::plugins::sampler_loads_pending(&app.state) || !crate::plugins::prepare_sampler_playback(&crate::rack::play_project(&app.state)) {
+        wait_for_play(app, Play::Resume);
+        return;
+    }
     let restart = app.state.song_mode
         && app.transport.song()
         && app.state.playlist.warp.as_ref().is_some_and(|f| {

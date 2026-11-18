@@ -132,9 +132,29 @@ pub struct RecordLight {
     pub glow: Option<f32>,
 }
 
+/// A theme can keep the surface's original treatment or choose a flat mix with its assigned color.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct AssignedColor(Option<f32>);
+
+impl AssignedColor {
+    pub fn fill(self, base: Color, assigned: Option<Color>) -> Option<Color> {
+        Some(base.mix(assigned?, self.0?))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct AssignedColors {
+    pub traditional_mixer: AssignedColor,
+    pub full_mixer: AssignedColor,
+    pub playlist_tracks: AssignedColor,
+    pub playlist_clips: AssignedColor,
+    pub rack_channels: AssignedColor,
+}
+
 /// Resolved rendering options. Each stays absent until a theme opts in.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Appearance {
+    pub assigned_colors: AssignedColors,
     /// Insert-slot controls are independent of shared dials and the Full Mixer finish.
     pub playlist_halo_visible: Option<bool>,
     pub playlist_halo_strength: Option<f32>,
@@ -218,6 +238,7 @@ impl Appearance {
         let visible = |key| match option(key).as_str() {
             "Show" => Some(true), "Hide" => Some(false), _ => None,
         };
+        let assigned_color = |key| AssignedColor(num(key, 100.0).map(|value| value / 100.0));
         let insert_decorations_custom = [
             "insert-track", "insert-ring", "insert-rim", "insert-ring-width", "insert-rim-width",
             "insert-ring-radius", "insert-rim-radius",
@@ -235,6 +256,13 @@ impl Appearance {
             glow: num(glow, 100.0).map(|n| n / 100.0),
         };
         Self {
+            assigned_colors: AssignedColors {
+                traditional_mixer: assigned_color("assigned-color-traditional"),
+                full_mixer: assigned_color("assigned-color-full-mixer"),
+                playlist_tracks: assigned_color("assigned-color-playlist-tracks"),
+                playlist_clips: assigned_color("assigned-color-playlist-clips"),
+                rack_channels: assigned_color("assigned-color-rack-channels"),
+            },
             playlist_halo_visible: visible("playlist-halo-visible"),
             playlist_halo_strength: num("playlist-halo-strength", 200.0).map(|n| n / 100.0),
             playlist_record_light: record_light("playlist-record-light", "playlist-record-size", "playlist-record-glow", RecordLightStyle::ConsoleLed),

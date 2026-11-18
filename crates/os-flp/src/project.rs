@@ -849,6 +849,7 @@ pub fn load(file: &FlpFile) -> Result<Project, ProjectError> {
     read_comp_groups(file, &mut p);
     read_attached_lanes(file, &mut p);
     read_attached_order(file, &mut p);
+    read_playlist_sizes(file, &mut p);
     read_frozen_tracks(file, &mut p);
     read_extra_fx(file, &mut p);
     read_audio_warps(file,&mut p);
@@ -3313,6 +3314,7 @@ pub fn apply(project: &Project, file: &mut FlpFile) -> Result<(), ProjectError> 
     write_comp_groups(project, file);
     write_attached_lanes(project, file);
     write_attached_order(project, file);
+    write_playlist_sizes(project, file);
     write_frozen_tracks(project, file);
     write_extra_fx(project, file);
     write_audio_warps(project,file);
@@ -3861,6 +3863,7 @@ pub fn create(project: &Project) -> Result<FlpFile, ProjectError> {
     write_comp_groups(project, &mut file);
     write_attached_lanes(project, &mut file);
     write_attached_order(project, &mut file);
+    write_playlist_sizes(project, &mut file);
     write_frozen_tracks(project, &mut file);
     write_extra_fx(project, &mut file);
     write_audio_warps(project,&mut file);
@@ -7296,6 +7299,30 @@ fn write_attached_lanes(p:&Project,file:&mut FlpFile){
 }
 
 // The ordinary arrangement and the existing LSAM bindings also work in older readers.
+const PLAYLIST_SIZES: Tag = Tag(*b"LSLC");
+
+fn read_playlist_sizes(file: &FlpFile, project: &mut Project) {
+    for chunk in file.chunks.iter().filter(|chunk| chunk.tag == PLAYLIST_SIZES) {
+        let ChunkBody::Raw(bytes) = &chunk.body else { continue };
+        let Ok((1, sizes)) = serde_json::from_slice::<(u8, Vec<(u16, u16)>)>(bytes) else { continue };
+        for (number, count) in sizes {
+            if let Some(arr) = project.arrangements.iter_mut().find(|a| a.number == number) {
+                arr.visible_tracks = Some(count.min(PLAYLIST_TRACKS as u16));
+            }
+        }
+    }
+}
+
+fn write_playlist_sizes(project: &Project, file: &mut FlpFile) {
+    file.chunks.retain(|chunk| chunk.tag != PLAYLIST_SIZES);
+    let sizes: Vec<_> = project.arrangements.iter()
+        .filter_map(|a| a.visible_tracks.map(|count| (a.number, count))).collect();
+    if !sizes.is_empty() {
+        let bytes = serde_json::to_vec(&(1u8, sizes)).expect("Playlist sizes are serializable");
+        file.chunks.push(Chunk { tag: PLAYLIST_SIZES, body: ChunkBody::Raw(bytes) });
+    }
+}
+
 const ATTACHED_ORDER: Tag = Tag(*b"LSAO");
 type AttachedOrder = (u16, Vec<u16>, Vec<u16>);
 

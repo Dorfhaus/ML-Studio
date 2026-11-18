@@ -33,6 +33,8 @@ pub const AREA_VISIBILITY: &str = "visible_theme-area-adjustments";
 pub const INSERT_VISIBILITY: &str = "visible_theme-insert-knobs";
 pub const KEYBOARD_SECTION: &str = "Playlist keyboard & activity";
 pub const INSERT_SECTION: &str = "Traditional FL-style mixer view";
+pub const ASSIGNED_COLOR_SECTION: &str = "Track & clip colors";
+pub const ASSIGNED_COLOR_VISIBILITY: &str = "visible_theme-assigned-colors";
 pub const APPLY: &str = "Apply theme";
 pub const CANCEL: &str = "Cancel edits";
 pub const EXPORT: &str = "Export theme...";
@@ -198,6 +200,11 @@ struct StyleField {
 }
 
 const STYLES: &[StyleField] = &[
+    StyleField { key: "assigned-color-traditional", label: "Traditional Mixer strip (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "assigned-color-full-mixer", label: "Full Mixer & Channel Strip (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "assigned-color-playlist-tracks", label: "Playlist track header (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "assigned-color-playlist-clips", label: "Playlist clip body (0–100%)", values: Values::Number(100.0) },
+    StyleField { key: "assigned-color-rack-channels", label: "Channel Rack name (0–100%)", values: Values::Number(100.0) },
     StyleField {
         key: "buttons",
         label: "Button finish",
@@ -435,6 +442,7 @@ fn color_label(key: &str) -> String {
 }
 
 fn style_section(key: &str) -> &'static str {
+    if key.starts_with("assigned-color-") { return ASSIGNED_COLOR_SECTION; }
     if key.starts_with("playlist-record-") { return PLAYLIST_RECORD_LIGHT; }
     if key.starts_with("trad-record-") { return MIXER_RECORD_LIGHT; }
     if key.starts_with("playlist-halo-") { return KEYBOARD_SECTION; }
@@ -456,7 +464,8 @@ fn style_section(key: &str) -> &'static str {
 pub fn groups(query: &str) -> Vec<(&'static str, Vec<Row>)> {
     let query = query.trim().to_ascii_lowercase();
     let mut result = Vec::new();
-    for title in ["Shape & finish", KEYBOARD_SECTION, PLAYLIST_RECORD_LIGHT, MIXER_RECORD_LIGHT].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
+    for title in ["Shape & finish", ASSIGNED_COLOR_SECTION, KEYBOARD_SECTION, PLAYLIST_RECORD_LIGHT, MIXER_RECORD_LIGHT].into_iter().chain(SECTIONS.iter().map(|(_, title, _)| *title)) {
+        if title == ASSIGNED_COLOR_SECTION && !crate::workspace_visibility::shown(ASSIGNED_COLOR_VISIBILITY) { continue; }
         if title == INSERT_SECTION && !crate::workspace_visibility::shown(INSERT_VISIBILITY) { continue; }
         if title == METER_SECTION && !crate::workspace_visibility::shown(METER_VISIBILITY) { continue; }
         if matches!(title, PLAYLIST_RECORD_LIGHT | MIXER_RECORD_LIGHT)
@@ -1421,13 +1430,7 @@ impl App {
                 } else {
                     &mut edit.field
                 };
-                if field.len() < 128
-                    || !matches!(key, Key::Character(_) | Key::Named(NamedKey::Space))
-                    || field.all
-                    || ctrl
-                {
-                    field.key(key, ctrl, alt);
-                }
+                field.key_limited(key, ctrl, alt, self.shift, 128);
                 if kind == FieldFor::Search {
                     edit.groups = groups(&edit.query.text);
                     st.scroll = 0.0;

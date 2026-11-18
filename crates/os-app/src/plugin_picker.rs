@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Visual, searchable picker over the existing installed-plugin database.
 use crate::{app::{Action,App,State,Ui,Drag},plugin_menu::{Target,PlugCmd},plugin_db::Entry};
+use crate::dialog::{Field, text};
 use os_ui::{Rect,Font};
 use winit::keyboard::{Key,NamedKey};
 #[path = "plugin_picker_chains.rs"]
@@ -13,19 +14,45 @@ pub enum Hit { BulkFavorite(bool),BulkBlacklist(bool),Background,Close,Minimize,
 }
 #[derive(Clone,Debug)]
 pub struct View {
-    pub open:bool, pub target:Target, pub query:String, pub filter:u8,
+    pub open:bool, pub target:Target, pub query:Field, pub filter:u8,
     pub minimized:bool, pub sort_open:bool, pub last_click:Option<((bool,usize),std::time::Instant)>, pub sort:u8, pub preview_revision:u64,
     pub images:crate::plugin_artwork::Images, pub hovered:Option<(bool,usize)>,
     pub multi:Vec<(bool,usize)>,pub anchor:Option<usize>,
     pub first:usize, pub selected:usize, pub pending:Option<(Hit,(f32,f32))>,
+    search_focused: bool,
     chains: chains::View,
 }
-impl Default for View {fn default()->Self{Self{multi:Vec::new(),anchor:None,minimized:false,sort_open:false,last_click:None,sort:0,preview_revision:0,images:Default::default(),hovered:None,open:false,target:Target::All,query:String::new(),filter:0,first:0,selected:0,pending:None,chains:Default::default()}}}
+impl Default for View {fn default()->Self{Self{multi:Vec::new(),anchor:None,minimized:false,sort_open:false,last_click:None,sort:0,preview_revision:0,images:Default::default(),hovered:None,open:false,target:Target::All,query:Field::default(),filter:0,first:0,selected:0,pending:None,search_focused:false,chains:Default::default()}}}
+
+pub(crate) fn focus_search(v: &mut View) -> Option<&mut Field> {
+    if !v.open || v.minimized || chains::editing(v) { return None; }
+    v.chains.focused = true;
+    v.search_focused = true;
+    v.pending = None;
+    Some(&mut v.query)
+}
+
+pub(crate) fn focus_name(v: &mut View) -> Option<&mut Field> {
+    if !v.open || v.minimized || !chains::editing(v) { return None; }
+    v.chains.focused = true;
+    v.pending = None;
+    Some(&mut v.chains.draft_name)
+}
+
+fn query_changed(v: &mut View) {
+    v.multi.clear();
+    v.anchor = None;
+    v.first = 0;
+    v.selected = 0;
+    v.hovered = None;
+    v.chains.first = 0;
+    v.chains.reset_selection();
+}
 fn entries(s:&State,effect:bool)->Vec<&Entry>{
     let v=&s.plugin_picker;
     if (effect && matches!(v.target,Target::AttachedInstrument|Target::PlaylistInstrument(_)|Target::LaneInstrument(..)|Target::Gen(_)|Target::Replace(_)|Target::Stack(_))) || (!effect && matches!(v.target,Target::Fx(_)|Target::ClipFx(..)))
         || (v.filter==1 && effect) || (v.filter==2 && !effect) {return Vec::new();}
-    let q=v.query.to_lowercase();
+    let q=v.query.as_str().to_lowercase();
     let words: Vec<_> = q.split_whitespace().collect();
     let lists=if v.filter==5{&s.plugdb.blacklisted}else{&s.plugdb.lists};let list=if effect{&lists.fx}else{&lists.gens};
     let mut rows:Vec<_>=list.iter().filter(|e| {
@@ -63,11 +90,14 @@ pub fn open(app:&mut App,target:Target){
     app.state.plugin_picker.images=crate::plugin_artwork::load(app.state.plugdb.lists.fx.iter().chain(&app.state.plugdb.lists.gens).chain(&app.state.plugdb.blacklisted.fx).chain(&app.state.plugdb.blacklisted.gens).cloned());
     app.state.plugin_picker.chains = chains::View::load();
     app.state.plugin_picker.chains.focused = true;
+    app.state.plugin_picker.search_focused = true;
     app.pressed=None;app.invalidate();
 }
 pub fn close(app:&mut App){
     app.state.plugin_picker.open=false;app.state.plugin_picker.pending=None;app.pressed=None;
-    app.hits.retain(|h|!matches!(h.action,Action::PluginPicker(_)));app.invalidate();
+    app.hits.retain(|h| !matches!(h.action, Action::PluginPicker(_) |
+        Action::TextCaret(text::Target::PickerSearch | text::Target::PickerName, _)));
+    app.invalidate();
 }
 pub fn floating(s: &State) -> bool {
     s.plugin_picker.open
@@ -136,7 +166,7 @@ pub fn act(app:&mut App,hit:Hit){
                 v.chains.focused = true;
             }
         }
-        Hit::Clear=>{let v=&mut app.state.plugin_picker;v.multi.clear();v.anchor=None;v.query.clear();v.first=0;v.selected=0;v.chains.first=0;v.chains.reset_selection();},
+        Hit::Clear=>{let v=&mut app.state.plugin_picker;v.search_focused=true;v.query.clear();query_changed(v);},
         Hit::Favorite(fx,i)=>{
             let list=if fx{&app.plugins.effects}else{&app.plugins.available};
             if let Some(uid)=list.get(i).map(|e|e.desc.uid()){
@@ -162,7 +192,8 @@ pub fn act(app:&mut App,hit:Hit){
 }
 pub fn under_pointer(app: &App) -> bool {
     app.state.plugin_picker.open && app.top_hit(app.mouse.0, app.mouse.1)
-        .is_some_and(|h| matches!(h.action, Action::PluginPicker(_)))
+        .is_some_and(|h| matches!(h.action, Action::PluginPicker(_) |
+            Action::TextCaret(text::Target::PickerSearch | text::Target::PickerName, _)))
 }
 
 pub fn mouse_down(app:&mut App)->bool{
@@ -179,6 +210,7 @@ pub fn mouse_down(app:&mut App)->bool{
         _ => None,
     };
     app.state.plugin_picker.chains.focused = hit.is_some();
+    app.state.plugin_picker.search_focused = false;
     let Some(hit) = hit else { return false };
     if matches!(hit, Hit::ChainMovePanel | Hit::ChainResizePanel) {
         app.state.plugin_picker.chains.drag_start = Some(rect);
@@ -285,20 +317,34 @@ pub fn key(app:&mut App,key:&Key,ctrl:bool,alt:bool)->bool{
     if floating(&app.state) && (app.state.playlist.popup.is_some() || app.state.menu_open.is_some()) { return false; }
     if !app.state.plugin_picker.open || app.state.plugin_picker.minimized{return false;}
     if !app.state.plugin_picker.chains.focused { return false; }
-    // Winit reports the space bar as a named key on some platforms.
-    let space = Key::Character(" ".into());
-    let key = if matches!(key, Key::Named(NamedKey::Space)) { &space } else { key };
     if chains::editing(&app.state.plugin_picker) {
         match key {
             Key::Named(NamedKey::Escape) => act(app, Hit::ChainCancel),
             Key::Named(NamedKey::Enter) => act(app, Hit::ChainSave),
-            Key::Named(NamedKey::Backspace) => chains::name_input(&mut app.state.plugin_picker, None),
-            Key::Character(c) if ctrl && c.eq_ignore_ascii_case("a") => chains::clear_name(&mut app.state.plugin_picker),
-            Key::Character(c) if !ctrl && !alt => chains::name_input(&mut app.state.plugin_picker, Some(c)),
-            _ => {}
+            _ => { app.state.plugin_picker.chains.draft_name.key_limited(key, ctrl, alt, app.shift, 80); }
         }
         app.invalidate();
         return true;
+    }
+    if matches!(key, Key::Named(NamedKey::Tab)) {
+        let v = &mut app.state.plugin_picker;
+        v.search_focused = !v.search_focused;
+        app.invalidate();
+        return true;
+    }
+    let searching = app.state.plugin_picker.search_focused;
+    let list_key = matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown)) ||
+        (!searching && (matches!(key, Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight)) ||
+            matches!(key, Key::Character(c) if ctrl && c.eq_ignore_ascii_case("a"))));
+    if !list_key && (searching || (!ctrl && !alt && matches!(key, Key::Character(_) | Key::Named(NamedKey::Space | NamedKey::Backspace)))) {
+        let v = &mut app.state.plugin_picker;
+        let before = v.query.text.clone();
+        if v.query.key_limited(key, ctrl, alt, app.shift, 128) {
+            v.search_focused = true;
+            if v.query.text != before { query_changed(v); }
+            app.invalidate();
+            return true;
+        }
     }
     match key{
         Key::Named(NamedKey::Escape)=>close(app),
@@ -319,12 +365,10 @@ pub fn key(app:&mut App,key:&Key,ctrl:bool,alt:bool)->bool{
             if let Some(&(fx,i))=all.get(sel){let row=entries(&app.state,fx).iter().position(|e|e.index==i).unwrap_or(0)/cols;
                 let v=&mut app.state.plugin_picker;if row<v.first{v.first=row;}else if row>=v.first+rows{v.first=row+1-rows;}}
         },
-        Key::Named(NamedKey::Backspace)=>{let v=&mut app.state.plugin_picker;v.multi.clear();v.anchor=None;v.query.pop();v.first=0;v.selected=0;v.chains.first=0;v.chains.reset_selection();},
         Key::Character(c) if ctrl && c.eq_ignore_ascii_case("a") => {
             if app.state.plugin_picker.filter == chains::FILTER { chains::select_all(&mut app.state.plugin_picker); }
             else { app.state.plugin_picker.multi = choices(&app.state); }
         },
-        Key::Character(c) if !ctrl && !alt=>{let v=&mut app.state.plugin_picker;v.multi.clear();v.anchor=None;for ch in c.chars().filter(|c|!c.is_control()){if v.query.chars().count()<128{v.query.push(ch);}}v.first=0;v.selected=0;v.chains.first=0;v.chains.reset_selection();},
         _=>{},
     }
     app.invalidate();true
@@ -371,7 +415,15 @@ pub fn paint(ui:&mut Ui,s:&State){
     ui.c.fill_rrect(search,16.,Color::rgb(0x161719));ui.c.stroke_rrect(search,16.,1.,lemon.with_alpha(170));
     ui.c.stroke_circle(search.x+15.,search.cy()-2.,4.,1.2,ui.t.text_dim);
     ui.c.line(search.x+18.,search.cy()+1.,search.x+22.,search.cy()+5.,1.3,ui.t.text_dim);
-    ui.c.text_clip(Font::light(13,0),search.x+29.,search.y+8.,search.w-55.,ui.t.text,if v.query.is_empty(){if v.filter==chains::FILTER{"Search chains..."}else{"Search plugins..."}}else{&v.query});
+    if !chains::editing(v) {
+        let focused = v.search_focused && v.chains.focused;
+        if focused { ui.c.stroke_rrect(search, 6.0, 1.0, ui.t.accent); }
+        let font = Font::light(13, 0);
+        let inner = Rect::new(search.x + 29.0, search.y, (search.w - 55.0).max(1.0), search.h);
+        let placeholder = if chain_mode { "Search chains..." } else { "Search plugins..." };
+        let origin = text::paint(ui, inner, &v.query, focused, font, ui.t.text, ui.t.accent.with_alpha(90), placeholder);
+        text::carets(ui, search, &v.query, font, origin, |i| Action::TextCaret(text::Target::PickerSearch, i), placeholder);
+    }
     if !v.query.is_empty(){btn(ui,Rect::new(search.right()-26.,search.y+4.,22.,24.),"×",Hit::Clear,false);}
     let mut tab_x = search.right() + 4.;
     for (f, label) in filters {
@@ -513,7 +565,7 @@ mod tests{
         a.key(&Key::Character("ML".into()), false, false);
         a.key(&Key::Named(NamedKey::Space), false, false);
         a.key(&Key::Character("Sampler".into()), false, false);
-        assert_eq!(a.state.plugin_picker.query, "ML Sampler");
+        assert_eq!(a.state.plugin_picker.query.as_str(), "ML Sampler");
         assert!(entries(&a.state,false).iter().any(|entry| entry.name == crate::plugins::LEMON_SAMPLER));
         act(&mut a,Hit::Clear);
         let channels=a.state.project.channels.len();

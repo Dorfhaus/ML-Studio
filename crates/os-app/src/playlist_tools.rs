@@ -102,6 +102,7 @@ pub fn paint_cursor_sample(cv: &mut Canvas, cursor: Cursor, pack: u8, rect: Rect
             None
         }
         Cursor::Default => Some(icons::gesture(Gesture::Pointer, pack)),
+        Cursor::Text => None,
         Cursor::EwResize => Some(icons::artwork(Icon::Slip, pack)),
         Cursor::NsResize => Some(icons::gesture(Gesture::ResizeVertical, pack)),
         Cursor::NwseResize => Some(icons::gesture(Gesture::ResizeDiagonal, pack)),
@@ -501,7 +502,7 @@ pub fn packed_cursor_source(tool: PlTool, phase: u8, scale: f32, pack: u8) -> Op
 }
 
 pub fn window_cursor_source(cursor: Cursor, scale: f32, pack: u8) -> Option<winit::window::CustomCursorSource> {
-    if pack == 0 { return None; }
+    if pack == 0 || cursor == Cursor::Text { return None; }
     use icons::Gesture;
     let scale = native_cursor_scale(scale);
     if pack == crate::vintage_cursors::PACK {
@@ -519,7 +520,7 @@ pub fn window_cursor_source(cursor: Cursor, scale: f32, pack: u8) -> Option<wini
         Cursor::NsResize => icons::gesture(Gesture::ResizeVertical, pack),
         Cursor::NwseResize => icons::gesture(Gesture::ResizeDiagonal, pack),
         Cursor::NeswResize => icons::gesture(Gesture::ResizeBackDiagonal, pack),
-        Cursor::Playlist(..) => return None,
+        Cursor::Playlist(..) | Cursor::Text => return None,
     };
     let hot = art.hotspot.map_or((16.0, 16.0), |(x, y)| (x + 4.0, y + 4.0));
     mask.art_icon(&art.shape, Rect::new(4.0, 4.0, 24.0, 24.0), Color::rgb(0xffffff));

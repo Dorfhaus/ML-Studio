@@ -1,4 +1,5 @@
 pub mod frequency;
+pub mod riser;
 pub mod multidelay;
 mod specs;
 pub mod tuner;

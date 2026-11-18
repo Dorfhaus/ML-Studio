@@ -267,7 +267,7 @@ pub fn guide_key(app: &mut App, key: &Key, ctrl: bool, alt: bool, detached: bool
         }
         _ if view.search.focused => {
             let before = view.search.text.text.clone();
-            if view.search.text.key(key, ctrl, alt) && view.search.text.text != before {
+            if view.search.text.key_mod(key, ctrl, alt, app.shift) && view.search.text.text != before {
                 view.page = Page::Home;
                 view.back.clear();
                 view.picture = false;
@@ -312,7 +312,7 @@ pub fn key(app: &mut App, key: &Key, ctrl: bool, alt: bool) -> bool {
         }
         _ if search.focused => {
             let before = search.text.text.clone();
-            if search.text.key(key, ctrl, alt) && search.text.text != before {
+            if search.text.key_mod(key, ctrl, alt, app.shift) && search.text.text != before {
                 st.scroll = 0.;
             }
         }

@@ -383,9 +383,11 @@ pub fn resize_zones(ui: &mut Ui, s: &State, win: Win, r: Rect) {
 }
 
 /// Minimize / maximize / close buttons from `x0` at the title bar of a window at top `y`.
+pub(super) const WINDOW_DETACH_OFFSET: f32 = 23.0;
+
 pub fn window_buttons(ui: &mut Ui, win: Win, x0: f32, y: f32, _normal: Color, _hover: Color) {
     if win.slot().is_some() {
-        let r=Rect::new(x0-23.,y+3.,19.,17.);
+        let r=Rect::new(x0-WINDOW_DETACH_OFFSET,y+3.,19.,17.);
         let hover=ui.hit(r,Action::DetachWin(win),"Detach / attach window - move freely between monitors");
         ui.c.fill_rrect(r,2.,if hover {ui.t.button_hi} else {ui.t.sunken});
         ui.c.stroke_rrect(r,2.,1.,if hover {ui.t.accent} else {ui.t.text_dim});

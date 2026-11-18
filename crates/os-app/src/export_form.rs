@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use winit::keyboard::{Key, NamedKey};
 
 use crate::app::App;
-use crate::dialog::{spans, Answer, Body, Field, Kind, Reply, Then};
+use crate::dialog::{spans, Answer, Body, Field, Kind, Msg, Reply, Then};
 use crate::export::{self as ex, Options, Tail};
 use crate::project_forms::{FHit, Form};
 
@@ -19,6 +19,8 @@ pub(crate) const SOLO_VISIBILITY: &str = "visible_export-playlist-solo";
 pub const TITLE: &str = "Export audio";
 pub const MAIN: &str = "Export";
 pub(crate) const ADVANCED_VISIBILITY: &str = "visible_export-advanced";
+pub(crate) const NUMBER_VISIBILITY: &str = "visible_export-auto-number";
+const NUMBER_CHECK: u8 = 13;
 
 /// The segmented rows: their labels and segments.
 pub const SEGS: [(&str, &[&str]); 3] = [("Play", &["Song", "Pattern"]), ("Range", &["Whole", "Selection"]), ("Tail", &ex::TAILS)];
@@ -28,7 +30,7 @@ pub const SEG_HINTS: [&str; 3] = [
     "The sound after the end: cut it, let it ring out, or wrap it to the start (a seamless loop)",
 ];
 /// The checks, by `FHit::Check` number.
-pub const CHECKS: [&str; 13] = [
+pub const CHECKS: [&str; 14] = [
     "Dither",
     "HQ for plugins",
     "Split mixer tracks",
@@ -42,8 +44,9 @@ pub const CHECKS: [&str; 13] = [
     "Open the folder when done",
     "Gapless",
     "Solo Playlist tracks",
+    "Auto-number duplicate exports",
 ];
-pub const CHECK_HINTS: [&str; 13] = [
+pub const CHECK_HINTS: [&str; 14] = [
     "Triangular dither on 16 and 24-bit files",
     "Hosted plugins render in their high quality (offline) mode",
     "Also write every mixer track alone (WAV and FLAC), into a stems folder",
@@ -57,6 +60,7 @@ pub const CHECK_HINTS: [&str; 13] = [
     "Show the file in the file manager when the export is done",
     "An Info frame first, so players that read it skip the encoder's delay (some DAWs still play it as silence)",
     "Render each audible Playlist track through its buses and Master, using current effect bypass states",
+    "Add a number to the new export when the name is taken. Turn off to ask before replacing files.",
 ];
 pub const TILE_HINTS: [&str; 4] =
     ["WAV: uncompressed audio", "FLAC: lossless compressed audio", "MP3: lossy compressed audio", "OGG: Ogg Vorbis lossy compressed audio"];
@@ -95,6 +99,8 @@ pub struct ExportForm {
     pub o: Options,
     pub advanced: bool,
     other_options: Options,
+    auto_number: bool,
+    approved_replacements: Vec<PathBuf>,
     /// The device's rate (the render's).
     pub device_rate: u32,
     /// The combo whose list is open.
@@ -144,6 +150,7 @@ impl ExportForm {
             9 => (o.tempo, wav),
             10 => (o.reveal, true),
             12 => (o.playlist_solo, self.song && !self.to_clip),
+            NUMBER_CHECK => (self.auto_number, true),
             _ => (o.mp3_gapless, o.formats[ex::MP3]),
         }
     }
@@ -323,6 +330,8 @@ impl App {
             o,
             advanced: false,
             other_options,
+            auto_number: ex::auto_number(),
+            approved_replacements: Vec::new(),
             device_rate,
             list: None,
             to_clip: false,
@@ -361,6 +370,12 @@ impl App {
                     f.o.formats[t] = !f.o.formats[t];
                 }
             }
+            FHit::Check(NUMBER_CHECK) => {
+                if crate::workspace_visibility::shown(NUMBER_VISIBILITY) {
+                    f.auto_number = !f.auto_number;
+                    ex::set_auto_number(f.auto_number);
+                }
+            }
             FHit::Check(k) if (advanced_controls || k == 10) && f.check(k).1 => f.toggle(k),
             FHit::Combo(k) if advanced_controls && ExportForm::combo_format(k).is_none_or(|t| f.o.formats[t]) => f.list = Some(k),
             FHit::Folder => self.export_folder_pick(),
@@ -373,17 +388,37 @@ impl App {
 
     fn export_form_accept(&mut self) -> Option<Reply> {
         let f = top(self)?;
-        match f.problem() {
-            None => Some(Reply::Button(Answer::Ok)),
-            Some(p) => {
-                self.tell(Kind::Warning, TITLE, spans(&[&p]));
+        if let Some(problem) = f.problem() {
+            self.tell(Kind::Warning, TITLE, spans(&[&problem]));
+            return None;
+        }
+        if f.auto_number {
+            return Some(Reply::Button(Answer::Ok));
+        }
+        let form = f.clone();
+        match self.export_job(&form).conflicts() {
+            Ok(files) if files.is_empty() => Some(Reply::Button(Answer::Ok)),
+            Ok(files) => {
+                self.show_msg(replace_message(&form.folder, &files, Then::ReplaceAudioExport(files.clone())));
+                None
+            }
+            Err(err) => {
+                self.tell(Kind::Warning, TITLE, spans(&[&err.to_string()]));
                 None
             }
         }
     }
 
+    pub(crate) fn confirm_audio_export(&mut self, files: Vec<PathBuf>) {
+        if let Some(f) = top(self) {
+            f.approved_replacements = files;
+            self.answer(Reply::Button(Answer::Ok));
+        }
+    }
+
     /// Keys on the Export form: Esc closes an open list, then the form; Enter exports; the rest types in the name.
     pub(crate) fn export_form_key(&mut self, key: &Key, ctrl: bool, alt: bool) -> Option<Reply> {
+        let shift = self.shift;
         let f = top(self)?;
         if f.list.is_some() {
             if matches!(key, Key::Named(NamedKey::Escape)) {
@@ -396,7 +431,7 @@ impl App {
             Key::Named(NamedKey::Escape) => return Some(Reply::Button(Answer::Cancel)),
             Key::Named(NamedKey::Enter) => return self.export_form_accept(),
             _ => {
-                f.name.key(key, ctrl, alt);
+                f.name.key_mod(key, ctrl, alt, shift);
             }
         }
         self.invalidate();
@@ -510,6 +545,8 @@ impl App {
             options: o,
             folder: f.folder.clone(),
             name: f.name.text.trim().to_string(),
+            auto_number: f.auto_number,
+            approved_replacements: f.approved_replacements.clone(),
             span: f.span().map(|(a, b)| (u64::from(a), u64::from(b))),
             markers,
             loop_frames,
@@ -517,6 +554,21 @@ impl App {
             track_names: (0..=tracks).map(|t| crate::mixer::name(s, t)).collect(),
         }
     }
+}
+
+pub(crate) fn replace_message(folder: &std::path::Path, files: &[PathBuf], then: Then) -> Msg {
+    let mut text = String::from("Replace the existing export files in this folder?\n");
+    text.push_str(&folder.to_string_lossy());
+    for file in files.iter().take(5) {
+        text.push('\n');
+        text.push_str(&file.strip_prefix(folder).unwrap_or(file).to_string_lossy());
+    }
+    if files.len() > 5 {
+        text.push_str(&format!("\nand {} more", files.len() - 5));
+    }
+    let mut message = Msg::new(Kind::Warning, "Replace existing export?", spans(&[&text]), &[Answer::Yes, Answer::No], then);
+    message.focus = 1;
+    message
 }
 
 #[cfg(test)]
@@ -612,6 +664,74 @@ mod tests {
         app
     }
 
+    #[test]
+    fn export_collision_confirmation_and_numbering_work_from_the_form() {
+        use crate::app::Action;
+        use std::time::{Duration, Instant};
+        let dir = tempfile::tempdir().unwrap();
+        let mix = dir.path().join("Take.wav");
+        std::fs::write(&mix, b"original").unwrap();
+        let mut app = app();
+        app.act(Action::MenuItem(0, FILE_EXPORT));
+        app.export_folder_chosen(dir.path().to_path_buf());
+        top(&mut app).unwrap().name.set("Take");
+        assert_eq!(form(&app).unwrap().check(NUMBER_CHECK), (false, true));
+        click(&mut app, FHit::Main);
+        assert!(app.export.is_none());
+        assert!(matches!(&app.state.dialogs.last().unwrap().body,
+            Body::Msg(m) if m.focus == 1 && matches!(&m.then, Then::ReplaceAudioExport(paths) if paths == &[mix.clone()])));
+        app.dialog_key(&Key::Named(NamedKey::Enter), false, false);
+        assert!(form(&app).is_some() && app.export.is_none());
+        assert_eq!(std::fs::read(&mix).unwrap(), b"original");
+
+        let mut canvas = os_ui::Canvas::new(1280, 800, 1.0).unwrap();
+        app.paint(&mut canvas, None);
+        let check = app.hits.iter().find(|hit| hit.action == Action::Dlg(DHit::Form(FHit::Check(NUMBER_CHECK)))).unwrap().rect;
+        app.mouse_move(check.cx(), check.cy());
+        app.mouse_down();
+        app.mouse_up();
+        assert!(ex::auto_number());
+        click(&mut app, FHit::ExportAdvanced(true));
+        assert!(form(&app).unwrap().check(NUMBER_CHECK).0);
+        click(&mut app, FHit::Tile(ex::FLAC as u8));
+        let existing = dir.path().join("Take (2).flac");
+        std::fs::write(&existing, b"original FLAC").unwrap();
+        let wait = |app: &mut App| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            assert!(app.export.is_some());
+            while app.export.is_some() && Instant::now() < deadline {
+                app.plugin_tick();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(app.export.is_none(), "export timed out");
+            if matches!(app.state.dialogs.last().map(|modal| &modal.body), Some(Body::Msg(m)) if m.then == Then::SupporterPrompt) {
+                app.answer(Reply::Button(Answer::Cancel));
+            }
+        };
+        click(&mut app, FHit::Main);
+        wait(&mut app);
+        assert_eq!(std::fs::read(&mix).unwrap(), b"original");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"original FLAC");
+        assert!(dir.path().join("Take (3).wav").is_file());
+        assert!(dir.path().join("Take (3).flac").is_file());
+
+        app.act(Action::MenuItem(0, FILE_EXPORT));
+        app.export_folder_chosen(dir.path().to_path_buf());
+        assert!(form(&app).unwrap().check(NUMBER_CHECK).0);
+        crate::workspace_visibility::toggle(NUMBER_VISIBILITY);
+        app.paint(&mut canvas, None);
+        assert!(!app.hits.iter().any(|hit| hit.action == Action::Dlg(DHit::Form(FHit::Check(NUMBER_CHECK)))));
+        assert!(form(&app).unwrap().check(NUMBER_CHECK).0);
+        crate::workspace_visibility::toggle(NUMBER_VISIBILITY);
+        click(&mut app, FHit::Check(NUMBER_CHECK));
+        top(&mut app).unwrap().name.set("Take");
+        click(&mut app, FHit::Main);
+        app.answer(Reply::Button(Answer::Yes));
+        wait(&mut app);
+        assert!(std::fs::read(&mix).unwrap().starts_with(b"RIFF"));
+        assert_eq!(std::fs::read(&existing).unwrap(), b"original FLAC");
+    }
+
     /// Nothing to render: no form, a message. Export MP3 opens with MP3 the only format; Export audio with the last
     /// choices (spec §2).
     #[test]
@@ -642,6 +762,8 @@ mod tests {
         assert!(form(&app).is_none(), "Esc cancels");
 
         app.act(crate::app::Action::MenuItem(0, FILE_EXPORT));
+        let output = tempfile::tempdir().unwrap();
+        app.export_folder_chosen(output.path().to_path_buf());
         click(&mut app, FHit::ExportAdvanced(true));
         click(&mut app, FHit::Tile(ex::FLAC as u8));
         click(&mut app, FHit::Main);

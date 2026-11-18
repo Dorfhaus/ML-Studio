@@ -7,7 +7,7 @@
 //! itself runs on the audio thread (`transport`); the form is `export_form`.
 // spec: audio/export.md
 
-use std::path::{Path, PathBuf};
+use std::{fs, io, path::{Path, PathBuf}};
 use std::sync::atomic::{AtomicBool, Ordering};
 type Cancel<'a> = Option<&'a AtomicBool>;
 fn checkpoint(cancel: Cancel<'_>) -> Result<(), String> {
@@ -15,6 +15,92 @@ fn checkpoint(cancel: Cancel<'_>) -> Result<(), String> {
 }
 
 use crate::settings_file as sf;
+
+const AUTO_NUMBER: &str = "export_auto_number";
+
+pub(crate) fn auto_number() -> bool {
+    sf::flag(AUTO_NUMBER, false)
+}
+
+pub(crate) fn set_auto_number(on: bool) {
+    sf::set_flag(AUTO_NUMBER, on);
+}
+
+fn metadata(path: &Path) -> io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => Ok(Some(info)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+pub(crate) fn occupied(path: &Path) -> io::Result<bool> {
+    Ok(metadata(path)?.is_some())
+}
+
+pub(crate) fn check_directory(path: &Path) -> io::Result<()> {
+    if metadata(path)?.is_some_and(|info| !info.is_dir()) {
+        return Err(io::Error::other(format!("{} is not an export folder", path.display())));
+    }
+    Ok(())
+}
+
+pub(crate) fn existing_files(paths: impl IntoIterator<Item = PathBuf>) -> io::Result<Vec<PathBuf>> {
+    let mut existing = Vec::new();
+    for path in paths {
+        if let Some(info) = metadata(&path)? {
+            if !info.is_file() {
+                return Err(io::Error::other(format!("{} is not a regular file", path.display())));
+            }
+            existing.push(path);
+        }
+    }
+    Ok(existing)
+}
+
+/// Use the original name if it is free. A numbered export uses one name for its entire set.
+pub(crate) fn available_name(base: &str, mut in_use: impl FnMut(&str) -> io::Result<bool>) -> io::Result<String> {
+    if !in_use(base)? {
+        return Ok(base.to_owned());
+    }
+    let (stem, first) = base.strip_suffix(')').and_then(|s| s.rsplit_once(" ("))
+        .and_then(|(stem, number)| Some((stem, number.parse::<u32>().ok()?.checked_add(1)?)))
+        .filter(|(stem, first)| !stem.is_empty() && *first >= 2)
+        .unwrap_or((base, 2));
+    for i in first..first.saturating_add(10_000) {
+        let name = format!("{stem} ({i})");
+        if !in_use(&name)? {
+            return Ok(name);
+        }
+    }
+    Err(io::Error::other("Could not find a free export name"))
+}
+
+/// Encode beside the destination, then commit the complete file. A late collision must never truncate a file.
+pub(crate) fn write_file(
+    path: &Path, approved: &[PathBuf], write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let folder = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ml-export-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o666));
+    }
+    let mut staging = builder.tempfile_in(folder)?;
+    write(staging.as_file_mut())?;
+    let result = if approved.iter().any(|p| p == path) && metadata(path)?.is_some_and(|info| info.is_file()) {
+        staging.persist(path)
+    } else {
+        staging.persist_noclobber(path)
+    };
+    result.map(|_| ()).map_err(|e| {
+        if e.error.kind() == io::ErrorKind::AlreadyExists {
+            io::Error::new(io::ErrorKind::AlreadyExists, "A file already exists here. Choose another export name or approve its replacement.")
+        } else { e.error }
+    })
+}
 
 /// The formats, in the form's order.
 pub const FORMATS: [&str; 4] = ["WAV", "FLAC", "MP3", "OGG"];
@@ -252,6 +338,8 @@ pub struct Job {
     /// The files' folder and name (without extension).
     pub folder: PathBuf,
     pub name: String,
+    pub auto_number: bool,
+    pub approved_replacements: Vec<PathBuf>,
     /// Render only ticks from..to (Range Selection).
     pub span: Option<(u64, u64)>,
     pub markers: Vec<Marker>,
@@ -275,6 +363,8 @@ impl Job {
             options,
             folder: path.parent().map(Path::to_path_buf).unwrap_or_default(),
             name: path.file_stem().map_or_else(|| "Untitled".into(), |n| n.to_string_lossy().into_owned()),
+            auto_number: false,
+            approved_replacements: Vec::new(),
             span: None,
             markers: Vec::new(),
             loop_frames: None,
@@ -291,6 +381,76 @@ impl Job {
     /// The folder the split mixer tracks go to.
     pub fn stems_folder(&self) -> PathBuf {
         self.folder.join(format!("{} stems", self.name))
+    }
+
+    pub fn playlist_folder(&self) -> PathBuf {
+        self.folder.join(format!("{} tracks", self.name))
+    }
+
+    fn stem_file(&self, directory: &Path, t: usize, f: usize) -> PathBuf {
+        let name = self.track_names.get(t).cloned().unwrap_or_else(|| {
+            if t == 0 { "Master".into() } else { format!("Insert {t}") }
+        });
+        let name: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+        directory.join(format!("{t:02} {name}.{}", EXTENSIONS[f]))
+    }
+
+    fn stem_formats(&self) -> impl Iterator<Item = usize> + '_ {
+        self.options.ticked().filter(|&f| f == WAV || f == FLAC)
+    }
+
+    fn extra_folder(&self) -> Option<PathBuf> {
+        if self.options.playlist_solo {
+            Some(self.playlist_folder())
+        } else if self.options.split && self.stem_formats().next().is_some() {
+            Some(self.stems_folder())
+        } else {
+            None
+        }
+    }
+
+    fn output_paths(&self) -> Vec<PathBuf> {
+        if self.options.playlist_solo {
+            let folder = self.playlist_folder();
+            return self.playlist_solos.iter().flat_map(|(name, _)| {
+                let folder = &folder;
+                self.options.ticked().map(move |f| folder.join(format!("{name}.{}", EXTENSIONS[f])))
+            }).collect();
+        }
+        let mut paths: Vec<_> = self.options.ticked().map(|f| self.file(f)).collect();
+        if let Some(folder) = self.extra_folder() {
+            for t in usize::from(!self.options.split_master)..self.track_names.len() {
+                paths.extend(self.stem_formats().map(|f| self.stem_file(&folder, t, f)));
+            }
+        }
+        paths
+    }
+
+    pub(crate) fn conflicts(&self) -> io::Result<Vec<PathBuf>> {
+        if let Some(dir) = self.extra_folder() {
+            check_directory(&dir)?;
+        }
+        existing_files(self.output_paths())
+    }
+
+    pub(crate) fn prepare_destination(&mut self) -> io::Result<()> {
+        if self.auto_number {
+            let mut probe = self.clone();
+            self.name = available_name(&self.name, |name| {
+                probe.name = name.to_owned();
+                if let Some(dir) = probe.extra_folder() && occupied(&dir)? {
+                    return Ok(true);
+                }
+                for f in probe.options.ticked().filter(|_| !probe.options.playlist_solo) {
+                    if occupied(&probe.file(f))? { return Ok(true); }
+                }
+                Ok(false)
+            })?;
+        }
+        if let Some(path) = self.conflicts()?.into_iter().find(|path| !self.approved_replacements.contains(path)) {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{} already exists. Choose another export name or approve its replacement.", path.display())));
+        }
+        Ok(())
     }
 }
 
@@ -316,10 +476,10 @@ pub fn write_cancellable(job: &Job, rate:u32, mix:Vec<f32>, tracks:Vec<Vec<f32>>
     };
     for f in o.ticked() {
         let path = job.file(f);
-        encode(o, f, &path, &mix, out_rate, &meta,cancel)?;
+        encode(job, f, &path, &mix, out_rate, &meta,cancel)?;
         written.push(path);
     }
-    if o.split {
+    if o.split && job.stem_formats().next().is_some() {
         let dir = job.stems_folder();
         let mut made = false;
         for (t, audio) in tracks.into_iter().enumerate() {
@@ -327,16 +487,15 @@ pub fn write_cancellable(job: &Job, rate:u32, mix:Vec<f32>, tracks:Vec<Vec<f32>>
                 continue;
             }
             if !made {
+                check_directory(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
                 std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
                 made = true;
             }
             let audio = shape_cancellable(o, audio, song, rate, out_rate,cancel)?;
-            let name = job.track_names.get(t).cloned().unwrap_or_else(|| if t == 0 { "Master".into() } else { format!("Insert {t}") });
-            let name: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
             // As FL, only WAV and FLAC (spec §3 "Split mixer tracks").
-            for f in o.ticked().filter(|&f| f == WAV || f == FLAC) {
-                let path = dir.join(format!("{t:02} {name}.{}", EXTENSIONS[f]));
-                encode(o, f, &path, &audio, out_rate, &Meta::default(),cancel)?;
+            for f in job.stem_formats() {
+                let path = job.stem_file(&dir, t, f);
+                encode(job, f, &path, &audio, out_rate, &Meta::default(),cancel)?;
                 written.push(path);
             }
         }
@@ -528,8 +687,9 @@ struct Meta {
 }
 
 /// Writes `audio` (interleaved, in the options' channel count) at `rate` as format `f` to `path`.
-fn encode(o: &Options, f: usize, path: &Path, audio: &[f32], rate: u32, meta: &Meta, cancel:Cancel<'_>) -> Result<(), String> {
+fn encode(job: &Job, f: usize, path: &Path, audio: &[f32], rate: u32, meta: &Meta, cancel:Cancel<'_>) -> Result<(), String> {
     checkpoint(cancel)?;
+    let o = &job.options;
     let ch = o.channel_count();
     let err = |e: String| format!("{}: {e}", path.display());
     let bytes = match f {
@@ -562,7 +722,11 @@ fn encode(o: &Options, f: usize, path: &Path, audio: &[f32], rate: u32, meta: &M
         _ => ogg_bytes(audio, ch, rate, o.ogg_kbps,cancel).map_err(err)?,
     };
     checkpoint(cancel)?;
-    std::fs::write(path, bytes).map_err(|e| err(e.to_string()))
+    write_file(path, &job.approved_replacements, |file| {
+        use std::io::Write;
+        file.write_all(&bytes)?;
+        checkpoint(cancel).map_err(io::Error::other)
+    }).map_err(|e| err(e.to_string()))
 }
 
 #[cfg(any(windows, test))]
@@ -898,6 +1062,50 @@ mod tests {
             assert!((44100..44100 + 4096).contains(&frames), "{f}: {frames} frames");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_destination_covers_stems_and_protects_late_collisions() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let mix = dir.path().join("Mix.wav");
+        let mut job = Job::wav(&mix);
+        job.options.split = true;
+        job.track_names = vec!["Master".into(), "Drums".into()];
+        fs::create_dir(job.stems_folder()).unwrap();
+        let stem = job.stems_folder().join("01 Drums.wav");
+        fs::write(&stem, b"old stem").unwrap();
+        assert_eq!(job.conflicts().unwrap(), [stem.clone()]);
+        assert!(job.prepare_destination().is_err());
+        assert!(!mix.exists());
+        job.auto_number = true;
+        job.prepare_destination().unwrap();
+        assert_eq!(job.name, "Mix (2)");
+        let numbered = job.file(WAV);
+        let error = write_file(&numbered, &[], |stage| {
+            fs::write(&numbered, b"someone else's export")?;
+            stage.write_all(b"new WAV")
+        }).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&numbered).unwrap(), b"someone else's export");
+        assert_eq!(fs::read(&stem).unwrap(), b"old stem");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2, "no temporary output remained");
+        write_file(&numbered, &[numbered.clone()], |stage| stage.write_all(b"approved")).unwrap();
+        assert_eq!(fs::read(&numbered).unwrap(), b"approved");
+        assert!(write_file(&numbered, &[numbered.clone()], |stage| {
+            stage.write_all(b"partial output")?;
+            Err(io::Error::other("simulated write error"))
+        }).is_err());
+        assert_eq!(fs::read(&numbered).unwrap(), b"approved");
+
+        job.options.playlist_solo = true;
+        job.playlist_solos = vec![("01 Vox".into(), vec![0])];
+        let path = job.playlist_folder().join("01 Vox.wav");
+        fs::create_dir(job.playlist_folder()).unwrap();
+        fs::write(&path, b"old solo").unwrap();
+        assert_eq!(job.conflicts().unwrap(), [path]);
+        job.prepare_destination().unwrap();
+        assert_eq!(job.name, "Mix (3)");
     }
 }
 

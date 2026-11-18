@@ -75,8 +75,10 @@ pub enum Then {
     RelinkVideo(os_model::timeline::Video),
     SetDetectedProjectTempo(f64),
     ResetMixerTracks(Vec<u16>),
+    DeleteAllPlaylistTracks(u16),
     VocalReanalyse(u16),
     TrashBrowserSample(PathBuf),
+    RemoveBrowserCollection(usize),
     /// Nothing (an information box).
     Nothing,
     StemDownload(usize, u8),
@@ -88,6 +90,8 @@ pub enum Then {
     SaveProject(Option<Next>),
     /// The Export form's folder button (`App::export_folder_chosen`).
     ExportFolder,
+    ReplaceAudioExport(Vec<PathBuf>),
+    ReplacePlaylistExport(Vec<PathBuf>),
     OpenProject,
     LoadTheme,
     ExportTheme,
@@ -159,6 +163,8 @@ pub enum Then {
     FactoryFolder,
     /// FILE ▸ Save as template...: the template's name, from the save dialog (`crate::project_files`).
     SaveTemplate,
+    ReplaceTemplate(PathBuf),
+    UseStartupTemplate(String),
     /// FILE ▸ Save to new project folder...: the folder the new project folder goes in.
     NewProjectFolder,
     /// The Delete unused files question: Yes deletes these files, then saves the project.
@@ -186,6 +192,7 @@ pub enum Next {
     Revert(PathBuf),
     /// FILE ▸ New from template ▸: a new project from this template file (None: Empty).
     Template(Option<PathBuf>),
+    NoTracksTemplate,
 }
 
 /// A dialog's answer.
@@ -289,7 +296,7 @@ impl Modal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TextTarget { Name, Path, Project(u8) }
+pub enum TextTarget { Name, Path, Project(u8), HeadphoneSearch, RouteSearch, MixerCount, Normalize, NoteProperty(usize), Collaboration(usize) }
 
 fn text_field(body: &mut Body, target: TextTarget) -> Option<&mut Field> {
     match (body, target) {
@@ -301,6 +308,13 @@ fn text_field(body: &mut Body, target: TextTarget) -> Option<&mut Field> {
         (Body::Project(crate::project_forms::Form::Rename(f)), TextTarget::Project(i)) if i==0 || (i==1 && f.folder_editable()) => {
             f.focus=i; Some(if i==0 { &mut f.name } else { &mut f.folder })
         },
+        (Body::Project(crate::project_forms::Form::Export(f)), TextTarget::Project(0)) => Some(&mut f.name),
+        (Body::Headphones(f), TextTarget::HeadphoneSearch) => Some(&mut f.search),
+        (Body::RoutePicker(f), TextTarget::RouteSearch) => Some(&mut f.search),
+        (Body::MixerInsert(f), TextTarget::MixerCount) => Some(&mut f.field),
+        (Body::Normalize(f), TextTarget::Normalize) => Some(&mut f.target),
+        (Body::NoteProperties(f), TextTarget::NoteProperty(i)) => f.focus_field(i),
+        (Body::Collaboration(f), TextTarget::Collaboration(i)) => f.focus_field(i),
         _ => None,
     }
 }
@@ -372,7 +386,7 @@ pub enum DHit {
 }
 
 #[path = "dialog_text.rs"]
-mod text;
+pub(crate) mod text;
 pub use text::Field;
 
 /// What a key did in the file dialog.
@@ -438,7 +452,7 @@ fn file_key(f: &mut FileDlg, key: &Key, ctrl: bool, alt: bool, shift: bool) -> F
         Key::Named(N::End) if f.list_focus => f.step(1 << 40),
         Key::Named(N::F5) => f.reread(),
         // Backspace in an empty name field: the parent folder.
-        Key::Named(N::Backspace) if f.focus == Focus::Name && f.name.text.is_empty() => f.up(),
+        Key::Named(N::Backspace) if f.list_focus => f.up(),
         _ => {
             let name = f.focus == Focus::Name;
             let field = if name { &mut f.name } else { &mut f.path };
@@ -591,9 +605,9 @@ impl App {
     }
 
     pub(crate) fn dialog_text_drag(&mut self, target: TextTarget, x: f32) {
-        let nearest=self.hits.iter().filter_map(|h| match h.action {
-            Action::Dlg(DHit::TextCaret(t,p)) if t==target => Some((p,(h.rect.cx()-x).abs())), _=>None,
-        }).min_by(|a,b| a.1.total_cmp(&b.1)).map(|v|v.0);
+        let nearest = text::nearest(self, x, |action| match *action {
+            Action::Dlg(DHit::TextCaret(t, p)) if t == target => Some(p), _ => None,
+        });
         if let (Some(pos),Some(m))=(nearest,self.state.dialogs.last_mut()) {
             if let Some(f)=text_field(&mut m.body,target) { f.place(pos,true); }
         }
@@ -812,7 +826,7 @@ impl App {
                 Key::Named(NamedKey::Enter) if form.count().is_some() => self.answer(Reply::Button(Answer::Ok)),
                 Key::Character(c) if !ctrl && !c.bytes().all(|b| b.is_ascii_digit()) => {}
                 Key::Named(NamedKey::Space) => {}
-                _ => { form.field.key(key, ctrl, alt); }
+                _ => { form.field.key_mod(key, ctrl, alt, shift); }
             },
             Body::MixAssistant(_) => {
                 use crate::mix_assistant::Hit;
@@ -826,7 +840,7 @@ impl App {
             }
             Body::RoutePicker(f)=>{
                 if matches!(key,Key::Named(NamedKey::Escape)){self.answer(Reply::Button(Answer::Cancel));}
-                else if f.search.key(key,ctrl,alt){f.filter();}
+                else if f.search.key_mod(key,ctrl,alt,shift){f.filter();}
             }
             Body::Headphones(f) => {
                 match key {
@@ -837,7 +851,7 @@ impl App {
                         f.selected=f.selected.saturating_add_signed(d).min(f.results.len().saturating_sub(1));
                         if f.selected<f.scroll {f.scroll=f.selected;} else if f.selected>=f.scroll+10 {f.scroll=f.selected-9;}
                     },
-                    _=>{if f.search.key(key,ctrl,alt) {f.filter();}}
+                    _=>{if f.search.key_mod(key,ctrl,alt,shift) {f.filter();}}
                 }
             }
             Body::Msg(msg) => {

@@ -40,7 +40,7 @@ fn for_platform<'a>(p: &'a Plugin, platform: &str) -> Option<&'a Download> {
     p.downloads.iter().find(|d|d.platform==platform)
         .or_else(|| platform.starts_with("macos-").then(|| p.downloads.iter().find(|d|d.platform=="macos-universal")).flatten())
 }
-fn download(p: &Plugin) -> Option<&Download> { for_platform(p, platform()) }
+pub(crate) fn download(p: &Plugin) -> Option<&Download> { for_platform(p, platform()) }
 
 fn scan_name(name: &str) -> String {
     name.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
@@ -86,7 +86,7 @@ pub fn discovery_row(app:&mut App,key:&str)->bool {
     app.state.browser_scroll=0.;app.state.catalog_tooltip=None;app.invalidate();true
 }
 pub fn rows(s: &State) -> Vec<Row> {
-    let q=s.browser_search.to_lowercase();let mut out=Vec::new();
+    let q=s.browser_search.as_str().to_lowercase();let mut out=Vec::new();
     let f=if discovery(){filter()}else{0};
     let by_name=discovery() && crate::prefs::text("catalog_sort").as_deref()==Some("name");
     if discovery(){
