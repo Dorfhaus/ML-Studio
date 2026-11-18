@@ -683,6 +683,14 @@ pub(crate) struct PlacementEdge {
     pub view: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenameFocus {
+    #[default]
+    Clips,
+    Track,
+    Pattern,
+}
+
 pub struct PlaylistState {
     pub scoring: crate::scoring::Controls,
     pub visuals: crate::visual_scenes::Controls,
@@ -712,6 +720,7 @@ pub struct PlaylistState {
     pub sel: Vec<usize>,
     /// Selected track (Ctrl+Up / Down, header click).
     pub header_selection:Vec<u16>,
+    pub rename_focus: RenameFocus,
     pub(crate) header_anchor:Option<u16>,
     pub drop_folder:Option<u16>,
     pub track: u16,
@@ -814,6 +823,7 @@ impl Default for PlaylistState {
             audio_template: None,
             row_h: ROW_H,
             last_header: None,
+            rename_focus: RenameFocus::default(),
             last_clip: None,
             scoring: Default::default(),
             visuals: Default::default(),
@@ -1272,7 +1282,7 @@ pub fn clip_name<'a>(s: &State, clip: &'a Clip) -> std::borrow::Cow<'a, str> {
 
 pub fn set_audio_clip_name(s: &mut State, index: usize, text: &str) {
     let Some(clip) = clips(s).get(index) else { return };
-    if source_kind(s, clip.source) != PickKind::Audio { return; }
+    if !matches!(clip.source,ClipSource::Channel(_)) { return; }
     let text = text.trim();
     let name = (!text.is_empty() && text != source_name(s, clip.source)).then_some(text);
     if clip.name.as_deref() != name {
@@ -2520,8 +2530,7 @@ pub fn toggle_track(s: &mut State, t: u16) {
 /// Ctrl+click / right-click on the LED: solo the track (others muted); again ends the solo (see [`end_solo`]). A solo
 /// moved to another track keeps the states from before the first one.
 pub fn toggle_solo(s: &mut State, t: u16) {
-    let chosen=folder_members(s,t);let mut keep=chosen.clone();
-    for &row in &chosen{if is_group_track(s,row){keep.extend((row+1..TRACKS).take_while(|&r|track_info(s,r).is_some_and(|r|r.grouped)));}if let Some(parent)=group_track(s,row).filter(|_| crate::comping::parent(s,row).is_none()){keep.push(parent);}}
+    let keep=solo_rows(s,&folder_members(s,t));
     if let Some((was,_))=s.playlist.solo {let same=s.project.arrangement().is_some_and(|a|a.tracks.iter().enumerate().all(|(k,r)|r.enabled==keep.contains(&(k as u16))));end_solo(s);if was==t&&same{return;}}
     let arr = arr_mut(s);
     let states: Vec<bool> = arr.tracks.iter().map(|t| t.enabled).collect();
@@ -2530,6 +2539,12 @@ pub fn toggle_solo(s: &mut State, t: u16) {
     }
     s.playlist.solo = Some((t, states));
     s.piano.dirty = true;
+}
+
+pub(crate) fn solo_rows(s: &State, chosen: &[u16]) -> Vec<u16> {
+    let mut keep=chosen.to_vec();
+    for &row in chosen{if is_group_track(s,row){keep.extend((row+1..TRACKS).take_while(|&r|track_info(s,r).is_some_and(|r|r.grouped)));}if let Some(parent)=group_track(s,row).filter(|_| crate::comping::parent(s,row).is_none()){keep.push(parent);}}
+    keep
 }
 
 /// Unsolo: every track on, or, with "Restore previous state after solo" on, the states from before the solo (spec:
@@ -3876,6 +3891,7 @@ fn edge(r: Rect, x: f32) -> i32 {
 /// Mouse press on the grid. `right` = the right button.
 pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
     let (x, y) = app.mouse;
+    app.state.playlist.rename_focus = RenameFocus::Clips;
     let placement_edge = if right { None } else { app.playlist_placement_edge(x) };
     let s = &mut app.state;
     s.playlist.popup = None;
@@ -5124,6 +5140,7 @@ fn header_range_band(s: &mut State, g: &PGeom, anchor: u16, target: u16) {
 }
 
 pub fn press_header(app: &mut App, t: u16, right: bool, at: (f32, f32)) {
+    app.state.playlist.rename_focus = RenameFocus::Track;
     let contents = !right && crate::playlist_tools::range_chord(app);
     let grid = app.pl_grid();
     let s = &mut app.state;
@@ -5694,6 +5711,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             None
         }
         Cmd::Paste => {
+            s.playlist.rename_focus=RenameFocus::Clips;
             if crate::attached_mixer::active(s) && s.playlist.clipboard.is_empty() {
                 let row = s.playlist.track;
                 if track_info(s, row).is_some_and(|t| t.locked || t.frozen.is_some() || t.folder)
@@ -5808,6 +5826,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             Some(if s.playlist.stretch { "Stretch mode on: resizing an audio clip stretches it".into() } else { "Stretch mode off".into() })
         }
         Cmd::SelectAll => {
+            s.playlist.rename_focus=RenameFocus::Clips;
             s.playlist.sel = (0..clips(s).len()).collect();
             None
         }
@@ -6005,7 +6024,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             });
             match src {
                 Some(ClipSource::Pattern(n)) => start_edit(s, EditTarget::PatternName(n), at),
-                Some(src) if source_kind(s, src) == PickKind::Audio => {
+                Some(ClipSource::Channel(_)) => {
                     let at = crate::patterns::box_at_mouse(app.mouse);
                     crate::patterns::open_name_box(s, crate::patterns::BoxTarget::AudioClip(i), at);
                 }
@@ -6566,6 +6585,16 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> 
         return true;
     }
     let cmd = match key {
+        Key::Named(NamedKey::F2) if !ctrl && !alt && !shift => {
+            let s=&app.state;
+            if s.playlist.rename_focus==RenameFocus::Track {
+                Cmd::TrackRename(s.playlist.track)
+            } else if let Some(i)=s.playlist.last_clip.map(|(i,_)|i)
+                .filter(|i|s.playlist.sel.contains(i) && *i<clips(s).len())
+                .or_else(||s.playlist.sel.iter().copied().find(|&i|i<clips(s).len())) {
+                Cmd::ClipRename(i)
+            } else { Cmd::TrackRename(s.playlist.track) }
+        },
         Key::Character(c) if ctrl && alt && c.eq_ignore_ascii_case("c") => Cmd::Consolidate,
         Key::Character(c) if ctrl && shift && c.eq_ignore_ascii_case("c") => Cmd::MakeUnique,
         // Performance mode (live clip launching, Ctrl+P in FL's menu) is not built yet.

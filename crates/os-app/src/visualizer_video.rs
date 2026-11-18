@@ -754,6 +754,7 @@ fn begin_audio(app: &mut App) {
         });
     }
     let job = AudioJob {
+        playlist_solos: Vec::new(),
         instrument_rows: None,
         capture_tracks: None,
         options: Options {

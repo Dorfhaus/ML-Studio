@@ -1735,6 +1735,12 @@ Use **Tail > Cut** when the file must stop at the end of the selected material. 
 For MP3, **Gapless** writes encoder delay information that compatible players can use. Some DAWs still play extra silence. WAV or FLAC avoids the MP3 encoder delay for precise reimport.
 Related: Export a finished song, stems or MIDI | Export settings, metadata and stems
 
+### Export Playlist tracks as solos
+Keywords: export solo playlist separate tracks buses sends master effects multitrack
+Open **File > Export audio > Advanced** and enable **Solo Playlist tracks** in Extras with Song selected. Choose the destination folder, file formats, sample rate, range and tail as usual. The export writes one numbered file per audible Playlist track into a **<name> tracks** subfolder. Each pass uses the same lane membership as the Playlist Solo command, including folder/group behavior. Muted clips stay muted. Each file follows its routing through insert effects, sends, buses and Master. Current effect bypass states are respected. Sidechains respond as they do when the track is soloed.
+
+All passes use the same song timeline or selected time range so the files align. Ring-out tails can differ by track. Rendering runs sequentially with progress displayed. Successfully written files are kept if a later pass fails. Your project's Playlist mute and solo states are preserved. Split mixer tracks is disabled for this mode. **Settings > Visibility > Workspace > Solo Playlist tracks export** controls the option's visibility.
+
 ### Export mixer stems and choose what gets processed
 Keywords: export stems split mixer tracks master insert effects hq bit depth dither resampling render multitrack individual stems
 Open File > **Export audio** and show Advanced options. If the tab is missing, show **Settings > Visibility > Workspace > Advanced Export tab**. Choose **WAV** or **FLAC** and enable **Split mixer tracks** to export the Mixer paths as separate files in a stems folder. Enable **Include the master** if you also want the Master file with the split tracks.
@@ -1858,7 +1864,14 @@ Right-click a channel name to open Piano Roll, change or insert an instrument, o
 Right-click the Mixer number for destination and selected routing options. Right-click a knob for its value and automation options. Use the LED context for channel mute and solo. Rack View controls the Mixer number display, zipped rows, name alignment, button width and automatic height.
 Related: Select and edit several channels | Route selected channels to the Mixer | Program steps and patterns
 
+### Rename the focused item with F2
+Keywords: rename F2 playlist clip track mixer pattern focus shortcut
+In the Playlist, select a clip and press **F2** to rename it. Clicking a track header, resize edge or track grip makes F2 rename that Playlist track, even when clips remain selected. Moving the mouse afterward does not change the target. With several clips selected, the most recently clicked selected clip is used, or the first selected clip. Pattern clips rename their source pattern, so its other placements also show that name. Audio and automation clips use their clip name. Press Enter to apply or Escape to cancel. Undo restores the previous name.
+
+In the Mixer, F2 renames the current Mixer channel. Selecting a pattern in the pattern selector or Playlist picker makes F2 rename that pattern. The Piano Roll retains the current-pattern rename shortcut. Custom shortcuts and active text fields retain their own key handling.
+
 ### Selecting notes and clips with the mouse
+Keywords: select selection ctrl shift marquee piano roll playlist vocal timing toggle notes clips
 Hold Ctrl (Command on macOS) to select with an editing tool. Ctrl+Shift-click a selected note, clip or timing point to remove it while keeping the rest. Drag a rectangle to toggle everything it touches against the selection you started with. Moving the rectangle back restores items that leave it. In vocal tuning and audio timing, Ctrl/Cmd+wheel zooms time at the pointer, Shift+wheel scrolls through time, and middle-drag pans the Playlist. Alt+wheel zooms pitch or waveform amplitude.
 
 ### Mixer and effect slot menus

@@ -22,12 +22,12 @@ use crate::icons::Icon;
 use crate::project_forms::FHit;
 
 pub const W: f32 = 660.0;
-pub const H: f32 = 480.0;
+pub const H: f32 = 506.0;
 /// Groups: File's top and height, the columns' groups' heights, the gap between groups.
 const TOP: f32 = 34.0;
 const FILE_H: f32 = 84.0;
 const UPPER_H: f32 = 132.0;
-const LOWER_H: f32 = 152.0;
+const LOWER_H: f32 = 178.0;
 const GAP: f32 = 6.0;
 const ITEM_H: f32 = 20.0;
 
@@ -179,7 +179,10 @@ fn formats(ui: &mut Ui, f: &ExportForm, g: Rect, boxes: &mut Vec<(u8, Rect)>) {
 fn extras(ui: &mut Ui, f: &ExportForm, g: Rect) {
     section(ui, g, "Extras");
     let (c1, c2) = (g.x + 12.0, g.x + 12.0 + (g.w / 2.0).round());
-    let row = |i: usize| g.y + 38.0 + i as f32 * 26.0;
+    let row = |i: usize| g.y + 64.0 + i as f32 * 26.0;
+    if crate::workspace_visibility::shown(crate::export_form::SOLO_VISIBILITY) {
+        check_k(ui, f, g.x+12., g.y+38., 12);
+    }
     check_k(ui, f, c1, row(0), 2);
     check_k(ui, f, c1 + 18.0, row(1), 3);
     check_k(ui, f, c1, row(2), 4);

@@ -84,6 +84,7 @@ pub fn job(s: &State, dir: &Path, stem: &str) -> ex::Job {
     let tempo = s.project.tick_tempo(s.tempo);
     let ticks = crate::piano::pattern_length(s, s.pattern);
     ex::Job {
+        playlist_solos: Vec::new(),
         instrument_rows: None,
         capture_tracks: None,
         options,

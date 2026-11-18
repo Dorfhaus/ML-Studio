@@ -15,6 +15,7 @@ use crate::dialog::{spans, Answer, Body, Field, Kind, Reply, Then};
 use crate::export::{self as ex, Options, Tail};
 use crate::project_forms::{FHit, Form};
 
+pub(crate) const SOLO_VISIBILITY: &str = "visible_export-playlist-solo";
 pub const TITLE: &str = "Export audio";
 pub const MAIN: &str = "Export";
 pub(crate) const ADVANCED_VISIBILITY: &str = "visible_export-advanced";
@@ -27,7 +28,7 @@ pub const SEG_HINTS: [&str; 3] = [
     "The sound after the end: cut it, let it ring out, or wrap it to the start (a seamless loop)",
 ];
 /// The checks, by `FHit::Check` number.
-pub const CHECKS: [&str; 12] = [
+pub const CHECKS: [&str; 13] = [
     "Dither",
     "HQ for plugins",
     "Split mixer tracks",
@@ -40,8 +41,9 @@ pub const CHECKS: [&str; 12] = [
     "Tempo",
     "Open the folder when done",
     "Gapless",
+    "Solo Playlist tracks",
 ];
-pub const CHECK_HINTS: [&str; 12] = [
+pub const CHECK_HINTS: [&str; 13] = [
     "Triangular dither on 16 and 24-bit files",
     "Hosted plugins render in their high quality (offline) mode",
     "Also write every mixer track alone (WAV and FLAC), into a stems folder",
@@ -54,6 +56,7 @@ pub const CHECK_HINTS: [&str; 12] = [
     "Write the tempo into WAV files",
     "Show the file in the file manager when the export is done",
     "An Info frame first, so players that read it skip the encoder's delay (some DAWs still play it as silence)",
+    "Render each audible Playlist track through its buses and Master, using current effect bypass states",
 ];
 pub const TILE_HINTS: [&str; 4] =
     ["WAV: uncompressed audio", "FLAC: lossless compressed audio", "MP3: lossy compressed audio", "OGG: Ogg Vorbis lossy compressed audio"];
@@ -131,15 +134,16 @@ impl ExportForm {
         match k {
             0 => (o.dither, o.ticked().any(|f| o.integer(f))),
             1 => (o.hq, true),
-            2 => (o.split, o.formats[ex::WAV] || o.formats[ex::FLAC]),
+            2 => (o.split, !o.playlist_solo && (o.formats[ex::WAV] || o.formats[ex::FLAC])),
             3 => (o.split_master, o.split),
-            4 => (o.insert_fx, true),
-            5 => (o.master_fx, true),
+            4 => (o.insert_fx, !o.playlist_solo),
+            5 => (o.master_fx, !o.playlist_solo),
             6 => (o.markers, wav),
             7 => (o.loops, wav),
             8 => (o.note_markers, wav && !self.song),
             9 => (o.tempo, wav),
             10 => (o.reveal, true),
+            12 => (o.playlist_solo, self.song && !self.to_clip),
             _ => (o.mp3_gapless, o.formats[ex::MP3]),
         }
     }
@@ -158,9 +162,11 @@ impl ExportForm {
             8 => &mut o.note_markers,
             9 => &mut o.tempo,
             10 => &mut o.reveal,
+            12 => &mut o.playlist_solo,
             _ => &mut o.mp3_gapless,
         };
         *f = !*f;
+        if k == 12 && o.playlist_solo { o.split=false; o.insert_fx=true; o.master_fx=true; }
     }
 
     /// Combo `k`'s list: its entries and the chosen one.
@@ -431,7 +437,8 @@ impl App {
     /// mixer tracks' names.
     pub(crate) fn export_job(&self, f: &ExportForm) -> ex::Job {
         let s = &self.state;
-        let o = f.o.clone();
+        let mut o = f.o.clone();
+        o.playlist_solo &= f.song && !f.to_clip;
         let rate = f.device_rate;
         let tempo = s.project.tick_tempo(s.tempo);
         let ppq = s.project.ppq;
@@ -486,6 +493,18 @@ impl App {
         };
         let tracks = s.project.mixer.iter().map(|m| m.index).max().unwrap_or(0);
         ex::Job {
+        playlist_solos: if o.playlist_solo && f.song && !f.to_clip {
+            let mut rows: Vec<_> = crate::playlist::clips(s).iter()
+                .filter(|c| !c.muted && crate::playlist::track_on(s,c.track) &&
+                    !matches!(c.source,os_model::ClipSource::Channel(id) if s.project.channel(id).is_some_and(|c|c.kind==os_model::ChannelKind::Automation)))
+                .map(|c| c.track).collect();
+            rows.sort_unstable(); rows.dedup();
+            rows.into_iter().map(|row| {
+                let name: String=crate::playlist::track_name(s,row).chars()
+                    .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+                (format!("{:02} {}",row+1,name.trim_end_matches([' ','.'])),crate::playlist::solo_rows(s,&[row]))
+            }).collect()
+        } else { Vec::new() },
         instrument_rows: None,
         capture_tracks: None,
             options: o,
@@ -506,6 +525,72 @@ mod tests {
     use crate::dialog::DHit;
     use crate::views::menus::{FILE_EXPORT, FILE_EXPORT_MP3};
     use os_model::Note;
+
+
+    #[test]
+    fn playlist_solo_export_matches_manual_solo_and_keeps_project() {
+        use crate::playlist as pl;
+        use std::time::{Duration,Instant};
+        let dir=tempfile::tempdir().unwrap();
+        let mut app=App::new(None);
+        app.state.project=crate::app::test_project();
+        app.state.song_mode=true;
+        let wave=dir.path().join("Tone.wav");
+        let audio:Vec<f32>=(0..4800).flat_map(|i| {
+            let sample=(i as f32*0.07).sin()*0.1; [sample,sample]
+        }).collect();
+        os_engine::wav::write_f32_stereo(&mut std::fs::File::create(&wave).unwrap(),48000,&audio).unwrap();
+        pl::add_audio_clip(&mut app.state,&wave.to_string_lossy(),0,0).unwrap();
+        pl::add_audio_clip(&mut app.state,&wave.to_string_lossy(),1,96).unwrap();
+        let ids:Vec<_>=pl::clips(&app.state).iter().filter_map(|c|if let os_model::ClipSource::Channel(id)=c.source{Some(id)}else{None}).collect();
+        for (id,track) in ids.iter().zip([1,2]) {app.state.project.channels.iter_mut().find(|c|c.index==*id).unwrap().mixer_track=track;}
+        app.state.project.mixer[1].routes=vec![3];
+        app.state.project.mixer[3].volume=Some(0.5);
+        app.state.project.mixer[0].volume=Some(0.4);
+        app.plugins=crate::plugins::Plugins::builtins();
+        let mut eq=lemon_parametric_eq_2::params::default_state();
+        lemon_parametric_eq_2::params::set_field(&mut eq,1,-600);
+        app.state.project.mixer[3].slots[0]=Some(os_model::SlotPlugin{name:crate::plugins::EQ_FILE_NAME.into(),state:eq});
+        app.sync_effects();
+        app.transport.set_effects(app.plugins.effects());
+        assert!(app.plugins.hosted.contains_key(&crate::plugins::fx_key(3,0)));
+        let before=app.state.project.clone();
+        app.open_export(false);
+        click(&mut app,FHit::ExportAdvanced(true));
+        click(&mut app,FHit::Check(12));
+        app.state.playlist.header_selection=vec![0,1];
+        let f=form(&app).unwrap();
+        assert!(f.o.playlist_solo);
+        let mut job=app.export_job(f);
+        job.folder=dir.path().to_owned();job.name="Song".into();
+        job.options.formats=[true,false,false,false];job.options.wav_depth=2;job.options.dither=false;job.options.tail=Tail::Cut;
+        assert_eq!(job.playlist_solos.len(),2);
+        assert_eq!(job.playlist_solos[0].1,vec![0]);
+        assert_eq!(job.playlist_solos[1].1,vec![1]);
+        let project=crate::rack::play_project(&app.state);
+        fn wait(app:&App)->Vec<PathBuf>{
+            let until=Instant::now()+Duration::from_secs(30);
+            loop {match app.transport.export_status(){
+                crate::transport::Export::Done(result)=>return result.unwrap().1,
+                _=>{assert!(Instant::now()<until);std::thread::sleep(Duration::from_millis(5));}
+            }}
+        }
+        app.transport.export(&project,os_engine::PlayMode::Song,48000,job.clone());
+        let files=wait(&app);assert_eq!(files.len(),2);
+        let samples:Vec<_>=files.iter().map(|p|os_engine::sample::load(p).unwrap()).collect();
+        assert!(samples.iter().all(|s|s.left.iter().any(|v|v.abs()>0.0001)));
+        assert_eq!(samples[0].frames(),samples[1].frames());
+
+        for (index,(name,rows)) in job.playlist_solos.iter().enumerate(){
+            let mut solo=project.clone();
+            for(row,track)in solo.arrangement_mut().unwrap().tracks.iter_mut().enumerate(){track.enabled=rows.contains(&(row as u16));}
+            let mut manual=job.clone();manual.options.playlist_solo=false;manual.playlist_solos.clear();manual.name=format!("manual-{index}");
+            app.transport.export(&solo,os_engine::PlayMode::Song,48000,manual);
+            let reference=wait(&app);
+            assert_eq!(std::fs::read(&files[index]).unwrap(),std::fs::read(&reference[0]).unwrap(),"{name}");
+        }
+        assert_eq!(app.state.project,before);
+    }
 
     fn form(app: &App) -> Option<&ExportForm> {
         match &app.state.dialogs.last()?.body {

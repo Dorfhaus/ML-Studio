@@ -71,6 +71,7 @@ pub struct Options {
     /// Hosted plugins render in their offline mode.
     pub hq: bool,
     pub split: bool,
+    pub playlist_solo: bool,
     pub split_master: bool,
     pub insert_fx: bool,
     pub master_fx: bool,
@@ -102,6 +103,7 @@ impl Default for Options {
             dither: false,
             hq: true,
             split: false,
+            playlist_solo: false,
             split_master: true,
             insert_fx: true,
             master_fx: true,
@@ -116,7 +118,7 @@ impl Default for Options {
 }
 
 /// The settings.txt keys of the switches, in `Options::flags` order.
-const FLAG_KEYS: [&str; 12] = [
+const FLAG_KEYS: [&str; 13] = [
     "export_dither",
     "export_hq",
     "export_split",
@@ -129,11 +131,12 @@ const FLAG_KEYS: [&str; 12] = [
     "export_tempo",
     "export_reveal",
     "export_mp3_gapless",
+    "export_playlist_solo",
 ];
 
 impl Options {
     /// The switches, in `FLAG_KEYS` order.
-    fn flags(&mut self) -> [&mut bool; 12] {
+    fn flags(&mut self) -> [&mut bool; 13] {
         [
             &mut self.dither,
             &mut self.hq,
@@ -147,6 +150,7 @@ impl Options {
             &mut self.tempo,
             &mut self.reveal,
             &mut self.mp3_gapless,
+            &mut self.playlist_solo,
         ]
     }
 
@@ -240,6 +244,8 @@ pub struct Marker {
 pub struct Job {
     /// Track renders isolate hosted generators without changing their rack identities.
     pub instrument_rows: Option<Vec<usize>>,
+    /// Each named Playlist solo keeps the same lanes as the normal Solo command.
+    pub playlist_solos: Vec<(String, Vec<u16>)>,
     /// Only these mixer stems need buffering (None keeps ordinary split-export behavior).
     pub capture_tracks: Option<Vec<usize>>,
     pub options: Options,
@@ -263,6 +269,7 @@ impl Job {
     pub fn wav(path: &Path) -> Job {
         let options = Options { markers: false, loops: false, ..Options::default() };
         Job {
+        playlist_solos: Vec::new(),
         instrument_rows: None,
         capture_tracks: None,
             options,

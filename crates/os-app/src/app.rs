@@ -1994,6 +1994,7 @@ impl App {
                 s.tempo = project.tempo.unwrap_or(130.0);
                 s.pattern = project.current_pattern.unwrap_or(1).max(1);
                 s.selected_channel = 0;
+                s.playlist.rename_focus=crate::playlist::RenameFocus::default();
                 s.selected_mixer = 1.min(crate::mixer::max_insert(&project));
                 let mixer_layout=s.mixer.layout;
                 s.mixer = Default::default();
@@ -9607,7 +9608,9 @@ impl App {
             return;
         }
         // The playlist's editing keys when it is in front (spec: ui/playlist.md §5).
-        if self.pl_focus() && crate::playlist::key(self, key, ctrl, alt) {
+        if self.pl_focus()
+            && !(matches!(key,Key::Named(NamedKey::F2)) && self.state.playlist.rename_focus==crate::playlist::RenameFocus::Pattern)
+            && crate::playlist::key(self, key, ctrl, alt) {
             return;
         }
         if let Some(cmd) = pattern_shortcut(key, ctrl, self.shift) {
@@ -10198,6 +10201,10 @@ impl App {
     fn playlist_act(&mut self, a: &Action, right: bool) -> bool {
         use crate::playlist as pl;
         let grid = self.pl_grid;
+        if let Action::PlHeader(row) | Action::PlTrackGrip(row) | Action::PlRowResize(row) = a {
+            self.state.playlist.track=*row;
+            self.state.playlist.rename_focus=crate::playlist::RenameFocus::Track;
+        }
         match *a {
             Action::PlaylistArea => {
                 if let Some(g) = grid {
@@ -10323,6 +10330,9 @@ impl App {
             }
             Action::PlPickResize => {}
             Action::PlPick(src) => {
+                if matches!(src,os_model::ClipSource::Pattern(_)) {
+                    self.state.playlist.rename_focus=crate::playlist::RenameFocus::Pattern;
+                }
                 self.state.playlist.source = Some(src);
                 self.state.playlist.audio_template = None;
                 if let os_model::ClipSource::Pattern(n) = src {
@@ -10394,6 +10404,9 @@ impl App {
     }
 
     pub fn act(&mut self, a: Action) {
+        if matches!(a,Action::PatternNext | Action::PatternPrev | Action::PatternDirect(_) | Action::PatternAdd) {
+            self.state.playlist.rename_focus=crate::playlist::RenameFocus::Pattern;
+        }
         if crate::mixer::locked_action(&self.state, &a) {
             self.state.message = Some(crate::mixer::LOCK_MESSAGE.into());
             self.invalidate();
@@ -12099,6 +12112,69 @@ fn load_theme_inner() -> Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn f2_renames_focused_playlist_clip_track_mixer_and_pattern() {
+        use winit::keyboard::{Key,NamedKey};
+        use crate::playlist::{self as pl,EditTarget};
+        let mut app=App::new(None);
+        app.state.project=test_project();
+        app.state.pattern=2;
+        app.state.show_browser=false;
+        app.state.startup_layout_pending=false;
+        app.state.z=vec![Win::Playlist];
+        app.state.wins[Win::Playlist.slot().unwrap()].maxed=true;
+        app.state.playlist.tool=pl::PlTool::Select;
+        pl::arr_mut(&mut app.state).clips=vec![os_model::Clip::new(0,384,2,os_model::ClipSource::Pattern(1))];
+        let mut canvas=Canvas::new(1500,900,1.).unwrap();
+        frame(&mut app,&mut canvas,None);
+        let grid=app.pl_grid().unwrap();
+        let clip=pl::PGeom::new(&app.state,grid).clip_rect(&pl::clips(&app.state)[0]);
+        app.mouse_move(clip.cx(),clip.cy());app.mouse_down();app.mouse_up();
+        // Pointer motion without a click cannot change the rename context.
+        app.mouse_move(grid.x-12.,grid.y+10.);
+        app.key(&Key::Named(NamedKey::F2),false,false);
+        assert_eq!(app.state.playlist.edit.as_ref().unwrap().target,EditTarget::PatternName(1));
+        app.key(&Key::Named(NamedKey::Escape),false,false);
+        let header=hit_rect(&app,&Action::PlHeader(4));
+        click(&mut app,&mut canvas,header);
+        app.state.playlist.sel=vec![0]; // A stale clip selection cannot override header focus.
+        app.key(&Key::Named(NamedKey::F2),false,false);
+        assert_eq!(app.state.playlist.edit.as_ref().unwrap().target,EditTarget::TrackName(4));
+        app.state.playlist.edit.as_mut().unwrap().text="New lane".into();
+        app.key(&Key::Named(NamedKey::Enter),false,false);
+        assert_eq!(pl::track_name(&app.state,4),"New lane");
+        crate::history::undo(&mut app.state);
+        assert_ne!(pl::track_name(&app.state,4),"New lane");
+
+        // Audio and automation clips use their own clip name.
+        for kind in [os_model::ChannelKind::AudioClip,os_model::ChannelKind::Automation] {
+            app.state.project.channels[0].kind=kind;
+            pl::arr_mut(&mut app.state).clips[0].source=os_model::ClipSource::Channel(app.state.project.channels[0].index);
+            app.state.playlist.sel=vec![0];
+            app.state.playlist.rename_focus=crate::playlist::RenameFocus::Clips;
+            app.key(&Key::Named(NamedKey::F2),false,false);
+            assert!(matches!(app.state.pat_ui.name_box.as_ref().unwrap().target,crate::patterns::BoxTarget::AudioClip(0)));
+            app.state.pat_ui.name_box.as_mut().unwrap().text="Clip label".into();
+            app.key(&Key::Named(NamedKey::Enter),false,false);
+            assert_eq!(pl::clip_name(&app.state,&pl::clips(&app.state)[0]),"Clip label");
+            crate::history::undo(&mut app.state);
+            assert!(pl::clips(&app.state)[0].name.is_none());
+        }
+        app.state.z=vec![Win::Mixer];app.state.selected_mixer=3;
+        app.key(&Key::Named(NamedKey::F2),false,false);
+        assert_eq!(app.state.playlist.edit.as_ref().unwrap().target,EditTarget::MixerName(3));
+        app.key(&Key::Named(NamedKey::Escape),false,false);
+
+        app.state.z=vec![Win::Playlist];
+        app.act(Action::PatternDirect(2));
+        app.key(&Key::Named(NamedKey::F2),false,false);
+        assert!(matches!(app.state.pat_ui.name_box.as_ref().unwrap().target,crate::patterns::BoxTarget::Name(2)));
+        app.key(&Key::Named(NamedKey::Escape),false,false);
+        assert!(app.state.pat_ui.name_box.is_none());
+        assert_eq!(app.state.pattern,2);
+    }
 
     fn frame(app: &mut App, c: &mut Canvas, damage: Option<Rect>) {
         app.paint(c, damage);

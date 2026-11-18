@@ -1553,6 +1553,42 @@ fn engine(project: &Project, library: &mut SampleLibrary, rate: u32, mode: PlayM
 /// `job`; returns the written length in seconds and the files. Runs on the audio thread with no stream open.
 // spec: audio/export.md
 fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job, library: &mut SampleLibrary, inst: &Instruments, shared: &Shared, cancel: Option<&AtomicBool>) -> Result<(f64, Vec<PathBuf>), String> {
+    if !job.options.playlist_solo {
+        return export_one(project,mode,rate,job,library,inst,shared,cancel,0,1);
+    }
+    if mode != PlayMode::Song || job.playlist_solos.is_empty() {
+        return Err("No audible Playlist tracks to export".into());
+    }
+    let mut files=Vec::new();
+    let mut seconds=0f64;
+    for (i,(name,rows)) in job.playlist_solos.iter().enumerate() {
+        if shared.shutdown.load(Ordering::Acquire) || cancel.is_some_and(|flag|flag.load(Ordering::Acquire)) {
+            return Err(format!("Playlist export cancelled. {} completed files were kept.",files.len()));
+        }
+        let mut solo=project.clone();
+        if let Some(arr)=solo.arrangement_mut() {
+            for (row,track) in arr.tracks.iter_mut().enumerate() { track.enabled=rows.contains(&(row as u16)); }
+        }
+        let mut part=job.clone();
+        part.options.playlist_solo=false;
+        part.options.split=false;
+        part.options.insert_fx=true;
+        part.options.master_fx=true;
+        part.playlist_solos.clear();
+        part.folder=job.folder.join(format!("{} tracks",job.name));
+        part.name=name.clone();
+        std::fs::create_dir_all(&part.folder).map_err(|e|format!("{}: {e}",part.folder.display()))?;
+        reset_instruments(inst);
+        shared.export_stage.store(0,Ordering::Relaxed);
+        let result=export_one(&solo,mode,rate,&part,library,inst,shared,cancel,i,job.playlist_solos.len())
+            .map_err(|e|format!("{name}: {e}. {} completed files were kept.",files.len()))?;
+        seconds=seconds.max(result.0);
+        files.extend(result.1);
+    }
+    Ok((seconds,files))
+}
+
+fn export_one(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job, library: &mut SampleLibrary, inst: &Instruments, shared: &Shared, cancel: Option<&AtomicBool>, part: usize, parts: usize) -> Result<(f64, Vec<PathBuf>), String> {
     let stopping = || shared.shutdown.load(Ordering::Acquire) || cancel.is_some_and(|flag| flag.load(Ordering::Acquire));
     if stopping() { return Err("Audio export cancelled".into()); }
     let o = &job.options;
@@ -1581,7 +1617,7 @@ fn export(project: &Project, mode: PlayMode, rate: u32, job: &crate::export::Job
         if stopping() { return Err("Audio export cancelled".into()); }
         let done = e.render_ticks(1, &mut audio);
         let frames = audio.len() as u64 / 2;
-        shared.export_permille.store((frames * 1000 / len).min(999) as u32, Ordering::Relaxed);
+        shared.export_permille.store(((part as u64*1000+(frames * 1000 / len).min(999))/parts as u64) as u32, Ordering::Relaxed);
         if done || frames >= cap {
             break;
         }

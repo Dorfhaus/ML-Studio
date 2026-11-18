@@ -202,6 +202,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Custom window layout menu", crate::workspace_layout::VISIBILITY),
         (crate::prefs::DOUBLE_CLICK_RESET.label, "visible_double-click-reset"),
         (crate::prefs::HOVER_MENUS.label, "visible_hover-main-menus"),
+        ("Solo Playlist tracks export", crate::export_form::SOLO_VISIBILITY),
         ("Advanced Export tab", crate::export_form::ADVANCED_VISIBILITY),
         ("User Guide menu item", crate::help::VISIBILITY),
         ("ML Studio Helper companion", crate::studio_helper::VISIBILITY),
