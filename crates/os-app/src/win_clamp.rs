@@ -320,10 +320,23 @@ pub fn reflow_workspace(s:&mut State) -> bool {
             for j in 0..start.len() {if !visited[j]&&touching(start[group[n]].1,start[j].1) {visited[j]=true;group.push(j);}}
             n+=1;
         }
-        if group.len()<2 || !group.iter().any(|&i|near(start[i].1.x,old.x)) {continue;}
+        let left = group.iter().any(|&i| near(start[i].1.x, old.x));
+        let right = group.iter().any(|&i| near(start[i].1.right(), old.right()));
+        if !left && !right { continue; }
+        if group.len() == 1 && !(left && right) {
+            let (win, mut rect) = start[seed];
+            let x = if left { new.x } else { new.right() - rect.w };
+            if rect.x != x {
+                rect.x = x;
+                put(s, win, rect);
+                changed = true;
+            }
+            continue;
+        }
         let min_ratio=group.iter().map(|&i|minimum(s,start[i].0).0/start[i].1.w).fold(0.0f32,f32::max);
         let ratio=(new.w/old.w).max(min_ratio);
-        for i in group {let (w,r)=start[i];put(s,w,Rect::new(new.x+(r.x-old.x)*ratio,r.y,r.w*ratio,r.h));}
+        let (old_edge, new_edge) = if left { (old.x, new.x) } else { (old.right(), new.right()) };
+        for i in group {let (w,r)=start[i];put(s,w,Rect::new(new_edge+(r.x-old_edge)*ratio,r.y,r.w*ratio,r.h));}
         changed=true;
     }
     changed
@@ -416,6 +429,48 @@ mod tests {
         app.state.show_browser=false;
         let r=Rect::new(6.0,work.y,800.0,300.0);
         assert_eq!(snap_resize(&app.state,Win::Playlist,EDGE_L,r).x,0.0);
+    }
+
+    #[test]
+    fn browser_split_keeps_individually_snapped_windows_attached() {
+        use crate::app::Action;
+        for dock_right in [false, true] {
+            let mut app = App::new(None);
+            let mut canvas = Canvas::new(1920, 1200, 1.25).unwrap();
+            app.state.startup_layout_pending = false;
+            app.state.show_browser = true;
+            app.state.browser_w = 260.0;
+            if dock_right { app.state.browser_opts.insert(views::browser::OPT_RIGHT.into()); }
+            app.state.z = vec![Win::Playlist, Win::Mixer, Win::PianoRoll];
+            for win in &mut app.state.wins { win.maxed = false; win.mini = false; }
+            app.paint(&mut canvas, None);
+            let work = app.state.work_rect();
+            let x = if dock_right { work.right() - 560.0 } else { work.x };
+            put(&mut app.state, Win::Playlist, Rect::new(x, work.y + 30.0, 560.0, 235.0));
+            put(&mut app.state, Win::Mixer, Rect::new(x, work.y + 305.0, 560.0, 435.0));
+            let independent = Rect::new(work.x + 130.0, work.y + 10.0, 580.0, 320.0);
+            put(&mut app.state, Win::PianoRoll, independent);
+            app.paint(&mut canvas, None);
+            let splitter = app.hits.iter().find(|h| h.action == Action::BrowserSplitter).unwrap().rect;
+            let y = splitter.bottom() - 18.0;
+            app.mouse_move(splitter.cx(), y);
+            app.mouse_down();
+            for distance in [75.0, -30.0] {
+                let direction = if dock_right { -1.0 } else { 1.0 };
+                app.mouse_move(splitter.cx() + distance * direction, y);
+                app.paint(&mut canvas, None);
+                let updated = app.state.work_rect();
+                assert!((updated.w - (work.w - distance)).abs() < 1.0);
+                for w in [Win::Playlist, Win::Mixer] {
+                    let rect = app.state.win_rect(w);
+                    assert_eq!(rect.w, 560.0);
+                    if dock_right { assert_eq!(rect.right(), updated.right()); }
+                    else { assert_eq!(rect.x, updated.x); }
+                }
+                assert_eq!(app.state.win_rect(Win::PianoRoll), independent);
+            }
+            app.mouse_up();
+        }
     }
 
     #[test]

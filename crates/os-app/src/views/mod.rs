@@ -192,6 +192,7 @@ pub fn browser_rect(s: &State) -> Rect {
 
 pub fn browser_content(s: &State) -> Rect {
     let r = browser_rect(s);
+    if s.native_view == Some(Win::Browser) { return r; }
     let split = if browser_right(s) { 8. } else { 0. };
     Rect::new(r.x + split, r.y, (r.w - 8.).max(0.), r.h)
 }

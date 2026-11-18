@@ -223,15 +223,23 @@ pub fn search_changed(s: &State) -> bool {
 pub fn rows(s: &State) -> Vec<Row> {
     if s.browser_tab==5 {return crate::plugin_downloads::rows(s)}
     if library::library_tab(s.browser_tab) {return library::rows(s);}
-    if matches!(s.browser_tab,0|3) && opt(s,OPT_SINGLE_FOLDER) {
-        if let Some(folder)=&s.browser_single_folder {
+    if let Some(slot) = single_folder_slot(s) {
+        let roots = if slot == 0 { library_roots(s) } else { crate::browser::favorites() };
+        let in_roots = |path: &Path| roots.iter().any(|root| path.starts_with(root));
+        if let Some(folder) = s.browser_single_folders[slot].as_deref().filter(|p| in_roots(p)) {
             let mut shallow=Vec::new();
             disk_rows(s,folder,&disk_key(folder),0,&mut shallow);
             shallow.retain(|r|r.depth==0);
             for r in &mut shallow {if r.open.is_some(){r.open=Some(false);}}
             let q=s.browser_search.as_str().to_lowercase();
             if !q.is_empty(){shallow.retain(|r|r.label.to_lowercase().contains(&q));}
-            if let Some(parent)=folder.parent(){shallow.insert(0,Row{key:format!("single:up:{}",parent.display()),depth:0,label:".. (Parent folder)".into(),icon:Icon::Folder,cat:FOLDER,open:Some(false),bright:true,item:Item::None,path:Some(parent.into())});}
+            let parent = folder.parent().filter(|path| in_roots(path));
+            let (key, label) = parent.map_or_else(
+                || ("single:roots".into(), "Back to folders"),
+                |path| (format!("single:up:{}", path.display()), ".. (Parent folder)"),
+            );
+            shallow.insert(0, Row { key, depth: 0, label: label.into(), icon: Icon::Folder, cat: FOLDER,
+                open: Some(false), bright: true, item: Item::None, path: parent.map(PathBuf::from) });
             return shallow;
         }
     }
@@ -264,6 +272,10 @@ pub fn rows(s: &State) -> Vec<Row> {
         result.extend(plugins.into_iter().filter(|r|matches!(r.item,Item::Generator(_)|Item::Effect(_))&&r.label.to_lowercase().contains(&query)).map(|mut r|{r.depth=0;r}));
     }
     result
+}
+
+pub(crate) fn single_folder_slot(s: &State) -> Option<usize> {
+    opt(s, OPT_SINGLE_FOLDER).then_some(match s.browser_tab { 0 => 0, 3 => 1, _ => return None })
 }
 
 fn ensure_index(index:&mut SearchIndex, roots:Vec<PathBuf>) {
@@ -833,8 +845,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     // Measured with the browser top at `WORK_Y`; it moves up with a hidden toolbar (spec: ui/toolbar-menu.md §5).
     let dy = r.y - super::WORK_Y;
     // The panel left of the splitter: 201 px measured, wider as the splitter is dragged (§9).
-    let bw = r.w - SPLITTER;
-    let bx = r.x + if super::browser_right(s) { SPLITTER } else { 0. };
+    let content = super::browser_content(s);
+    let (bx, bw) = (content.x, content.w);
     ui.hit(r, Action::Swallow, "");
     // Title bar.
     ui.c.fill_rect(Rect::span(bx, bx + bw - 1.0, 83.0 + dy, 105.0 + dy), t.browser_title);
@@ -893,7 +905,11 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     {
     let (bx,bw)=(bx+body_inset,bw-body_inset);
     if s.browser_tab==5 {
-        crate::plugin_downloads::paint(ui,s,Rect::new(bx,top,bw,(r.bottom()-FOOTER_H-top).max(0.)));
+        let list = Rect::new(bx, top, (bw - 4.).max(0.), (r.bottom() - FOOTER_H - top).max(0.));
+        ui.c.fill_rect(Rect { w: bw, ..list }, t.browser_list);
+        ui.c.push_clip(list);
+        ui.clip_hit_rect(list, |ui| crate::plugin_downloads::paint(ui, s, list));
+        ui.c.pop_clip();
     } else {
     let rows = rows(s);
     let info = info_path(&rows, s);
@@ -1031,7 +1047,9 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
     ui.c.fill_rect(Rect::new(bx, fy, bw, 27.0), t.browser_footer);
     let field = Rect::new(bx + 13.0, fy + 4.0, bw - 38.0, 20.0);
     if library {
-        ui.c.text_clip(os_ui::Font::new(13),bx+18.,fy+5.,bw-26.,t.text_dim,&library::title(s));
+        let footer = Rect::new(bx, fy, bw, 27.);
+        let action_width = library::folder_button(ui, s, footer);
+        ui.c.text_clip(os_ui::Font::new(13),bx+18.,fy+5.,(bw-26.-action_width).max(0.),t.text_dim,&library::title(s));
     } else {
     if !search_on_top {
         search_box(ui, s, field);
@@ -1050,11 +1068,11 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
         ui.c.stroke_rrect(frame.inset(1.),0.,1.,t.toolbar_edge);
         ui.c.stroke_rrect(frame.inset(3.),0.,1.,t.window_border);
     }
+    if s.native_view == Some(crate::app::Win::Browser) { return; }
     let split_x = if super::browser_right(s) { r.x } else { bx + bw };
     // Splitter: drags the browser's width (§9).
     ui.c.fill_rect(Rect::new(split_x, r.y, 6.0, r.h), t.splitter);
     ui.c.fill_rect(Rect::new(split_x + 6.0, r.y, 2.0, r.h), t.splitter_dark);
-    if s.native_view == Some(crate::app::Win::Browser) { return; }
     ui.hit(Rect::new(split_x, r.y, SPLITTER, r.h), Action::BrowserSplitter, "Browser: drag to resize, double-click for the default width");
 }
 

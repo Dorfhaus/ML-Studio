@@ -81,6 +81,7 @@ impl App {
         match *a {
             Action::BrowserTab(i) => {
                 s.browser_tab = if i <= 5 || i == view::PARAMETERS_TAB || view::library::valid_tab(s,i) { i } else { 0 };
+                view::library::tab_changed(s);
                 s.browser_auto_hidden=false;
                 if let Some(label)=match i {1=>Some("Current project"),2=>Some("Plugin database"),4=>Some("Plugin presets"),_=>None} {s.browser_open.insert(format!("{i}:{label}"));}
                 s.browser_search.clear();
@@ -102,9 +103,16 @@ impl App {
             Action::BrowserSearch => s.browser_search_focus = true,
             Action::BrowserRow(i) => {
                 let Some(mut row) = view::rows(s).into_iter().nth(i) else { return true };
-                if matches!(s.browser_tab,0|3) && view::opt(s,view::OPT_SINGLE_FOLDER) && row.path.as_ref().is_some_and(|p|p.is_dir()) {
-                    s.browser_single_folder=row.path.clone();s.browser_search.clear();s.browser_scroll=0.;s.browser_sel=None;
-                    *s.browser_index.borrow_mut()=Default::default();self.invalidate();return true;
+                if let Some(control) = view::library::folder_row_action(s, &row) {
+                    view::library::act(self, control);
+                    return true;
+                }
+                if let Some(slot) = view::single_folder_slot(s) {
+                    if row.key == "single:roots" || row.path.as_ref().is_some_and(|p| p.is_dir()) {
+                        s.browser_single_folders[slot] = row.path;
+                        s.browser_search.clear();s.browser_scroll=0.;s.browser_sel=None;
+                        *s.browser_index.borrow_mut()=Default::default();self.invalidate();return true;
+                    }
                 }
                 if row.open.is_some()&&row.key.starts_with("search:@") {
                     if let Some(path)=&row.path {
@@ -729,7 +737,7 @@ impl App {
         s.browser_tab = 0;
         s.browser_search.clear();
         if view::opt(s, view::OPT_SINGLE_FOLDER) {
-            s.browser_single_folder = Some(folder.into());
+            s.browser_single_folders[0] = Some(folder.into());
         }
         let roots = view::library_roots(s);
         let root = roots
@@ -770,6 +778,7 @@ impl App {
             save_folders(s);
         }
         s.browser_tab = 0;
+        s.browser_single_folders[0] = None;
         s.browser_search.clear();
         let key = view::disk_key(&path);
         s.browser_open.insert(key.clone());
@@ -780,8 +789,13 @@ impl App {
     }
 
     pub(crate) fn browser_empty_menu(&mut self,x:f32,y:f32) {
-        if !crate::workspace_visibility::shown(EMPTY_ACTIONS) { return; }
-        self.state.playlist.popup=Some(Popup {x,y,items:empty_menu(),sub:None,scroll:[0;2],cascade:Vec::new()});
+        let mut items: Vec<_> = view::library::new_folder_item(&self.state).into_iter().collect();
+        if crate::workspace_visibility::shown(EMPTY_ACTIONS) {
+            if !items.is_empty() { items.push(PItem::sep()); }
+            items.extend(empty_menu());
+        }
+        if items.is_empty() { return; }
+        self.state.playlist.popup=Some(Popup {x,y,items,sub:None,scroll:[0;2],cascade:Vec::new()});
         self.invalidate();
     }
 
@@ -1580,11 +1594,26 @@ mod favorite_tests {
         std::fs::create_dir_all(root.join("A/Sub")).unwrap();std::fs::create_dir_all(root.join("B")).unwrap();
         std::fs::write(root.join("A/one.wav"),[]).unwrap();std::fs::write(root.join("B/two.wav"),[]).unwrap();
         let mut app=App::new(None);app.state.browser_folders=vec![root.clone()];
-        app.browser_cmd(BCmd::Toggle(view::OPT_SINGLE_FOLDER));app.state.browser_single_folder=Some(root.join("A"));
+        app.browser_cmd(BCmd::Toggle(view::OPT_SINGLE_FOLDER));app.state.browser_single_folders[0]=Some(root.join("A"));
         let rows=view::rows(&app.state);assert!(rows.iter().any(|r|r.label=="one"));assert!(!rows.iter().any(|r|r.label=="two"));
         let sub=rows.iter().position(|r|r.label=="Sub").unwrap();app.browser_act(&Action::BrowserRow(sub));
-        assert_eq!(app.state.browser_single_folder,Some(root.join("A/Sub")));
-        app.browser_act(&Action::BrowserRow(0));assert_eq!(app.state.browser_single_folder,Some(root.join("A")));
+        assert_eq!(app.state.browser_single_folders[0],Some(root.join("A/Sub")));
+        app.browser_act(&Action::BrowserRow(0));assert_eq!(app.state.browser_single_folders[0],Some(root.join("A")));
+        crate::prefs::set_text("browser_favorites", &serde_json::to_string(&[root.join("B")]).unwrap());
+        app.browser_act(&Action::BrowserTab(3));
+        assert_eq!(view::rows(&app.state)[0].label, "B");
+        app.browser_act(&Action::BrowserRow(0));
+        assert_eq!(view::rows(&app.state)[0].label, "Back to folders");
+        assert!(view::rows(&app.state).iter().any(|r| r.label == "two"));
+        app.browser_act(&Action::BrowserTab(0));
+        assert!(view::rows(&app.state).iter().any(|r| r.label == "one"));
+        app.browser_act(&Action::BrowserRow(0));
+        assert_eq!(view::rows(&app.state)[0].key, "single:roots");
+        app.browser_act(&Action::BrowserRow(0));
+        assert!(app.state.browser_single_folders[0].is_none());
+        app.state.browser_single_folders[0] = root.parent().map(std::path::PathBuf::from);
+        assert!(view::rows(&app.state).iter().all(|r| !r.key.starts_with("single:")));
+        crate::prefs::set_text("browser_favorites", "[]");
         app.browser_cmd(BCmd::Toggle(view::OPT_SINGLE_FOLDER));assert!(!view::opt(&App::new(None).state,view::OPT_SINGLE_FOLDER));
         // Test-owned scratch fixture only.
         std::fs::remove_dir_all(root).unwrap();

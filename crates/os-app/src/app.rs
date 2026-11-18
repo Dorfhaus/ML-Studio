@@ -1215,7 +1215,7 @@ pub struct State {
     pub browser_open: std::collections::HashSet<String>,
     /// Folders dropped on the window: All-tab roots (spec: ui/browser.md §6).
     pub browser_folders: Vec<PathBuf>,
-    pub browser_single_folder: Option<PathBuf>,
+    pub browser_single_folders: [Option<PathBuf>; 2],
     /// Their Browser names (File ▸ Browser extra search folders, `crate::search_folders`): a root's label in place of
     /// the folder's name.
     pub browser_names: std::collections::BTreeMap<PathBuf, String>,
@@ -1727,7 +1727,7 @@ impl App {
                 plugin_picker: Default::default(),
                 browser_open: views::browser::default_open(),
                 browser_folders: crate::browser::load_folders(),
-                browser_single_folder: None,
+                browser_single_folders: [None, None],
                 browser_names: crate::browser::load_names(),
                 params: Default::default(),
                 mpe:Default::default(),
@@ -2671,6 +2671,9 @@ impl App {
             }
             Then::RemoveBrowserCollection(i) => {
                 if matches!(reply,Reply::Button(Answer::Yes)) { views::browser::library::remove_collection(self,i); }
+            }
+            Then::RemoveBrowserCollectionFolder(location) => {
+                if matches!(reply,Reply::Button(Answer::Yes)) { views::browser::library::remove_folder(self, location); }
             }
             Then::TrashBrowserSample(path) => {
                 if matches!(reply,Reply::Button(Answer::Yes)) { self.browser_trash_sample(&path); }

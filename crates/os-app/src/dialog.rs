@@ -79,6 +79,7 @@ pub enum Then {
     VocalReanalyse(u16),
     TrashBrowserSample(PathBuf),
     RemoveBrowserCollection(usize),
+    RemoveBrowserCollectionFolder(crate::views::browser::library::CollectionLocation),
     /// Nothing (an information box).
     Nothing,
     StemDownload(usize, u8),

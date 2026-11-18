@@ -92,6 +92,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Plugin Downloads tab", "visible_browser-downloads"),
         ("Plugin Downloads filters and favorites", crate::plugin_downloads::DISCOVERY_VISIBILITY),
         ("Favorites tab", "visible_browser-favorites"),
+        ("Collection folder controls", crate::views::browser::library::FOLDER_CONTROLS),
         ("Sample preview panel", "visible_browser-preview"),
         ("File information panel", "visible_browser-info"),
     ]),
