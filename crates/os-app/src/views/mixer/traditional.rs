@@ -564,6 +564,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     let by=bottom;
     if matches!(layout_index(s),1|4|5|7) {
         let readout=Rect::new(left+2.,by-103.,if extra {52.} else {width-4.},18.);
+        ui.live(Live::MixerGainReadout(n), readout.outset(1.));
         let text=fader_db_text(f64::from(v));
         let mut font=Font::new(10);
         for size in (8..=10).rev() {

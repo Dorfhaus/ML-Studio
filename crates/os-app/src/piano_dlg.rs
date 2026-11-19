@@ -609,7 +609,7 @@ fn randomize_notes(s: &mut State, step: Option<&'static str>) -> bool {
     notes.extend(out);
     let end = notes.len();
     p.notes = notes;
-    s.piano.select(s.pattern, ch, (start..end).collect());
+    s.piano.select_notes(s.pattern, ch, (start..end).collect());
     piano::finish_edit(s);
     s.piano.dirty = true;
     true
@@ -667,9 +667,9 @@ fn restore(s: &mut State) -> bool {
     let p = piano::pattern_mut(s);
     (p.notes, p.controls) = (base, base_ctl);
     if sel.is_empty() {
-        s.piano.clear_selection();
+        s.piano.clear_notes_selection();
     } else {
-        s.piano.select(s.pattern, ch, sel);
+        s.piano.select_notes(s.pattern, ch, sel);
     }
     s.piano.dirty = true;
     true

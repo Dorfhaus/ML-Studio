@@ -224,6 +224,78 @@ pub(crate) fn selected(s: &State, fallback: ClipSource) -> Vec<ClipSource> {
     items
 }
 
+pub(crate) fn use_selection_for_delete(s: &State, source: ClipSource, popup: &mut pl::Popup) {
+    let picked = &s.playlist.picker_ui.selected;
+    if picked.len() < 2 || !picked.contains(&source) {
+        return;
+    }
+    if let Some(item) = popup.items.iter_mut().find(|item| matches!(item.cmd,
+        pl::Cmd::Pattern(crate::patterns::Cmd::Delete) | pl::Cmd::Pick(pl::PickCmd::Delete, _)))
+    {
+        item.cmd = pl::Cmd::DeletePickerSelection(source);
+    }
+}
+
+pub(crate) fn ask_delete_selection(app: &mut App, source: ClipSource) {
+    use crate::dialog::{Answer, Kind, Msg, Then};
+    use crate::messages::{self, DELETE_CHANNEL, DELETE_PATTERN};
+
+    let picked = &app.state.playlist.picker_ui.selected;
+    if !picked.contains(&source) {
+        return;
+    }
+    let sources = picked.clone();
+    let patterns = sources.iter().filter(|item| matches!(item, ClipSource::Pattern(_))).count();
+    let channels = sources.len() - patterns;
+    if (patterns > 0 && messages::on(&DELETE_PATTERN)) || (channels > 0 && messages::on(&DELETE_CHANNEL)) {
+        let msg = format!("Delete {} selected clip sources and their Playlist placements?", sources.len());
+        let mut prompt = Msg::new(Kind::Question, "Delete selected clips", vec![(msg, false)],
+            &[Answer::Yes, Answer::No], Then::DeletePickerSelection(sources));
+        prompt.focus = 1;
+        app.show_msg(prompt);
+    } else {
+        delete_selection(app, &sources);
+    }
+}
+
+pub(crate) fn delete_selection(app: &mut App, sources: &[ClipSource]) {
+    let s = &mut app.state;
+    let mut patterns: Vec<_> = sources.iter().filter_map(|src| match src {
+        ClipSource::Pattern(n) => Some(*n),
+        ClipSource::Channel(_) => None,
+    }).collect();
+    patterns.sort_unstable();
+    patterns.dedup();
+    let rows: Vec<_> = s.project.channels.iter().enumerate().filter_map(|(row, channel)| {
+        (matches!(channel.kind, os_model::ChannelKind::AudioClip | os_model::ChannelKind::Automation)
+            && sources.contains(&ClipSource::Channel(channel.index))).then_some(row)
+    }).collect();
+    if !rows.is_empty() && rows.len() == s.project.channels.len() {
+        s.message = Some("A project keeps at least one channel".into());
+        return;
+    }
+    if patterns.is_empty() && rows.is_empty() {
+        return;
+    }
+    let count = patterns.len() + rows.len();
+    let previous = s.history.begin_sequence();
+    if !patterns.is_empty() {
+        crate::patterns::delete_picker_patterns(s, &patterns);
+    }
+    if !rows.is_empty() {
+        crate::rack::delete_rows(app, &rows);
+    }
+    let s = &mut app.state;
+    s.history.end_sequence_named(previous, "Delete selected clips");
+    s.playlist.picker_ui.selected.clear();
+    s.playlist.picker_ui.anchor = None;
+    s.playlist.picker_ui.stop_previews();
+    s.playlist.source = None;
+    s.playlist.audio_template = None;
+    s.message = Some(format!("Deleted {count} clip sources"));
+    app.invalidate();
+}
+
 pub fn drop(app: &mut App, source: ClipSource, destination: Option<Destination>) {
     let placement_edge = if matches!(destination, Some(Destination::Playlist { .. })) {
         app.playlist_placement_edge(app.mouse.0)

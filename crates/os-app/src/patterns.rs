@@ -243,23 +243,23 @@ fn renumber(s: &mut State, map: impl Fn(u16) -> Option<u16>) {
     s.playlist.picker_ui.selected.clear();
     s.playlist.picker_ui.stop_previews();
     if let Some(a) = s.project.arrangement_mut() {
-        for clips in std::iter::once(&mut a.clips).chain(a.tracks.iter_mut().filter_map(|t|t.frozen.as_mut())) {
-        clips.retain_mut(|c| match c.source {
-            ClipSource::Pattern(n) => match map(n) {
-                Some(m) => {
-                    c.source = ClipSource::Pattern(m);
-                    true
-                }
-                None => false,
-            },
-            _ => true,
-        });
-        }
+        remap_pattern_clips(a, &map);
     }
     s.playlist.sel.clear();
     s.playlist.hover_clip = None;
     s.piano.clear_selection();
     s.piano.dirty = true;
+}
+
+fn remap_pattern_clips(arrangement: &mut os_model::Arrangement, map: &impl Fn(u16) -> Option<u16>) {
+    for clips in std::iter::once(&mut arrangement.clips)
+        .chain(arrangement.tracks.iter_mut().filter_map(|track| track.frozen.as_mut()))
+    {
+        clips.retain_mut(|clip| match clip.source {
+            ClipSource::Pattern(n) => map(n).map(|new| clip.source = ClipSource::Pattern(new)).is_some(),
+            ClipSource::Channel(_) => true,
+        });
+    }
 }
 
 /// "<name> #k" with the lowest free k >= 2 (§3 Clone).
@@ -661,6 +661,25 @@ fn cancel_confirm(s: &mut State) {
 fn delete_pattern(s: &mut State) {
     let cur = s.pattern.max(1);
     renumber(s, |n| if n == cur { None } else if n > cur { Some(n - 1) } else { Some(n) });
+}
+
+/// Delete selected picker patterns in one pass, including placements in other arrangements.
+pub(crate) fn delete_picker_patterns(s: &mut State, sorted: &[u16]) {
+    use crate::history::Snap;
+
+    let undo = Snap::Several(vec![
+        Snap::Patterns { patterns: s.project.patterns.clone(), current: s.pattern },
+        Snap::PatternArrangements(s.project.arrangements.clone()),
+        Snap::ClipPickerOrder(s.project.clip_picker_order.clone()),
+    ]);
+    crate::history::record(s, "Delete selected patterns", undo);
+    let map = |n| sorted.binary_search(&n).err().map(|before| n - before as u16);
+    let active = s.project.arrangement().map(|a| a.number);
+    renumber(s, map);
+    for arrangement in s.project.arrangements.iter_mut().filter(|a| Some(a.number) != active) {
+        remap_pattern_clips(arrangement, &map);
+    }
+    s.pattern = (s.pattern - sorted.partition_point(|&n| n < s.pattern) as u16).max(1);
 }
 
 /// Accept the name box.

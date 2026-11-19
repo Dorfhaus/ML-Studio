@@ -172,6 +172,12 @@ pub(crate) fn range_cursor(app: &App) -> Option<Cursor> {
 
 pub fn cursor(app: &App) -> Option<Cursor> {
     if app.modal_open() || app.state.settings.open || app.state.playlist.popup.is_some() || app.state.menu_open.is_some() { return None; }
+    if matches!(app.drag, Some(crate::app::Drag::Pl(pl::PlDrag::TimeSel { resizing: true, .. })))
+        || (app.drag.is_none() && app.hover == Some(Action::PlRuler)
+            && app.pl_grid().is_some_and(|grid| pl::ruler_resize_anchor(&app.state, grid, app.mouse.0).is_some()))
+    {
+        return Some(Cursor::EwResize);
+    }
     if matches!(app.drag, Some(crate::app::Drag::WarpMarker { .. })) {
         return Some(Cursor::Playlist(PlTool::Draw, GRABBING));
     }

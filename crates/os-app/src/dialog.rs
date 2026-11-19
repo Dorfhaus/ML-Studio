@@ -76,6 +76,7 @@ pub enum Then {
     SetDetectedProjectTempo(f64),
     ResetMixerTracks(Vec<u16>),
     DeleteAllPlaylistTracks(u16),
+    DeletePickerSelection(Vec<os_model::ClipSource>),
     VocalReanalyse(u16),
     TrashBrowserSample(PathBuf),
     RemoveBrowserCollection(usize),

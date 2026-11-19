@@ -9,7 +9,7 @@ pub(crate) mod retention;
 
 pub(crate) const SETTINGS_VISIBILITY: &str = "visible_update-preferences";
 
-pub const VERSION: u64 = 2026111803;
+pub const VERSION: u64 = 2026111901;
 #[cfg(windows)]
 pub const FEED: &str = "https://michaellanemusic.de/lemon-studio/updates/stable.json";
 #[cfg(windows)]

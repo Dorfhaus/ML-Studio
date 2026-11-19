@@ -1557,7 +1557,7 @@ pub fn stamp(s: &mut State, ch: u16, tick: u32, key: i32) {
             ..Note::step(ch, tick)
         });
     }
-    s.piano.select(s.pattern, ch, indices);
+    s.piano.select_notes(s.pattern, ch, indices);
     s.piano.dirty = true;
 }
 pub fn parse(text: &str, h: &Harmony) -> Result<Vec<Chord>, String> {

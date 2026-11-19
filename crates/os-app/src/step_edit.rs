@@ -158,7 +158,7 @@ impl App {
             (n.length, n.velocity) = (len, velocity);
             new.push(i);
         }
-        s.piano.select(s.pattern, ch, new);
+        s.piano.select_notes(s.pattern, ch, new);
         s.piano.dirty = true;
         let to = pos + len;
         if s.song_mode {

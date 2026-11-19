@@ -517,7 +517,7 @@ fn builtin(app: &mut App, id: &str, c: usize) -> bool {
                     if let Some(ch) = piano::channel(&app.state) {
                         piano::snapshot(&mut app.state);
                         let i = piano::add_note(&mut app.state, ch, tick, key);
-                        app.state.piano.select(app.state.pattern, ch, vec![i]);
+                        app.state.piano.select_notes(app.state.pattern, ch, vec![i]);
                         piano::finish_edit(&mut app.state);
                     }
                 } else {

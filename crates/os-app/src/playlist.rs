@@ -340,6 +340,7 @@ pub enum Cmd {
     AraScan,
     /// A picker item's menu (§10a) on an audio or automation clip source: the command and the source's channel index.
     Pick(PickCmd, u16),
+    DeletePickerSelection(ClipSource),
     PointDelete(u16, usize),
     /// The point menu's Copy value / Paste value (the clipboard every control shares).
     PointCopy(u16, usize),
@@ -3709,7 +3710,7 @@ pub enum PlDrag {
     ZoomBox { x0: f32, y0: f32 },
     Playback,
     SongPos,
-    TimeSel { t0: u32 },
+    TimeSel { t0: u32, original: Option<(u32, u32)>, resizing: bool },
     Marker { i: usize, dt: i64, t0: u32 },
     PointSelect { clip: usize, x0: f32, y0: f32 },
     PointPaint { clip: usize, x0: f32, y0: f32 },
@@ -3951,7 +3952,10 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
 
     if right && hit.is_none() && matches!(tool,PlTool::Draw|PlTool::Paint) {
         s.playlist.sel.clear();s.playlist.header_selection.clear();s.playlist.header_anchor=None;
-        s.playlist.range=None;s.playlist.overlay=None;s.playlist.last_header=None;
+        if !range_contains_x(s, grid, x) {
+            s.playlist.range = None;
+        }
+        s.playlist.overlay=None;s.playlist.last_header=None;
         s.playlist.last_clip=None;
     }
     let alt = app.alt;
@@ -4625,9 +4629,9 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
             s.playlist.pos = snap_down(s, &g, g.tick_at(x), alt);
             crate::init::apply(s);
         }
-        PlDrag::TimeSel { t0 } => {
+        PlDrag::TimeSel { t0, original, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
-            s.playlist.range = (t != t0).then(|| (t0.min(t), t0.max(t)));
+            s.playlist.range = if t == t0 { original } else { Some((t0.min(t), t0.max(t))) };
         }
         PlDrag::Marker { i, t0, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
@@ -5025,28 +5029,53 @@ pub fn toggle_collapse(s: &mut State, t: u16) {
     tr.collapsed = !tr.collapsed;
 }
 
-/// Ruler press: left moves the song position (playback follows), right starts a time selection (§7).
+fn range_screen_bounds(s: &State, grid: Rect, start: u32, end: u32) -> (f32, f32) {
+    let ppq = u32::from(s.project.ppq.max(4));
+    let pixels_per_tick = s.playlist_bar_w / (ppq * 4) as f32;
+    let origin = f64::from(grid.x) - f64::from(s.playlist_scroll.0);
+    let x_at = |tick: u32| snap(origin + f64::from(tick as f32) * f64::from(pixels_per_tick));
+    (x_at(start), x_at(end))
+}
+
+fn range_contains_x(s: &State, grid: Rect, x: f32) -> bool {
+    s.playlist.range.is_some_and(|(start, end)| {
+        let (left, right) = range_screen_bounds(s, grid, start, end);
+        (left..=right).contains(&x)
+    })
+}
+
+/// Returns the boundary that stays fixed when the pointer is over a ruler resize handle.
+pub(crate) fn ruler_resize_anchor(s: &State, grid: Rect, x: f32) -> Option<u32> {
+    let (start, end) = s.playlist.range?;
+    let (left, right) = range_screen_bounds(s, grid, start, end);
+    let distance = |edge: f32| {
+        if (grid.x..=grid.right()).contains(&edge) { (x - edge).abs() } else { f32::INFINITY }
+    };
+    let (left_distance, right_distance) = (distance(left), distance(right));
+    (left_distance.min(right_distance) <= 7.0)
+        .then_some(if left_distance <= right_distance { end } else { start })
+}
+
+/// Ruler press: left seeks, right selects time, and either button resizes a loop edge.
 pub fn press_ruler(app: &mut App, grid: Rect, right: bool) {
     let x = app.mouse.0;
     let alt = app.alt;
     let s = &mut app.state;
     s.playlist.popup = None;
-    let g = PGeom::new(s, grid);
-    let t = snap_round(s, &g, g.tick_at(x), alt);
-    if let Some((start, end)) = s.playlist.range {
-        let left = (x - g.x64(f64::from(start)) as f32).abs();
-        let right_edge = (x - g.x64(f64::from(end)) as f32).abs();
-        if left.min(right_edge) <= 7.0 {
-            s.playlist.last_ruler = None;
-            app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0: if left <= right_edge { end } else { start } }));
-            app.invalidate();
-            return;
-        }
-    }
-    if right {
-        s.playlist.range = None;
+    if let Some(t0) = ruler_resize_anchor(s, grid, x) {
         s.playlist.last_ruler = None;
-        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0: t }));
+        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0, original: None, resizing: true }));
+        app.invalidate();
+        return;
+    }
+    let g = PGeom::new(s, grid);
+    if right {
+        if !range_contains_x(s, grid, x) {
+            s.playlist.range = None;
+        }
+        s.playlist.last_ruler = None;
+        let t0 = snap_round(s, &g, g.tick_at(x), alt);
+        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0, original: s.playlist.range, resizing: false }));
     } else {
         // A double click clears the time selection (a Lemon Studio choice, besides FL's right click).
         let now = std::time::Instant::now();
@@ -5411,6 +5440,10 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         Cmd::Rack(c) => return crate::rack::run(app, c),
         Cmd::Mixer(c) => return crate::mixer::run(app, c),
         Cmd::Param(c) => return app.params_cmd(c),
+        Cmd::DeletePickerSelection(source) => {
+            crate::clip_picker::ask_delete_selection(app, source);
+            return None;
+        }
         Cmd::Pattern(c) => {
             let m = app.pattern_cmd(c);
             app.invalidate();
@@ -5749,7 +5782,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         }
         #[cfg(plugin_windows)]
         Cmd::SamplerTrack(_) => None,
-        Cmd::HeaderDrop(_) | Cmd::InputBinding(_) | Cmd::MenuLayout(_) | Cmd::MainMenu(..) | Cmd::PopupBack(_) | Cmd::TypingLayout(_) | Cmd::Harmony(_) | Cmd::Nothing | Cmd::Pick(..) | Cmd::Browser(_) | Cmd::Plugin(_) | Cmd::Project(_) | Cmd::Rack(_) | Cmd::Mixer(_) | Cmd::Param(_) | Cmd::Preset(_) | Cmd::Misc(..) | Cmd::PluginMenu(..) | Cmd::PluginDetach(..) | Cmd::WaveSize(..) | Cmd::Piano(_) | Cmd::Audio(_) | Cmd::Cpu(_) | Cmd::MetronomeSound(_) | Cmd::MetronomeVolume(_) | Cmd::Record(_) | Cmd::RecPrecountBars(_) | Cmd::OneClick(..) | Cmd::OneClickEditor | Cmd::Rec(_) | Cmd::ContinuousScrolling | Cmd::Pattern(_) | Cmd::ClockMode(_) | Cmd::ClockBeat(_) | Cmd::Toolbar(_) | Cmd::ToolbarPreset(_) | Cmd::WorkspaceLayout(_) | Cmd::ToolbarSave | Cmd::ToolbarDelete | Cmd::TimeSig(..) | Cmd::AddSignature | Cmd::MarkerSigAt(_) | Cmd::MarkerEveryMenu | Cmd::Bar(..) | Cmd::PanningLaw(_) | Cmd::TimeMode(_) | Cmd::Timebase(_) => None,
+        Cmd::HeaderDrop(_) | Cmd::InputBinding(_) | Cmd::MenuLayout(_) | Cmd::MainMenu(..) | Cmd::PopupBack(_) | Cmd::TypingLayout(_) | Cmd::Harmony(_) | Cmd::Nothing | Cmd::Pick(..) | Cmd::DeletePickerSelection(_) | Cmd::Browser(_) | Cmd::Plugin(_) | Cmd::Project(_) | Cmd::Rack(_) | Cmd::Mixer(_) | Cmd::Param(_) | Cmd::Preset(_) | Cmd::Misc(..) | Cmd::PluginMenu(..) | Cmd::PluginDetach(..) | Cmd::WaveSize(..) | Cmd::Piano(_) | Cmd::Audio(_) | Cmd::Cpu(_) | Cmd::MetronomeSound(_) | Cmd::MetronomeVolume(_) | Cmd::Record(_) | Cmd::RecPrecountBars(_) | Cmd::OneClick(..) | Cmd::OneClickEditor | Cmd::Rec(_) | Cmd::ContinuousScrolling | Cmd::Pattern(_) | Cmd::ClockMode(_) | Cmd::ClockBeat(_) | Cmd::Toolbar(_) | Cmd::ToolbarPreset(_) | Cmd::WorkspaceLayout(_) | Cmd::ToolbarSave | Cmd::ToolbarDelete | Cmd::TimeSig(..) | Cmd::AddSignature | Cmd::MarkerSigAt(_) | Cmd::MarkerEveryMenu | Cmd::Bar(..) | Cmd::PanningLaw(_) | Cmd::TimeMode(_) | Cmd::Timebase(_) => None,
         Cmd::NotYet(name) => Some(format!("{name}: not available yet")),
         Cmd::Tool(t) => {
             crate::playlist_tools::select(s, t);

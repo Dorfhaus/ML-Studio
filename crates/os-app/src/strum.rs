@@ -309,9 +309,9 @@ fn restore(s: &mut State) -> bool {
     let (base, sel, ch) = (se.base.clone(), se.base_sel.clone(), se.channel);
     piano::pattern_mut(s).notes = base;
     if sel.is_empty() {
-        s.piano.clear_selection();
+        s.piano.clear_notes_selection();
     } else {
-        s.piano.select(s.pattern, ch, sel);
+        s.piano.select_notes(s.pattern, ch, sel);
     }
     s.piano.dirty = true;
     true

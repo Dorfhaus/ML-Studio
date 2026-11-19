@@ -1623,6 +1623,7 @@ fn attached_traditional(ui: &mut Ui, s: &State, n: u16, strip: Rect) {
     ui.c.stroke_rrect(cap, 2., 1., Color::rgb(0x151719));
     ui.c.line(cap.x+2.,cap.cy(),cap.right()-2.,cap.cy(),1.,Color::rgb(0x363b40));
     let readout = Rect::new(fader.cx()-32., strip.bottom()-20., 64., 17.);
+    ui.live(Live::MixerGainReadout(n), readout.outset(1.));
     ui.c.fill_rrect(readout, 3., t.sunken);
     ui.c.text_center(Font::new(11).bold(), readout, t.text, &fader_db_text(value));
 
@@ -1900,6 +1901,8 @@ fn fitted_center(canvas: &mut os_ui::Canvas, font: Font, area: Rect, ink: Color,
 fn channel_controls_style(ui:&mut Ui,s:&State,n:u16,active:Option<KnobId>,r:Rect,full:bool,compact:bool) {
     let mut readout:Option<(Rect,String,Option<&str>)>=None;
     if n==0 || r.h<80.0 || mx::track(s,n).is_some_and(|m|m.channel_layout==0) {return;}
+    // Compact knob values can overlap the next row while dragging.
+    ui.live(Live::MixerStripControls(n), r.outset(4.));
     let vintage = s.vintage_2005 && full;
     let vocal=mx::track(s,n).is_some_and(|t|t.is_vocal());
     let row=(r.h/if vocal {8.0}else{6.0}).min(if full {74.0}else{57.0});

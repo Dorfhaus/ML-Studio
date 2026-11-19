@@ -219,13 +219,22 @@ impl PianoState {
     }
 
     pub fn select(&mut self, pattern: u16, channel: u16, sel: Vec<usize>) {
-        self.sel_key = (pattern, channel);
-        self.sel = sel;
+        self.select_notes(pattern, channel, sel);
         self.range = None;
     }
 
-    pub fn clear_selection(&mut self) {
+    /// Editing notes changes their selection independently of the ruler's playback range.
+    pub fn select_notes(&mut self, pattern: u16, channel: u16, sel: Vec<usize>) {
+        self.sel_key = (pattern, channel);
+        self.sel = sel;
+    }
+
+    pub fn clear_notes_selection(&mut self) {
         self.sel.clear();
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.clear_notes_selection();
         self.range = None;
     }
 
@@ -766,7 +775,7 @@ pub fn paint_mono(s: &mut State, i: usize) -> usize {
     for &j in gone.iter().rev() {
         p.notes.remove(j);
     }
-    s.piano.clear_selection();
+    s.piano.clear_notes_selection();
     s.piano.dirty = true;
     i - gone.iter().filter(|&&j| j < i).count()
 }
@@ -794,7 +803,7 @@ pub fn delete(s: &mut State, mut idx: Vec<usize>) {
             p.notes.remove(i);
         }
     }
-    s.piano.clear_selection();
+    s.piano.clear_notes_selection();
     crate::playlist::refit_pattern_clips(s,s.pattern,old);
 }
 
@@ -902,7 +911,7 @@ pub fn slice(s: &mut State, tick: u32) -> usize {
         let (a,b)=expressions.get(&i).copied().unwrap_or((n.expression,n.expression));p.notes[i].expression=a;
         p.notes.push(Note { expression:b,position: tick, length: n.position + n.length - tick, ..n });
     }
-    s.piano.clear_selection();
+    s.piano.clear_notes_selection();
     finish_edit(s);
     cut.len()
 }
@@ -963,7 +972,7 @@ pub fn paste(s: &mut State, clip: &[Note], at: u32) {
         p.notes.push(Note { position: n.position - first + at, channel: ch, ..*n });
     }
     let end = p.notes.len();
-    s.piano.select(s.pattern, ch, (start..end).collect());
+    s.piano.select_notes(s.pattern, ch, (start..end).collect());
     finish_edit(s);
 }
 

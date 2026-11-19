@@ -620,6 +620,8 @@ pub enum Live {
     Sounding,
     /// Mixer peak meters.
     Meter(u16),
+    MixerGainReadout(u16),
+    MixerStripControls(u16),
     MixerEqSpectrum,
     AttachedEqSpectrum,
     /// Fader travel geometry, not a damage region; clipping must preserve its height.
@@ -2681,6 +2683,11 @@ impl App {
             Then::DeleteAllPlaylistTracks(number) => {
                 if reply == Reply::Button(Answer::Yes) && self.state.project.arrangement().map_or(0, |a| a.number) == number {
                     self.state.message = crate::playlist::delete_playlist_rows(self, None);
+                }
+            }
+            Then::DeletePickerSelection(sources) => {
+                if reply == Reply::Button(Answer::Yes) {
+                    crate::clip_picker::delete_selection(self, &sources);
                 }
             }
             Then::DeleteUnused(files) => self.delete_unused_done(files, &reply),
@@ -6476,16 +6483,16 @@ impl App {
         let regions=self.visible_mixer_eq_regions();
         let visible=!regions.is_empty()||self.detached_eq_visible;
         let changed=crate::mini_eq::refresh_spectrum(self,visible);
-        if visible&&crate::mini_eq::sync(self,self.state.selected_mixer){self.damage_eq();}
+        if visible&&crate::mini_eq::sync(self,self.state.selected_mixer){self.damage_eq(self.state.selected_mixer);}
         else if changed{for r in regions{self.damage_rect(r);}}
     }
 
-    /// Repaints the current track's equaliser: graph, faders and knobs (a change to one moves the others).
-    fn damage_eq(&mut self) {
-        use crate::{knobs::KnobId, mixer::MHit};
-        let eq = |a: &Action| matches!(a, Action::Knob(KnobId::Eq(..)) | Action::Mix(MHit::EqGraph));
-        let rects:Vec<_>=self.hits.iter().filter(|h|eq(&h.action)).map(|h|h.rect.outset(8.)).collect();
-        if rects.is_empty(){self.invalidate();}else{for r in rects{self.damage_rect(r);}}
+    fn damage_eq(&mut self, track: u16) {
+        self.damage_live(Live::MixerStripControls(track));
+        if track == self.state.selected_mixer {
+            self.damage_live(Live::MixerEqSpectrum);
+            self.damage_live(Live::AttachedEqSpectrum);
+        }
     }
 
     pub(crate) fn top_hit(&self, x: f32, y: f32) -> Option<&Hit> {
@@ -6711,7 +6718,7 @@ impl App {
                         let hits = piano::notes_in(s, &g, r);
                         let sel = crate::playlist_tools::selection_hits(&base, &hits, keep_outside);
                         if let Some(ch) = piano::channel(s) {
-                            s.piano.select(s.pattern, ch, sel);
+                            s.piano.select_notes(s.pattern, ch, sel);
                         }
                     }
                     self.damage_piano();
@@ -6966,20 +6973,17 @@ impl App {
                     let v=crate::mixer::move_faders(&mut self.state,&group,track,v0,delta);
                     self.state.piano.dirty=true;
                     for &(t,_) in &group {self.smart_record_host(&Action::Fader(t));}
-                    if group.len()>1 && (self.state.shown(Win::Mixer)||!crate::attached_mixer::active(&self.state)){self.damage_win(Win::Mixer);}
                     self.hint = Cow::Owned(crate::mixer::level_text("Volume", v));
-                    // Traditional gain labels sit outside the narrow fader hit target.
-                    let target=if crate::mixer::traditional(&self.state) {Action::Mix(crate::mixer::MHit::Strip(track))} else {Action::Fader(track)};
-                    let col = self.hits.iter().rev().find(|h| h.action == target).map(|h| h.rect);
-                    match col {
-                        Some(r) => self.damage_rect(r.outset(10.0)),
-                        None => self.invalidate(),
-                    }
+                    let moved = |n: u16| group.iter().any(|&(t, _)| t == n);
+                    let rects: Vec<_> = self.hits.iter().filter_map(|h| match h.action {
+                        Action::Fader(n) if moved(n) => Some(h.rect.outset(10.)),
+                        _ => None,
+                    }).chain(self.live.iter().filter_map(|&(kind, r)| match kind {
+                        Live::MixerGainReadout(n) if moved(n) => Some(r),
+                        _ => None,
+                    })).collect();
+                    for r in rects { self.damage_rect(r); }
                     self.damage_band(HINT_RECT);
-                    if crate::attached_mixer::active(&self.state){
-                        let rects:Vec<_>=self.hits.iter().filter(|h|matches!(h.action,Action::Fader(n) if group.iter().any(|(t,_)|*t==n))).map(|h|h.rect.outset(20.)).collect();
-                        for r in rects{self.damage_rect(r);}
-                    }
                 }
                 Drag::RackSwing { x0, value } => {
                     let id = crate::knobs::KnobId::Swing;
@@ -7006,13 +7010,10 @@ impl App {
                     self.hint = Cow::Owned(self.state.knob_hint(id));
                     let rects:Vec<_>=self.hits.iter().filter(|h|h.action==Action::Knob(id)).map(|h|h.rect.outset(6.)).collect();
                     if rects.is_empty(){self.invalidate();}else{for r in rects{self.damage_rect(r);}}
-                    if matches!(id,crate::knobs::KnobId::Eq(..)|crate::knobs::KnobId::Strip(..)) {
-                        if self.state.shown(Win::Mixer){self.damage_win(Win::Mixer);}
-                        let panels:Vec<_>=self.live.iter().filter_map(|&(kind,r)|(kind==Live::AttachedInspector).then_some(r)).collect();
-                        for r in panels{self.damage_rect(r);}
-                    }
-                    if let crate::knobs::KnobId::Eq(..) = id {
-                        self.damage_eq();
+                    match id {
+                        crate::knobs::KnobId::Eq(track, ..) => self.damage_eq(track),
+                        crate::knobs::KnobId::Strip(track, _) => self.damage_live(Live::MixerStripControls(track)),
+                        _ => {}
                     }
                     if matches!(id,crate::knobs::KnobId::MasterPitch) {self.damage_win(Win::ChannelRack);}
                     self.damage_band(HINT_RECT);
@@ -7031,7 +7032,7 @@ impl App {
                 Drag::EqGraph { track, band, g } => {
                     crate::mini_eq::drag(self, track, band, g, (x, y));
                     self.hint = Cow::Owned(crate::mixer::eq_graph_hint(&self.state, g, x));
-                    self.damage_eq();
+                    self.damage_eq(track);
                     self.damage_band(HINT_RECT);
                 }
                 Drag::MonParam(i) => {
@@ -7648,12 +7649,14 @@ impl App {
                 return;
             }
         }
-        if let Some(Action::PlPick(source)) = action
-            && self.state.playlist.picker != crate::playlist::PickKind::Automation
-        {
+        if let Some(Action::PlPick(source)) = action {
             let collapse = !self.shift && !self.ctrl;
             crate::clip_picker::press(self, source);
-            if self.state.playlist.picker_ui.selected.contains(&source) {
+            if self.state.playlist.picker == crate::playlist::PickKind::Automation {
+                if collapse {
+                    self.state.playlist.picker_ui.selected = vec![source];
+                }
+            } else if self.state.playlist.picker_ui.selected.contains(&source) {
                 self.drag = Some(Drag::ClipPicker { source, origin: self.mouse, started: false, collapse });
             }
             return;
@@ -8303,7 +8306,7 @@ impl App {
                 && !piano.selection(self.state.pattern, piano::channel(&self.state)).is_empty();
             if piano.stretch || deselect {
                 self.state.piano.stretch = false;
-                if deselect { self.state.piano.clear_selection(); }
+                if deselect { self.state.piano.clear_notes_selection(); }
                 self.damage_piano();
                 return;
             }
@@ -8454,7 +8457,9 @@ impl App {
         self.state.playlist.vocal.marquee=None;
         self.state.mpe.drag=None;
         if crate::plugin_picker::mouse_up(self) { return; }
-        if matches!(self.drag,Some(Drag::Knob{id:crate::knobs::KnobId::Eq(..)|crate::knobs::KnobId::Strip(_,0|3),..})){self.damage_win(Win::Mixer);}
+        if let Some(Drag::Knob { id: crate::knobs::KnobId::Eq(track, ..) | crate::knobs::KnobId::Strip(track, 0 | 3), .. }) = self.drag {
+            self.damage_live(Live::MixerStripControls(track));
+        }
         self.hold = None;
         self.shift_clone = false;
         self.release();
@@ -9313,7 +9318,7 @@ impl App {
         if matches!(area,Some(Action::Mix(crate::mixer::MHit::EqGraph))) {
             if let Some(g)=self.top_hit(x,y).map(|h|h.rect) {
                 if crate::mini_eq::wheel(self,g,x,y,dy+dx) {
-                    self.damage_eq();
+                    self.damage_eq(self.state.selected_mixer);
                     self.damage_band(HINT_RECT);
                     return None;
                 }
@@ -10129,7 +10134,7 @@ impl App {
         let selected = piano::notes(s).iter().enumerate().filter_map(|(i, note)| {
             (note.channel == ch && pitches.contains(&i32::from(note.key)) && g.note_rect(note).is_some()).then_some(i)
         }).collect();
-        s.piano.select(s.pattern, ch, selected);
+        s.piano.select_notes(s.pattern, ch, selected);
         let top = g.y_of(*pitches.end());
         let bottom = g.y_of(*pitches.start()) + g.row;
         s.piano.overlay = Some(Overlay::Marquee(Rect::new(g.grid.x, top, g.grid.w, bottom - top)));
@@ -10175,7 +10180,7 @@ impl App {
             let selection = if !self.shift { hits.clone() } else {
                 crate::playlist_tools::selection_hits(&base, &hits,true)
             };
-            s.piano.select(s.pattern, ch, selection);
+            s.piano.select_notes(s.pattern, ch, selection);
             self.drag = Some(Drag::Marquee { x0: x, y0: y, base, keep_outside: self.shift });
             self.damage_piano();
             return;
@@ -10204,7 +10209,7 @@ impl App {
                 }
                 Tool::Paint if note.is_none() => {
                     piano::snapshot_as(s, "Piano roll add note");
-                    s.piano.clear_selection();
+                    s.piano.clear_notes_selection();
                     let key = g.key_at(y).clamp(0, views::piano::TOP_KEY);
                     let start = crate::piano_snap::place(s, &g, g.tick_at(x), self.alt);
                     let i = piano::add_note(s, ch, start, key);
@@ -10237,14 +10242,14 @@ impl App {
                     return;
                 }
                 Tool::Select => unreachable!("selection handled before note editing"),
-                _ => s.piano.clear_selection(),
+                _ => s.piano.clear_notes_selection(),
             }
         }
         let s = &mut self.state;
         match *a {
             Action::PianoGrid => {
                 piano::snapshot_as(s, "Piano roll add note");
-                s.piano.clear_selection();
+                s.piano.clear_notes_selection();
                 let i = piano::add_note(s, ch, crate::piano_snap::place(s, &g, g.tick_at(x), self.alt), g.key_at(y));
                 let i = piano::paint_mono(s, i);
                 let n = piano::notes(s)[i];
@@ -10263,7 +10268,7 @@ impl App {
                 let idx = if sel.contains(&i) && tool.moves_groups() {
                     sel
                 } else {
-                    s.piano.clear_selection();
+                    s.piano.clear_notes_selection();
                     vec![i]
                 };
                 let notes = piano::notes(s);
@@ -10332,7 +10337,11 @@ impl App {
             }
             Action::PlRuler => {
                 if let Some(g) = grid {
-                    if right || !crate::scoring::ruler_warp(self, g) { pl::press_ruler(self, g, right); }
+                    if right || pl::ruler_resize_anchor(&self.state, g, self.mouse.0).is_some()
+                        || !crate::scoring::ruler_warp(self, g)
+                    {
+                        pl::press_ruler(self, g, right);
+                    }
                 }
             }
             Action::PlMarkers => {
@@ -10460,18 +10469,20 @@ impl App {
                 }
                 if right {
                     let (x, y) = self.mouse;
-                    match src {
+                    let mut popup = match src {
                         // Right-click on a pattern: the PATTERNS commands for it (spec: ui/pattern-menu.md §3).
-                        os_model::ClipSource::Pattern(_) => self.state.playlist.popup = Some(views::menus::pattern_popup(x, y)),
+                        os_model::ClipSource::Pattern(_) => views::menus::pattern_popup(x, y),
                         // On an audio or automation clip: its channel's menu, the channel selected in the rack (spec:
                         // ui/playlist.md §10a).
                         os_model::ClipSource::Channel(ch) => {
                             if let Some(row) = self.state.project.channels.iter().position(|c| c.index == ch) {
                                 self.state.rack.select_only(row);
                             }
-                            self.state.playlist.popup = Some(pl::pick_menu(&self.state, ch, x, y));
+                            pl::pick_menu(&self.state, ch, x, y)
                         }
-                    }
+                    };
+                    crate::clip_picker::use_selection_for_delete(&self.state, src, &mut popup);
+                    self.state.playlist.popup = Some(popup);
                 }
             }
             Action::PlPopup(i) => {
@@ -10869,7 +10880,7 @@ impl App {
                         self.drag = Some(Drag::EqGraph { track, band, g });
                         crate::mini_eq::drag(self, track, band, g, self.mouse);
                     }
-                    self.damage_eq();
+                    self.damage_eq(track);
                 }
             }
             Action::Mix(crate::mixer::MHit::Strip(n)|crate::mixer::MHit::Meter(n)) if self.ctrl && self.shift => {
@@ -23611,6 +23622,39 @@ LemonStudioStyle.button-radius=8
         assert_eq!(app.state.piano.range, Some((0, 96)), "Ctrl+A keeps the manually set time selection");
         assert_eq!(app.state.piano.selection(app.state.pattern, ch).len(),
             piano::notes(&app.state).iter().filter(|note| Some(note.channel) == ch).count());
+
+        // The ruler range remains the transport loop while the song is being edited.
+        app.state.song_mode = false;
+        app.transport.pretend_at(36., false);
+        let check_loop = |app: &App| {
+            assert!(app.transport.playing());
+            assert_eq!(app.sync_loop_range(), Some((0, 96)));
+        };
+        check_loop(&app);
+        let before = mine(&app).len();
+        click(&mut app, &mut c, g.x_of(48.) + 2., row(63));
+        assert_eq!(mine(&app).len(), before + 1);
+        check_loop(&app);
+
+        // Erase that new note, undo it, then redo it without stopping the loop.
+        app.mouse_move(g.x_of(48.) + 2., row(63));
+        app.mouse_down_right();
+        app.mouse_up();
+        assert_eq!(mine(&app).len(), before);
+        check_loop(&app);
+        app.undo_key(false);
+        assert_eq!(mine(&app).len(), before + 1);
+        check_loop(&app);
+        app.undo_key(true);
+        assert_eq!(mine(&app).len(), before);
+        check_loop(&app);
+
+        app.key(&Key::Character("b".into()), false, false);
+        swipe(&mut app, &mut c, (g.x_of(0.) + 2., row(65)), (g.x_of(144.), row(65)), false);
+        assert!(mine(&app).len() > before + 1, "a paint stroke crosses the loop boundary");
+        check_loop(&app);
+        app.key(&Key::Character("d".into()), true, false);
+        assert_eq!(app.sync_loop_range(), None, "explicit deselect clears the range");
     }
 
     /// Ctrl+B with a time selection (spec: ui/piano-roll.md §9, §10): the copies move by the range's length, keeping
@@ -25520,6 +25564,67 @@ LemonStudioStyle.button-radius=8
         app.mouse_move(x1, y);
         app.mouse_up();
         frame(app, c, None);
+    }
+
+    #[test]
+    fn playlist_loop_right_click_and_ruler_resize_cursor() {
+        use crate::playlist::{self as pl, PlTool};
+
+        for scale in [1.0, 1.25] {
+            let mut canvas = Canvas::new(1920, 1080, scale).unwrap();
+            let (mut app, _, _, bar) = ruler_app(&mut canvas);
+            app.state.song_mode = true;
+            app.state.playlist_scroll.0 = 23.0;
+            frame(&mut app, &mut canvas, None);
+            let ruler = hit_rect(&app, &Action::PlRuler);
+            let g = pl::PGeom::new(&app.state, app.pl_grid().unwrap());
+            let at = |b| g.x_of(b * bar as f32);
+            let tap_right = |app: &mut App, x, y| {
+                app.mouse_move(x, y);
+                app.mouse_down_right();
+                app.mouse_up();
+            };
+            let range = Some((bar, 4 * bar));
+
+            ruler_press(&mut app, &mut canvas, at(1.0), at(4.0), ruler.cy(), true);
+            assert_eq!(app.selection_loop(), range);
+
+            let grid_y = g.y_of(1) + 30.0;
+            for tool in [PlTool::Draw, PlTool::Paint] {
+                app.state.playlist.tool = tool;
+                tap_right(&mut app, at(2.0), grid_y);
+                assert_eq!(app.selection_loop(), range, "{tool:?} on empty grid inside the loop");
+            }
+
+            app.mouse_move(at(2.0), ruler.cy());
+            assert_ne!(app.cursor(), Cursor::EwResize);
+            app.mouse_down_right();
+            assert_eq!(app.selection_loop(), range, "the loop survives mouse-down on the ruler");
+            app.mouse_move(at(2.0), ruler.cy() + 1.0);
+            app.mouse_up();
+            assert_eq!(app.selection_loop(), range, "movement within the same snap point keeps the loop");
+
+            app.mouse_move(at(1.0) + 6.0, ruler.cy());
+            assert_eq!(app.cursor(), Cursor::EwResize, "near the left edge at scale {scale}");
+            app.mouse_down_right();
+            app.mouse_move(at(2.0), ruler.cy() + 20.0);
+            assert_eq!(app.cursor(), Cursor::EwResize, "kept during a resize drag");
+            app.mouse_up();
+            assert_eq!(app.selection_loop(), Some((2 * bar, 4 * bar)));
+            frame(&mut app, &mut canvas, None);
+
+            app.mouse_move(at(4.0) - 6.0, ruler.cy());
+            assert_eq!(app.cursor(), Cursor::EwResize, "near the right edge at scale {scale}");
+            ruler_press(&mut app, &mut canvas, at(4.0) - 6.0, at(5.0), ruler.cy(), false);
+            assert_eq!(app.selection_loop(), Some((2 * bar, 5 * bar)));
+            app.mouse_move(at(5.0) - 9.0, ruler.cy());
+            assert_ne!(app.cursor(), Cursor::EwResize, "outside the edge hit area");
+
+            ruler_press(&mut app, &mut canvas, at(3.0), at(4.0), ruler.cy(), true);
+            assert_eq!(app.selection_loop(), Some((3 * bar, 4 * bar)), "a right-drag can redraw the loop");
+            tap_right(&mut app, at(2.0), grid_y);
+            assert_eq!(app.selection_loop(), None, "outside-grid right-click can still clear the loop");
+        }
     }
 
     /// Moving the song position in the playlist ruler switches to SONG mode without starting playback; a time
@@ -28926,6 +29031,67 @@ LemonStudioStyle.button-radius=8
     }
 
     #[test]
+    fn mixer_drag_repaints_visible_values_without_repainting_unrelated_strips() {
+        use crate::knobs::KnobId;
+        use std::time::Instant;
+        for layout in [crate::mixer::WIDE, crate::mixer::TRADITIONAL + 1] {
+            let mut app = App::new(None);
+            app.state.project = os_flp::project::load(&os_flp::FlpFile::parse(
+                include_bytes!("../assets/templates/ML Mix Template.flp")).unwrap()).unwrap();
+            app.state.z = vec![Win::Mixer];
+            app.state.show_browser = false;
+            app.state.vintage_2005 = false;
+            crate::mixer::set_layout(&mut app.state, layout);
+            crate::mixer::select(&mut app.state, 1, false);
+            let mut partial = Canvas::new(1920, 1080, 1.5).unwrap();
+            let mut full = Canvas::new(1920, 1080, 1.5).unwrap();
+            let mut actions = vec![Action::Fader(1)];
+            if layout == crate::mixer::WIDE {
+                actions.extend([Action::Knob(KnobId::Strip(1, 0)), Action::Knob(KnobId::Eq(1, 1, 0))]);
+            }
+            for action in actions {
+                if action == Action::Fader(1) { crate::mixer::select(&mut app.state, 2, true); }
+                frame(&mut app, &mut partial, None);
+                let knob = hit_rect(&app, &action);
+                let other = hit_rect(&app, &Action::Fader(4));
+                app.mouse_move(knob.cx(), knob.cy());
+                app.mouse_down();
+                let _ = app.take_damage();
+                frame(&mut app, &mut partial, None);
+                let mut times = Vec::new();
+                let mut previous_times = Vec::new();
+                for offset in [3., 8., 14., 7., 4., 11., 16.] {
+                    app.mouse_move(knob.cx(), knob.cy() - offset);
+                    let rects = app.take_damage().expect("drag updates the display").expect("partial drag repaint");
+                    assert!(rects.iter().all(|r| !r.contains(other.cx(), other.cy())), "{action:?}: {rects:?}");
+                    let start = Instant::now();
+                    app.paint_region(&mut partial, Some(&rects));
+                    times.push(start.elapsed());
+                    if action == Action::Knob(KnobId::Strip(1, 0)) {
+                        let mut old = rects.clone();
+                        old.push(app.state.win_area(Win::Mixer));
+                        let start = Instant::now();
+                        app.paint_region(&mut full, Some(&old));
+                        previous_times.push(start.elapsed());
+                    }
+                    frame(&mut app, &mut full, None);
+                    assert_same(&partial, &full, &format!("live {action:?}"));
+                }
+                if !previous_times.is_empty() {
+                    times.sort();
+                    previous_times.sort();
+                    eprintln!("Low Cut paint at 150%: median {:?}, whole Mixer {:?}", times[3], previous_times[3]);
+                }
+                app.mouse_up();
+                let damage = app.take_damage();
+                frame_damage(&mut app, &mut partial, damage);
+                frame(&mut app, &mut full, None);
+                assert_same(&partial, &full, &format!("released {action:?}"));
+            }
+        }
+    }
+
+    #[test]
     fn small_mixer_knob_drag_values() {
         use crate::knobs::KnobId;
         for vintage in [false, true] {
@@ -31435,6 +31601,7 @@ LemonStudioStyle.button-radius=8
             frame(&mut app, &mut c, None);
             let g = app.piano_geom().expect("piano roll shown");
             let at = |g: &Geom, key: i32, tick: u32| (g.x_of(tick as f32) + 2.0, g.y_of(key) + g.row / 2.0);
+            piano::select_range(&mut app.state, 0, 192);
             let (x, y) = at(&g, 67, 0);
             app.mouse_move(x, y);
             app.mouse_down();
@@ -31465,6 +31632,7 @@ LemonStudioStyle.button-radius=8
             let mut want = [kept, painted].concat();
             want.sort_unstable();
             assert_eq!(keys(&app, 0), want, "paint drag, check {on}");
+            assert_eq!(app.state.piano.range, Some((0, 192)), "monophonic replacement keeps the loop");
             assert!(piano::undo(&mut app.state));
             assert_eq!(piano::notes(&app.state), &run[..], "one undo step for the drag, check {on}");
         }
@@ -31974,6 +32142,105 @@ LemonStudioStyle.button-radius=8
         app.state.rack_roll_view = false;
         app.state.project.bar = Some((6, 2));
         save(&mut app, &mut c, "17_rack_project_68");
+    }
+
+    #[test]
+    fn clip_picker_context_delete_removes_the_whole_selection() {
+        use crate::dialog::{Answer, Reply};
+        use crate::playlist::{self as pl, Cmd, PickKind};
+        use os_model::{Clip, ClipSource::{Channel, Pattern}};
+
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        for (number, name) in [(1, "First pattern"), (2, "Keep pattern"), (3, "Last pattern")] {
+            crate::patterns::pat_mut(&mut app.state, number).name = Some(name.into());
+        }
+        for (index, name) in [(5, "First sample"), (6, "Keep sample"), (7, "Last sample")] {
+            let mut channel = app.state.project.channels[0].clone();
+            channel.index = index;
+            channel.kind = ChannelKind::AudioClip;
+            channel.name = Some(name.into());
+            app.state.project.channels.push(channel);
+        }
+        let auto_a = pl::create_automation(&mut app.state, os_model::target::TEMPO, "First curve", 0.5);
+        let auto_b = pl::create_automation(&mut app.state, os_model::target::TEMPO, "Last curve", 0.5);
+        let order = vec![Pattern(3), Pattern(2), Pattern(1), Channel(7), Channel(6), Channel(5)];
+        app.state.project.clip_picker_order = order.clone();
+        for source in order.iter().copied() {
+            pl::arr_mut(&mut app.state).clips.push(Clip::new(384, 384, 0, source));
+        }
+        let mut other = pl::arr_mut(&mut app.state).clone();
+        other.number += 1;
+        app.state.project.arrangements.push(other);
+        let original = app.state.project.clone();
+
+        app.state.z = vec![Win::Playlist];
+        app.state.playlist.picker_visible = true;
+        app.state.playlist.picker = PickKind::Pattern;
+        let mut canvas = Canvas::new(1600, 1000, 1.0).unwrap();
+        frame(&mut app, &mut canvas, None);
+        let pick = |app: &mut App, canvas: &mut Canvas, action| {
+            let hit = hit_rect(app, &action);
+            click(app, canvas, Rect::new(hit.x + 12.0, hit.cy() - 1.0, 2.0, 2.0));
+        };
+        let context = |app: &mut App, canvas: &mut Canvas, source| {
+            let hit = hit_rect(app, &Action::PlPick(source));
+            app.mouse_move(hit.x + 13.0, hit.cy());
+            app.mouse_down_right();
+            app.mouse_up();
+            frame(app, canvas, None);
+        };
+        pick(&mut app, &mut canvas, Action::PlPick(Pattern(1)));
+        app.ctrl = true;
+        pick(&mut app, &mut canvas, Action::PlPick(Pattern(3)));
+        app.ctrl = false;
+        pick(&mut app, &mut canvas, Action::PlPickTab(PickKind::Audio));
+        app.ctrl = true;
+        pick(&mut app, &mut canvas, Action::PlPick(Channel(5)));
+        pick(&mut app, &mut canvas, Action::PlPick(Channel(7)));
+        app.ctrl = false;
+        context(&mut app, &mut canvas, Channel(6));
+        assert!(app.state.playlist.popup.as_ref().unwrap().items.iter().any(|item| item.cmd == Cmd::Pick(pl::PickCmd::Delete, 6)),
+            "right-clicking outside the selection keeps the single-source action");
+        app.state.playlist.popup = None;
+        frame(&mut app, &mut canvas, None);
+
+        pick(&mut app, &mut canvas, Action::PlPickTab(PickKind::Automation));
+        app.ctrl = true;
+        pick(&mut app, &mut canvas, Action::PlPick(Channel(auto_a)));
+        pick(&mut app, &mut canvas, Action::PlPick(Channel(auto_b)));
+        app.ctrl = false;
+        assert_eq!(app.state.playlist.picker_ui.selected.len(), 6);
+
+        for answer in [Answer::No, Answer::Yes] {
+            context(&mut app, &mut canvas, Channel(auto_b));
+            let popup = app.state.playlist.popup.as_ref().unwrap();
+            let item = popup.items.iter().position(|item| item.cmd == Cmd::DeletePickerSelection(Channel(auto_b))).unwrap();
+            let hit = hit_rect(&app, &Action::PlPopup(item));
+            click(&mut app, &mut canvas, hit);
+            assert!(!app.state.dialogs.is_empty(), "the batch asks once before deleting the sources");
+            assert_eq!(app.state.project, original);
+            app.answer(Reply::Button(answer));
+            frame(&mut app, &mut canvas, None);
+            if answer == Answer::No {
+                assert_eq!(app.state.project, original);
+                assert_eq!(app.state.playlist.picker_ui.selected.len(), 6);
+            }
+        }
+
+        assert_eq!(app.state.project.channels.len(), 6);
+        assert_eq!(app.state.project.channel(5).unwrap().name.as_deref(), Some("Keep sample"));
+        assert_eq!(crate::patterns::name_of(&app.state, 1), "Keep pattern");
+        assert!(app.state.project.automations.is_empty());
+        assert_eq!(app.state.project.clip_picker_order, [Pattern(1), Channel(5)]);
+        for arrangement in &app.state.project.arrangements {
+            assert_eq!(arrangement.clips.iter().map(|clip| clip.source).collect::<Vec<_>>(), [Pattern(1), Channel(5)]);
+        }
+        let changed = app.state.project.clone();
+        assert_eq!(crate::history::undo(&mut app.state), Some("Delete selected clips"));
+        assert_eq!(app.state.project, original);
+        assert_eq!(crate::history::redo(&mut app.state), Some("Delete selected clips"));
+        assert_eq!(app.state.project, changed);
     }
 
     // spec: ui/playlist.md §10a

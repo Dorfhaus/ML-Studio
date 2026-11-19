@@ -158,7 +158,7 @@ impl App {
         p.notes.extend(orig.iter().map(|&(_, o)| o));
         let copies: Vec<(usize, Note)> = orig.iter().enumerate().map(|(k, &(_, o))| (first + k, o)).collect();
         if selected {
-            s.piano.select(s.pattern, ch, (first..first + copies.len()).collect());
+            s.piano.select_notes(s.pattern, ch, (first..first + copies.len()).collect());
         }
         let unit = crate::piano_snap::unit(s).unwrap_or(u32::from(s.project.ppq.max(4)) / 4);
         let x0 = if step { x0 - unit as f32 * g.ppt } else { x0 };

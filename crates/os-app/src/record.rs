@@ -702,9 +702,7 @@ impl App {
             }
         }
         // The time selection stays (it may be looping, spec §5).
-        let range = s.piano.range;
-        s.piano.select(pattern, h.channel, Vec::new());
-        s.piano.range = range;
+        s.piano.select_notes(pattern, h.channel, Vec::new());
         s.piano.dirty = true;
         self.invalidate();
     }

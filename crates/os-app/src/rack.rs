@@ -962,12 +962,18 @@ pub fn remap_project(p: &mut Project, map: &[Option<usize>]) {
         });
         true
     });
+    let remap_clip_source = |source: &mut ClipSource| match *source {
+        ClipSource::Channel(ch) => idx.get(&ch).map(|&m| *source = ClipSource::Channel(m)).is_some(),
+        ClipSource::Pattern(_) => true,
+    };
     for arr in &mut p.arrangements {
-        arr.clips.retain_mut(|c| match c.source {
-            ClipSource::Channel(ch) => idx.get(&ch).map(|&m| c.source = ClipSource::Channel(m)).is_some(),
-            ClipSource::Pattern(_) => true,
-        });
+        for clips in std::iter::once(&mut arr.clips)
+            .chain(arr.tracks.iter_mut().filter_map(|track| track.frozen.as_mut()))
+        {
+            clips.retain_mut(|clip| remap_clip_source(&mut clip.source));
+        }
     }
+    p.clip_picker_order.retain_mut(remap_clip_source);
     // Initial values: a place below 0x2000 is a channel's index (spec: flp/layouts.md "Mixer places").
     p.peak_links.retain_mut(|l|{let hi=(l.target>>16)as u16;hi>=0x2000 || idx.get(&hi).map(|&n|l.target=u32::from(n)<<16|(l.target&0xFFFF)).is_some()});
     p.init_controls.retain_mut(|c| {

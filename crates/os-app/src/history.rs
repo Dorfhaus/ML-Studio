@@ -673,11 +673,12 @@ impl Snap {
             Snap::Pattern { number, notes, controls, length } => {
                 let old=s.project.pattern_length(number);
                 s.piano.edit_length=None;
+                if s.pattern != number { s.piano.range = None; }
                 s.pattern = number;
                 let p = crate::patterns::pat_mut(s, number);
                 (p.notes, p.controls, p.length) = (notes, controls, length);
                 crate::playlist::refit_pattern_clips(s,number,old);
-                s.piano.clear_selection();
+                s.piano.clear_notes_selection();
             }
             Snap::Ara(row,plugin,state) => {if let Some(ch)=s.project.channels.get_mut(row){ch.plugin=plugin;ch.plugin_state=state;}},
             Snap::Playlist(p) => crate::playlist::restore(s, *p),

@@ -399,7 +399,7 @@ fn pick(app: &mut App, letter: &str) -> bool {
         _ => mine.iter().copied().filter(|&i| colour(&all[i]) == now).collect(),
     };
     s.piano.rng = rng;
-    s.piano.select(s.pattern, ch, new);
+    s.piano.select_notes(s.pattern, ch, new);
     app.invalidate();
     true
 }
@@ -662,9 +662,9 @@ pub(crate) fn apply_as(s: &mut State, f: impl FnOnce(&State, Vec<Note>) -> Vec<N
     let end = notes.len();
     p.notes = notes;
     if had_sel {
-        s.piano.select(s.pattern, ch, (start..end).collect());
+        s.piano.select_notes(s.pattern, ch, (start..end).collect());
     } else {
-        s.piano.clear_selection();
+        s.piano.clear_notes_selection();
     }
     piano::finish_edit(s);
     s.piano.dirty = true;
@@ -860,6 +860,6 @@ fn transfer(s:&mut State,row:usize,copy:bool)->String {
     let pattern=piano::pattern_mut(s);
     if !copy {pattern.notes=pattern.notes.iter().enumerate().filter(|(i,_)|!indices.contains(i)).map(|(_,n)|*n).collect();}
     pattern.notes.extend(picked);
-    s.piano.clear_selection();piano::finish_edit(s);s.piano.dirty=true;
+    s.piano.clear_notes_selection();piano::finish_edit(s);s.piano.dirty=true;
     format!("{} {count} notes to {}",if copy{"Copied"}else{"Moved"},channel_name(s,row))
 }

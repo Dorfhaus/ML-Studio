@@ -22,7 +22,7 @@ Save normally to retain the source path, or use the project sample-collection/ZI
 
 ### Resize the Playlist loop selection
 Keywords: loop ruler time selection edge drag
-Drag either end of an existing loop selection in the Playlist ruler to move that boundary while keeping the other end fixed. A drag elsewhere in the ruler starts a new selection. This edits the time selection, not the lengths of your clips.
+Right-drag in the Playlist ruler to select a loop. Near either end of the loop, the pointer becomes a horizontal resize arrow. Drag that edge to resize the loop while keeping the other edge fixed. A right-click inside the loop keeps it selected. Double-click the ruler away from the edges to clear it.
 
 ### Type notes without losing C or T
 Keywords: typing keyboard piano slice mute shortcuts
@@ -2189,7 +2189,7 @@ Related: Use Glide Notes and slide pitches | Draw, move and edit notes
 ### Select notes, a pitch range or a time range in Piano Roll
 Keywords: piano roll select notes E Ctrl add keyboard pitch range ruler right drag stretch deselect
 Choose the Select tool (E by default) and drag a box around notes; Ctrl adds to the selection. On the keyboard, Ctrl/Command+Shift-drag selects notes across the chosen pitches. These gestures select notes in the current Piano Roll context, not Mixer channels.
-Drag the Piano Roll ruler to move the play start. Right-drag the ruler to select a time range. With Pencil or Brush, right-click empty grid to deselect. Alt+wheel over a note edits velocity; over empty grid it changes row height. If a custom Controls binding overrides a gesture, restore that event or use the assigned action.
+Drag the Piano Roll ruler to move the play start. Right-drag the ruler to select a time range. In Pattern mode, you can draw, paint, move, resize, or delete notes while that range keeps looping. Ctrl+D clears the selection and its time range. With Pencil or Brush, right-click empty grid to deselect. Alt+wheel over a note edits velocity; over empty grid it changes row height. If a custom Controls binding overrides a gesture, restore that event or use the assigned action.
 With Stretch active, drag note ends to scale selected timing and lengths; dragging note bodies still moves notes. Right-click empty grid to turn Stretch off. Undo reverses an unintended completed edit.
 Related: Use the Piano Roll editing tools | Customize mouse and keyboard behavior
 
