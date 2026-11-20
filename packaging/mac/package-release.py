@@ -21,7 +21,10 @@ targets = verify_compatibility(app, arch, out)
 print('Packaged deployment targets:', targets)
 signing = signing_config()
 source = out/f'ML-Studio-Source-Mac-{arch}-{version}.zip'
-subprocess.run([sys.executable, str(root/'packaging/export-source.py'), str(source), "--public"], check=True)
+if len(sys.argv) > 2:
+    shutil.copyfile(sys.argv[2], source)
+else:
+    subprocess.run([sys.executable, str(root/'packaging/export-source.py'), str(source), "--public"], check=True)
 dmg = out/f'ML-Studio-Mac-{arch}-{version}.dmg'
 if dmg.exists(): raise SystemExit('Versioned DMG already exists; preserve published artifacts and increment the build number for changes.')
 with tempfile.TemporaryDirectory(prefix='mac-package-', dir=app.parent) as scratch:
@@ -42,7 +45,9 @@ with tempfile.TemporaryDirectory(prefix='mac-package-', dir=app.parent) as scrat
     (stage/'READ ME.txt').write_text(f'ML Studio - Michael Lane edition\nMac architecture: {arch}\nDrag the app to Applications. {signing_note}\nMatching editable source and notices are included. Existing projects and settings are preserved.\n')
     with tempfile.TemporaryDirectory(prefix='dmg-', dir=out) as candidate:
         image = Path(candidate)/dmg.name
-        subprocess.run(['hdiutil','create','-volname','ML Studio','-srcfolder',str(stage),'-format','UDZO',str(image)], check=True)
+        payload_size = sum(p.stat().st_size for p in stage.rglob('*') if p.is_file() and not p.is_symlink())
+        image_mib = max(640, (2 * payload_size) // (1024 ** 2) + 128)
+        subprocess.run(['hdiutil','create','-size',f'{image_mib}m','-volname','ML Studio','-srcfolder',str(stage),'-format','UDZO',str(image)], check=True)
         submission = notarize_dmg(image, *signing) if signing else None
         subprocess.run(['hdiutil','verify',str(image)], check=True)
         image.rename(dmg)

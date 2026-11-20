@@ -89,11 +89,11 @@ def remote(args,log,sync=False):
         prefix+=f'test -z "$(git -C {q(repo)} status --porcelain)"; git -C {q(repo)} fetch home main; git -C {q(repo)} merge --ff-only home/main; '
     prefix+=f'test -z "$(git -C {q(repo)} status --porcelain)"; test "$(git -C {q(repo)} rev-parse HEAD)" = {q(r.git("rev-parse","HEAD"))}; '
     command=prefix+'exec '+shlex.join([cfg['mac_python'],repo+'/packaging/workflow/pipeline.py',*map(str,args)])
-    for attempt in range(3 if args[0]=='publish-worker' else 1):
+    for attempt in range(3 if args[0] in ('publish-worker','publish-files-worker') else 1):
         try:
             b.command(log,'ssh','-T',cfg['publish_via_ssh'],command);return
         except subprocess.CalledProcessError:
-            if attempt==2 or args[0]!='publish-worker':raise
+            if attempt==2 or args[0] not in ('publish-worker','publish-files-worker'):raise
             time.sleep(5*(attempt+1))
 
 
@@ -172,8 +172,9 @@ def shared_run():return r.shared_folder()/'pipeline'/str(r.version())/r.git('rev
 
 
 def stage(path,name):
-    privacy(path);dest=stage_plan(path,shared_run()/name)
-    return str(dest),plan_files(dest)
+    privacy(path)
+    dest, verified = stage_plan(path,shared_run()/name,with_proof=True)
+    return str(dest),verified
 
 
 def worker(arch,mac_only=False):
@@ -182,14 +183,41 @@ def worker(arch,mac_only=False):
     with exclusive(r.PRIVATE/('pipeline-mac-'+arch+'.lock')), storage.active_release(root.parent.parent):
         j=Journal(root/'state.json',identity())
         def build(attempt):
-            plan=b.mac(config(),arch,root/f'build-{attempt}',root/'build.log');return str(plan),plan_files(plan)
+            env = b.environment(config(), 'mac-'+arch)
+            target = Path(env['CARGO_TARGET_DIR'])
+            storage.build_preflight(target, root)
+            triple = 'aarch64' if arch == 'arm64' else arch
+            binary = target/(triple+'-apple-darwin')/'release/lemonstudio'
+            app = target/'bundled/ML Studio.app'
+            def compile_app(_):
+                b.command(root/'build.log','bash',r.ROOT/'packaging/mac/build-release.command','compile',env=env)
+                return str(binary), [binary]
+            def bundle_app(_):
+                b.command(root/'build.log','bash',r.ROOT/'packaging/mac/build-release.command','bundle',env=env)
+                return str(app), [p for p in app.rglob('*') if p.is_file()]
+            j.step('Compile '+arch,compile_app)
+            j.step('Bundle '+arch,bundle_app)
+            # Both architectures ship the same corresponding Mac source.
+            folder = root.parent/'mac-source'
+            folder.mkdir(exist_ok=True)
+            import fcntl
+            with (folder/'export.lock').open('ab') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX)
+                source_journal = Journal(folder/'state.json',identity())
+                def export(_):
+                    archive = folder/'source.zip'
+                    b.command(root/'build.log',sys.executable,r.ROOT/'packaging/export-source.py',archive,'--public',env=env)
+                    return str(archive), [archive]
+                source = source_journal.step('Export public Mac source',export)
+            plan = b.mac(config(), arch, root/f'build-{attempt}', root/'build.log',source,j)
+            return str(plan), plan_files(plan)
         plan=j.step('Build mac-'+arch,build)
         if r.git('status','--porcelain') or r.git('rev-parse','HEAD')!=j.data['identity']['commit']:raise RuntimeError('Mac source changed during build; publication stopped')
         j.step('Stage mac-'+arch,lambda _:stage(plan,'mac-'+arch))
 
 
-def publish_shared(name):
-    path=shared_run()/name/'publish-plan.json';r.publish(path)
+def publish_shared(name, immutable_only=False):
+    path=shared_run()/name/'publish-plan.json';r.publish(path,immutable_only)
 
 
 def artifacts(plans,platforms=PLATFORMS):
@@ -225,10 +253,33 @@ def render_website(plans, mac_only):
     return download_page.render(template, manifests, r.DOWNLOAD_PAGE)
 
 
+def verify_existing_helper(entry, previous):
+    url, expected = entry['url'], entry['sha256']
+    headers = {'Cache-Control':'no-cache'}
+    etag = previous.get('etag') if previous.get('sha256') == expected else None
+    if etag:
+        headers['If-None-Match'] = etag
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=120) as response:
+            if hashlib.file_digest(response,'sha256').hexdigest() != expected:
+                return None
+            tag = response.headers.get('ETag','')
+            return {'sha256':expected,'etag':tag if tag.startswith('"') else None}
+    except urllib.error.HTTPError as error:
+        if error.code == 304 and etag:
+            return previous
+        if error.code == 404:
+            return None
+        raise
+
+
 def helper_stage(out):
     """Require the exact optional packages pinned in the signed DAW source."""
     catalog=json.loads((r.ROOT/'packaging/helper/catalog.json').read_text())
     folder=out/'helper';site=folder/'lemon-studio'
+    entries = []
+    cache_file = r.PRIVATE/'helper-http-validators.json'
+    previous = json.loads(cache_file.read_text()) if cache_file.exists() else {}
     for platform in PLATFORMS:
         spec=catalog[platform];entry=spec['archive'];source=storage.app_root()/'Helper Release'/entry['name']
         storage.free_space(source)
@@ -236,8 +287,18 @@ def helper_stage(out):
             raise RuntimeError('Missing or changed Melli package: '+str(source))
         rel=f"helper/{spec['version']}/{entry['name']}"
         if entry['url']!=r.BASE+rel:raise RuntimeError('Melli package URL differs from publication target')
-        target=site/rel;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
-    return stage(r.write_plan(site,folder,'helper'),'helper')
+        target=site/rel;target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(source,target)
+        entries.append(entry)
+    plan = r.write_plan(site,folder,'helper')
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        checked = list(pool.map(lambda e:verify_existing_helper(e,previous.get(e['url'],{})),entries))
+    if all(checked):
+        atomic_json(cache_file,{e['url']:v for e,v in zip(entries,checked)})
+        metadata = json.loads(plan.read_text())
+        atomic_json(folder/'PUBLISHED.json',dict(metadata,verified_existing=True))
+        return str(plan), [*plan_files(plan),folder/'PUBLISHED.json']
+    return stage(plan,'helper')
 
 
 def download_digests(paths):
@@ -392,29 +453,42 @@ def coordinator(notes=None,check=False,no_changelog=False,mac_only=False):
             p=b.windows(c,out/f'windows-{attempt}',out/'windows.log');return str(p),plan_files(p)
         def lin(_):
             p=b.linux_compile(c,out/'linux.log');return str(p),[p]
+        def preupload(plan):
+            scope = json.loads(Path(plan).read_text())['scope']
+            def files(_):
+                if r.git('status','--porcelain') or r.git('rev-parse','HEAD') != j.data['identity']['commit']:
+                    raise RuntimeError('Source changed before uploading versioned files')
+                remote(['publish-files-worker',scope],out/('files-'+scope+'.log'))
+                proof = Path(plan).with_name('FILES-VERIFIED.json')
+                return str(proof), [proof]
+            j.step('Upload versioned files '+scope,files)
         def mac(arch):
             def action(_):
                 args=['worker',arch]+(['--mac-only'] if mac_only else [])
                 remote(args,out/('mac-'+arch+'.log'));p=shared_run()/('mac-'+arch)/'publish-plan.json';return str(p),plan_files(p)
-            return j.step('Build mac-'+arch,action)
-        with storage.active_release(out.parent), ThreadPoolExecutor(max_workers=4) as pool:
+            plan = j.step('Build mac-'+arch,action)
+            preupload(plan)
+            return plan
+        helper = None
+        with storage.active_release(out.parent), ThreadPoolExecutor(max_workers=5) as pool:
             if not mac_only:
-                winjob=pool.submit(j.step,'Build Windows',win);linjob=pool.submit(j.step,'Build Linux',lin)
-            macjobs=[pool.submit(mac,a) for a in ('arm64','x86_64')]
-            macplans=[job.result() for job in macjobs]
-            if not mac_only:wp=winjob.result();binary=linjob.result()
-        plans=macplans
-        helper=None
-        if not mac_only:
-            def package(attempt):
-                p=b.linux_package(c,binary,wp,out/f'linux-{attempt}',out/'linux.log');return str(p),plan_files(p)
-            lp=j.step('Package Linux',package)
-            def merged(_):
-                p=b.merged_plan([wp,lp],out);return str(p),plan_files(p)
-            combined=j.step('Combine Windows and Linux',merged)
-            win_shared=j.step('Stage Windows and Linux',lambda _:stage(combined,'windows-linux'))
-            helper=j.step('Stage optional Melli',lambda _:helper_stage(out))
-            plans=[win_shared,*macplans]
+                winjob = pool.submit(j.step,'Build Windows',win)
+                linjob = pool.submit(j.step,'Build Linux',lin)
+                helperjob = pool.submit(j.step,'Stage optional Melli',lambda _:helper_stage(out))
+            macjobs = [pool.submit(mac,a) for a in ('arm64','x86_64')]
+            if not mac_only:
+                wp, binary = winjob.result(), linjob.result()
+                def package(attempt):
+                    p=b.linux_package(c,binary,wp,out/f'linux-{attempt}',out/'linux.log');return str(p),plan_files(p)
+                lp=j.step('Package Linux',package)
+                def merged(_):
+                    p=b.merged_plan([wp,lp],out);return str(p),plan_files(p)
+                combined=j.step('Combine Windows and Linux',merged)
+                win_shared=j.step('Stage Windows and Linux',lambda _:stage(combined,'windows-linux'))
+                preupload(win_shared)
+                helper = helperjob.result()
+            macplans = [job.result() for job in macjobs]
+        plans = macplans if mac_only else [win_shared,*macplans]
         def website(_):
             folder=out/'website';site=folder/'lemon-studio';site.mkdir(parents=True,exist_ok=True);(site/'index.html').write_bytes(render_website(plans, mac_only))
             if not mac_only:
@@ -434,7 +508,10 @@ def coordinator(notes=None,check=False,no_changelog=False,mac_only=False):
         def publish(p):
             name=json.loads(Path(p).read_text())['scope']
             def action(_):
-                remote(['publish-worker',name],out/('publish-'+name+'.log'));receipt=Path(p).with_name('PUBLISHED.json');return str(receipt),[receipt]
+                receipt=Path(p).with_name('PUBLISHED.json')
+                if name != 'helper' or Path(p).parent != out/'helper':
+                    remote(['publish-worker',name],out/('publish-'+name+'.log'))
+                return str(receipt),[receipt]
             return j.step('Publish '+name,action)
         # All optional files must be live before any DAW feed advertises this build.
         if helper:publish(helper)
@@ -475,22 +552,29 @@ def coordinator(notes=None,check=False,no_changelog=False,mac_only=False):
             atomic_json(r.shared_folder()/'LATEST.json',latest)
             receipt=out/'BACKUP-VERIFIED.json';atomic_json(receipt,latest);return str(p),[p,receipt]
         j.step('Back up source',backup)
+        def clean_mac(_):
+            remote(['finish-mac'],out/'mac-retention.log')
+            return 'Mac installers retained', [out/'BACKUP-VERIFIED.json']
+        j.step('Clean published Mac workspaces', clean_mac)
         discord = '' if maintenance else ', Discord changelog'
         scope = 'both Mac architectures' if mac_only else 'Windows, Linux, both Mac architectures'
         print('COMPLETE: website, '+scope+', GitHub, signed feeds'+discord+' and backup verified. '+str(out),flush=True)
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['run','check','status','probe','worker','publish-worker']);parser.add_argument('worker',nargs='?');options=parser.add_mutually_exclusive_group();options.add_argument('--notes',type=Path);options.add_argument('--no-changelog',action='store_true');parser.add_argument('--mac-only',action='store_true');a=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['run','check','status','probe','worker','publish-worker','publish-files-worker','finish-mac']);parser.add_argument('worker',nargs='?');options=parser.add_mutually_exclusive_group();options.add_argument('--notes',type=Path);options.add_argument('--no-changelog',action='store_true');parser.add_argument('--mac-only',action='store_true');a=parser.parse_args()
     if a.no_changelog and a.action!='run':parser.error('--no-changelog requires run')
     if a.mac_only and a.action not in ('run','worker'):parser.error('--mac-only requires run')
     if a.action=='probe':print(json.dumps(probe(mac=platform.system()=='Darwin')))
     elif a.action=='worker':
         if a.worker not in ('arm64','x86_64'):parser.error('Choose arm64 or x86_64')
         worker(a.worker,a.mac_only)
-    elif a.action=='publish-worker':
+    elif a.action in ('publish-worker','publish-files-worker'):
         if a.worker not in ('windows-linux','mac-arm64','mac-x86_64','website','helper'):parser.error('Invalid scope')
-        publish_shared(a.worker)
+        publish_shared(a.worker,a.action=='publish-files-worker')
+    elif a.action=='finish-mac':
+        from mac_retention import finish
+        finish()
     elif a.action=='status':
         p=output_root()/'Progress.txt';print(p.read_text(encoding='utf-8') if p.exists() else 'No pipeline run for the current source version.')
     else:coordinator(a.notes,a.action=='check',a.no_changelog,a.mac_only)

@@ -1,7 +1,7 @@
 """Shared local-build workflow. Credentials live in the OS keychain, never Git/SMB."""
 from pathlib import Path, PurePosixPath
 import argparse, datetime, ftplib, getpass, hashlib, io, json, os, platform, re
-import shutil, ssl, subprocess, sys, tarfile, urllib.request, urllib.parse, uuid, shlex, stat
+import shutil, ssl, subprocess, sys, tarfile, urllib.request, urllib.parse, urllib.error, uuid, shlex, stat
 import storage
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -166,6 +166,7 @@ def verify_remote(rel,p):
         h=hashlib.sha256()
         while block:=r.read(1024*1024): h.update(block)
     if h.hexdigest()!=digest(p): raise RuntimeError('Public download checksum mismatch: '+rel)
+    return r.headers.get('ETag')
 
 def remote_call(cfg,action,*args):
     repo=cfg['mac_repo'];python=cfg['mac_python'];q=shlex.quote
@@ -217,7 +218,7 @@ def relay_publish(cfg,plan_path,plan):
     shutil.copy2(receipt,plan_path.parent/'PUBLISHED.json')
     print('Published through the Mac; receipt copied back to this PC.')
 
-def _publish(plan_path):
+def _publish(plan_path, immutable_only=False):
     plan_path=Path(plan_path).resolve(); plan=json.loads(plan_path.read_text());scope=plan['scope']
     entries=plan['files']; paths=[e['path'] for e in entries]
     if len(paths)!=len(set(paths)) or not all(permitted(p,scope) for p in paths): raise RuntimeError('Publication plan exceeds platform scope')
@@ -235,6 +236,8 @@ def _publish(plan_path):
             boundary.require_public_artifact(artifact)
     cfg=read_config()
     if cfg.get('publish_via_ssh'):
+        if immutable_only:
+            raise RuntimeError('Pre-upload must run on the hosting worker')
         relay_publish(cfg,plan_path,plan);return
     ftp=connect(cfg)
     # Per-platform lock excludes simultaneous publications of the same architecture.
@@ -251,9 +254,20 @@ def _publish(plan_path):
         if json.loads(previous)!=owner:raise RuntimeError('Another computer holds the upload lock; do not remove it')
         # publish() holds this computer's OS lock. Its previous process has exited.
     ftp.storbinary('STOR '+lock+'/owner.json',io.BytesIO(json.dumps(owner).encode()),1024)
+    from checkpoints import atomic_json
+    checked_file = plan_path.parent/'verified-uploads.json'
+    checked = json.loads(checked_file.read_text()) if checked_file.exists() else {}
+    sources = {}
+    def remember(entry, tag):
+        if isinstance(tag,str) and tag.startswith('"'):
+            checked[entry['path']] = [entry['sha256'], tag]
+            atomic_json(checked_file,checked)
+        sources[entry['sha256']] = entry['path']
     try:
         for e in sorted(entries,key=lambda x: x['path'] == 'index.html' or x['path'].startswith('platforms/') or x['path'].endswith('/stable.json')):
             rel=e['path'];p=plan_path.parent/e['local'];mutable=rel.startswith('platforms/') or rel.endswith('/stable.json') or rel=='index.html'
+            if immutable_only and mutable:
+                continue
             if mutable:
                 old=bytearray()
                 try: ftp.retrbinary('RETR '+rel,old.extend)
@@ -264,6 +278,19 @@ def _publish(plan_path):
                     if 'payload' in previous:previous=json.loads(previous['payload'])
                     if previous.get('version',0)>plan['version']:raise RuntimeError('Refusing to replace a newer platform release')
             if not mutable:
+                saved = checked.get(rel)
+                if saved and saved[0] == e['sha256']:
+                    request = urllib.request.Request(BASE+urllib.parse.quote(rel),method='HEAD',
+                        headers={'If-None-Match':saved[1],'Cache-Control':'no-cache'})
+                    try:
+                        with urllib.request.urlopen(request,timeout=30):
+                            pass
+                    except urllib.error.HTTPError as error:
+                        if error.code == 304:
+                            sources[e['sha256']] = rel
+                            continue
+                        if error.code != 404:
+                            raise
                 old=hashlib.sha256();exists=True
                 try: ftp.retrbinary('RETR '+rel,old.update)
                 except ftplib.error_perm as ex:
@@ -271,7 +298,7 @@ def _publish(plan_path):
                     exists=False
                 if exists:
                     if old.hexdigest()!=e['sha256']: raise RuntimeError('Versioned artifact already exists with different contents: '+rel)
-                    verify_remote(rel,p);continue
+                    remember(e,verify_remote(rel,p));continue
             parent=PurePosixPath(rel).parent
             current=''
             for part in parent.parts:
@@ -281,12 +308,28 @@ def _publish(plan_path):
                     # Do not mask permission failures: confirm that directory exists.
                     saved=ftp.pwd();ftp.cwd(current);ftp.cwd(saved)
             temporary=rel+'.upload-'+uuid.uuid4().hex
-            with p.open('rb') as f: ftp.storbinary('STOR '+temporary,f,1024*1024)
+            copied = False
+            if not mutable and e['sha256'] in sources:
+                try:
+                    ftp.sendcmd('SITE CPFR '+sources[e['sha256']])
+                    ftp.sendcmd('SITE CPTO '+temporary)
+                    copied = True
+                except ftplib.error_perm:
+                    pass  # Hosts can disable server-side copies.
+            if not copied:
+                with p.open('rb') as f: ftp.storbinary('STOR '+temporary,f,1024*1024)
             h=hashlib.sha256();ftp.retrbinary('RETR '+temporary,h.update)
             if h.hexdigest()!=e['sha256']: raise RuntimeError('Upload checksum mismatch')
             ftp.rename(temporary,rel)
-            verify_remote(rel,p)
+            tag = verify_remote(rel,p)
+            if not mutable:
+                remember(e,tag)
         receipt=dict(scope=scope,version=plan['version'],commit=plan['commit'],published_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),files=entries)
+        if immutable_only:
+            # Include verified aliases even on hosts without validators.
+            receipt['files'] = [e for e in entries if not (e['path'].startswith('platforms/') or e['path'].endswith('/stable.json') or e['path']=='index.html')]
+            atomic_json(plan_path.parent/'FILES-VERIFIED.json',receipt)
+            return
         (plan_path.parent/'PUBLISHED.json').write_text(json.dumps(receipt,indent=2))
         destination=shared_folder()/'published'/str(plan['version'])/scope
         destination.mkdir(parents=True,exist_ok=True)
@@ -297,13 +340,13 @@ def _publish(plan_path):
             ftp.delete(lock+'/owner.json');ftp.rmd(lock)
         finally:ftp.quit()
 
-def publish(plan_path):
+def publish(plan_path, immutable_only=False):
     # OS locks disappear after crashes; a persisted owner token permits safe retry of our own FTP lock.
     sys.path.insert(0,str(Path(__file__).parent))
     from checkpoints import exclusive
     plan=json.loads(Path(plan_path).read_text());scope=plan['scope']
     if scope not in ('windows-linux','mac-arm64','mac-x86_64','website','helper'):raise RuntimeError('Invalid publication scope')
-    with exclusive(PRIVATE/('publisher-'+scope+'.lock')):_publish(plan_path)
+    with exclusive(PRIVATE/('publisher-'+scope+'.lock')):_publish(plan_path,immutable_only)
 
 def write_plan(site,out,scope):
     entries=[]

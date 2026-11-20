@@ -27,16 +27,18 @@ fn main() {
     let target = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| root.join("target"));
     let target = if target.is_relative() { root.join(target) } else { target };
     let app_target = std::env::var("LEMON_APP_TARGET").ok();
-    let target_args: Vec<&str> = app_target.as_deref().map(|t|vec!["--target",t]).unwrap_or_default();
-    let ok = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-        .args(["build", "--locked", "--release", "--bin", EXE, "-p", "os-app"])
-        .args(&target_args)
-        .current_dir(&root)
-        .env("CARGO_TARGET_DIR", &target)
-        .status()
-        .expect("cargo")
-        .success();
-    assert!(ok, "build of os-app failed");
+    if !std::env::args().any(|arg| arg == "--prebuilt") {
+        let target_args: Vec<&str> = app_target.as_deref().map(|t|vec!["--target",t]).unwrap_or_default();
+        let ok = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .args(["build", "--locked", "--release", "--bin", EXE, "-p", "os-app"])
+            .args(&target_args)
+            .current_dir(&root)
+            .env("CARGO_TARGET_DIR", &target)
+            .status()
+            .expect("cargo")
+            .success();
+        assert!(ok, "build of os-app failed");
+    }
 
     let app = target.join("bundled").join(format!("{NAME}.app"));
     if app.exists() {

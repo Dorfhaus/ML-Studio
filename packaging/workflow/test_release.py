@@ -86,6 +86,31 @@ class WorkflowTests(unittest.TestCase):
         entries=[{'path':rel,'local':p.name,'sha256':r.digest(p)} for rel,p in [('platforms/mac-arm64.json',manifest),('mac/123/app.dmg',dmg),('mac/123/source.zip',source)]]
         plan=root/'publish-plan.json';plan.write_text(json.dumps({'scope':'mac-arm64','version':123,'commit':'fixture','files':entries}))
         return plan
+    def test_preupload_resumes_with_verified_files_and_defers_feed(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            plan = self.fixture(root)
+            ftp = FTP()
+            fail_once = [True]
+            def verify(rel, path):
+                self.assertEqual(ftp.files[rel],path.read_bytes())
+                if rel.endswith('source.zip') and fail_once:
+                    fail_once.pop()
+                    raise ConnectionError('interrupted after transfer')
+                return '"verified-by-test"'
+            from urllib.error import HTTPError
+            with patch.object(r,'connect',return_value=ftp), patch.object(r,'read_config',return_value={}), patch.object(r,'shared_folder',return_value=root/'shared'), patch.object(r,'verify_remote',side_effect=verify), patch.object(r.urllib.request,'urlopen',side_effect=HTTPError('url',304,'Unchanged',{},None)) as reused:
+                with self.assertRaises(ConnectionError):
+                    r.publish(plan,immutable_only=True)
+                self.assertFalse((root/'PUBLISHED.json').exists())
+                r.publish(plan,immutable_only=True)
+                self.assertTrue((root/'FILES-VERIFIED.json').exists())
+                self.assertNotIn('platforms/mac-arm64.json',ftp.events)
+                r.publish(plan)
+                self.assertEqual(ftp.events.count('mac/123/app.dmg'),1)
+                self.assertEqual(ftp.events[-1],'platforms/mac-arm64.json')
+                self.assertGreaterEqual(reused.call_count,3)
+
     def test_artifacts_verified_before_manifest(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);plan=self.fixture(root);ftp=FTP();verified=[]

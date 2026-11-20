@@ -38,7 +38,11 @@ unsafe extern "C" fn callback(
     }
 }
 type Dispatch = unsafe extern "C" fn(Handle, i32, i32, isize, Handle, f32) -> isize;
-const FRAMES: usize = 4096;
+// Some legacy plug-ins process the block size they were configured with,
+// even when the host supplies fewer frames. Keep the bridge on one quantum.
+const FRAMES: usize = 256;
+// Carla: fixed buffers, VST chunks and all-sound-off MIDI messages.
+const BRIDGE_OPTIONS: u32 = 0x001 | 0x008 | 0x100;
 const MAX_EVENTS: usize = 512;
 
 #[repr(C)]
@@ -291,7 +295,7 @@ impl Engine {
                 null_mut(),
                 i64::from(id),
                 null_mut(),
-                8,
+                BRIDGE_OPTIONS,
             ) {
                 return Err(format!(
                     "Carla could not load {}: {}",
@@ -321,21 +325,19 @@ impl Engine {
         self.active = true;
     }
 
+    fn set_offline(&mut self, offline: bool) {
+        if self.clock.offline == offline {
+            return;
+        }
+        self.clock.offline = offline;
+        unsafe {
+            (self.native.dispatch)(self.instance, 3, 0, isize::from(offline), null_mut(), 0.0);
+        }
+    }
+
     fn handle_block(&mut self, block: &mut Block) {
         self.activate(block.rate);
-        if self.clock.offline != block.offline {
-            self.clock.offline = block.offline;
-            unsafe {
-                (self.native.dispatch)(
-                    self.instance,
-                    3,
-                    0,
-                    isize::from(block.offline),
-                    null_mut(),
-                    0.0,
-                );
-            }
-        }
+        self.set_offline(block.offline);
         self.clock.time = block
             .song
             .as_ref()
@@ -428,6 +430,43 @@ struct Block {
     song: Option<TransportInfo>,
 }
 
+struct BufferedAudio {
+    // Each position is read as output before being reused for current input.
+    channels: [[f32; FRAMES]; 2],
+    filled: usize,
+    rate: u32,
+    song: Option<TransportInfo>,
+    events: Vec<Midi>,
+    params: Vec<(u32, f32)>,
+}
+
+impl Default for BufferedAudio {
+    fn default() -> Self {
+        Self {
+            channels: [[0.; FRAMES]; 2],
+            filled: 0,
+            rate: 0,
+            song: None,
+            events: Vec::with_capacity(MAX_EVENTS),
+            params: Vec::with_capacity(MAX_EVENTS),
+        }
+    }
+}
+
+impl BufferedAudio {
+    fn clear(&mut self) {
+        self.channels = [[0.; FRAMES]; 2];
+        self.finish_block();
+    }
+
+    fn finish_block(&mut self) {
+        self.filled = 0;
+        self.events.clear();
+        self.params.clear();
+        self.song = None;
+    }
+}
+
 enum Work {
     Audio(Box<Block>),
     SaveChunk(mpsc::Sender<Option<Vec<u8>>>),
@@ -441,6 +480,7 @@ struct Bridge {
     worker: Option<std::thread::JoinHandle<()>>,
     result: mpsc::Receiver<Box<Block>>,
     block: Option<Box<Block>>,
+    audio: BufferedAudio,
     events: Vec<Midi>,
     parameters: Vec<(u32, f32)>,
     song: Option<TransportInfo>,
@@ -529,6 +569,7 @@ pub(super) fn create(runtime: &Path, desc: Descriptor) -> Result<SharedPlugin, S
         worker: Some(worker),
         result,
         block: Some(block),
+        audio: BufferedAudio::default(),
         events: Vec::with_capacity(MAX_EVENTS),
         parameters: Vec::with_capacity(MAX_EVENTS),
         song: None,
@@ -571,103 +612,120 @@ impl Bridge {
     }
 
     fn render(&mut self, rate: u32, left: &mut [f32], right: &mut [f32], effect: bool) {
-        if !effect {
-            left.fill(0.0);
-            right.fill(0.0);
-        }
         let song = self.song.take();
+        if self.audio.rate != rate {
+            self.audio.clear();
+            self.audio.rate = rate;
+        }
+        let mut offset = 0;
+        while offset < left.len().min(right.len()) {
+            let begin = self.audio.filled;
+            if begin == 0 {
+                self.audio.song = song.map(|clock| clock.advanced(offset as u64, rate));
+            }
+            let count = (FRAMES - begin).min(left.len().min(right.len()) - offset);
+            let end = offset + count;
+            for event in &self.events {
+                if self.audio.events.len() == MAX_EVENTS {
+                    break;
+                }
+                if (offset..end).contains(&(event.time as usize)) {
+                    self.audio.events.push(Midi {
+                        time: begin as u32 + event.time - offset as u32,
+                        ..*event
+                    });
+                }
+            }
+            let remaining = MAX_EVENTS - self.audio.params.len();
+            self.audio.params.extend(self.parameters.drain(..self.parameters.len().min(remaining)));
+            for (input, channel) in [&mut left[offset..end], &mut right[offset..end]]
+                .into_iter()
+                .zip(&mut self.audio.channels)
+            {
+                for (sample, delayed) in input.iter_mut().zip(&mut channel[begin..begin + count]) {
+                    let next = if effect { *sample } else { 0.0 };
+                    *sample = *delayed;
+                    *delayed = next;
+                }
+            }
+            self.audio.filled += count;
+            if self.audio.filled == FRAMES {
+                self.render_quantum();
+                self.audio.finish_block();
+            }
+            offset = end;
+        }
+        self.events.clear();
+        self.parameters.clear();
+    }
+
+    fn render_quantum(&mut self) {
+        let mut missed_block = false;
         if let Some(since) = self.waiting_since {
             match self.result.try_recv() {
                 Ok(block) => {
                     self.block = Some(block);
                     self.waiting_since = None;
-                    // Discard the late audio. Release notes whose note-off may have
-                    // arrived while the bridge was still processing the old block.
-                    for channel in 0..16 {
-                        if self.events.len() == MAX_EVENTS {
-                            break;
-                        }
-                        self.events.insert(
-                            0,
-                            Midi {
-                                time: 0,
-                                port: 0,
-                                size: 3,
-                                data: [0xb0 | channel, 120, 0, 0],
-                            },
-                        );
-                    }
+                    missed_block = true;
                 }
-                Err(_) => {
+                Err(mpsc::TryRecvError::Empty) => {
                     self.failed = since.elapsed() >= Duration::from_secs(1);
-                    self.events.clear();
-                    self.parameters.clear();
+                    return;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.failed = true;
                     return;
                 }
             }
         }
-        for (index, (left, right)) in left
-            .chunks_mut(FRAMES)
-            .zip(right.chunks_mut(FRAMES))
-            .enumerate()
-        {
-            let Some(mut block) = self.block.take() else {
-                break;
-            };
-            let offset = (index * FRAMES) as u32;
-            block.frames = left.len();
-            block.rate = rate;
-            block.offline = self.offline;
-            block.song = song.map(|timing| timing.advanced(u64::from(offset), rate));
-            block.input[0][..left.len()].copy_from_slice(left);
-            block.input[1][..right.len()].copy_from_slice(right);
-            block.output[0][..left.len()].fill(0.);
-            block.output[1][..right.len()].fill(0.);
-            block.events.clear();
-            for event in &self.events {
-                if let Some(time) = event
-                    .time
-                    .checked_sub(offset)
-                    .filter(|&n| n < left.len() as u32)
-                {
-                    block.events.push(Midi { time, ..*event });
-                }
-            }
-            block.params.clear();
-            if index == 0 {
-                block.params.extend_from_slice(&self.parameters);
-            }
-            if self.work.try_send(Work::Audio(block)).is_err() {
-                self.failed = true;
-                break;
-            }
-            // A bridge hang may take a second inside Carla. Bound our own wait to
-            // one audio block, with Windows scheduling margin for very short blocks.
-            let timeout = if self.offline {
-                Duration::from_secs(3)
-            } else {
-                Duration::from_secs_f64(
-                    (left.len() as f64 / f64::from(rate.max(1))).clamp(0.003, 0.025),
-                )
-            };
-            match self.result.recv_timeout(timeout) {
-                Ok(block) => {
-                    left.copy_from_slice(&block.output[0][..left.len()]);
-                    right.copy_from_slice(&block.output[1][..right.len()]);
-                    self.block = Some(block);
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) if !self.offline => {
-                    self.waiting_since = Some(Instant::now());
-                    break;
-                }
-                Err(_) => {
-                    self.failed = true;
-                    break;
-                }
+        let Some(mut block) = self.block.take() else {
+            return;
+        };
+        block.frames = FRAMES;
+        block.rate = self.audio.rate;
+        block.offline = self.offline;
+        block.song = self.audio.song;
+        block.input.copy_from_slice(&self.audio.channels);
+        block.output = [[0.0; FRAMES]; 2];
+        block.events.clear();
+        if missed_block {
+            for channel in 0..16 {
+                block.events.push(Midi {
+                    time: 0,
+                    port: 0,
+                    size: 3,
+                    data: [0xb0 | channel, 120, 0, 0],
+                });
             }
         }
-        self.events.clear();
-        self.parameters.clear();
+        block.events.extend(self.audio.events.iter().take(MAX_EVENTS - block.events.len()));
+        block.params.clear();
+        block.params.extend_from_slice(&self.audio.params);
+        if self.work.try_send(Work::Audio(block)).is_err() {
+            self.failed = true;
+            return;
+        }
+        let timeout = if self.offline {
+            Duration::from_secs(3)
+        } else {
+            Duration::from_secs_f64((FRAMES as f64 / f64::from(self.audio.rate.max(1))).clamp(0.003, 0.025))
+        };
+        match self.result.recv_timeout(timeout) {
+            Ok(block) => {
+                for (dest, output) in self.audio.channels.iter_mut().zip(&block.output) {
+                    for (sample, &value) in dest.iter_mut().zip(output) {
+                        *sample = if value.is_finite() { value } else { 0.0 };
+                    }
+                }
+                self.block = Some(block);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if !self.offline => {
+                self.waiting_since = Some(Instant::now());
+            }
+            Err(_) => {
+                self.failed = true;
+            }
+        }
     }
 }
 
@@ -716,9 +774,10 @@ impl Instrument for Bridge {
         true
     }
     fn reported_delay(&self) -> u32 {
-        self.latency
+        self.latency.saturating_add(FRAMES as u32)
     }
     fn reset(&mut self) {
+        self.audio.clear();
         self.events.clear();
         self.parameters.clear();
         for channel in 0..16 {
@@ -744,7 +803,7 @@ impl HostedEffect for Bridge {
         self.reset();
     }
     fn reported_delay_fx(&self) -> u32 {
-        self.latency
+        self.latency.saturating_add(FRAMES as u32)
     }
 }
 
@@ -767,13 +826,19 @@ impl Plugin for Bridge {
         }
     }
     fn latency(&self) -> u32 {
-        self.latency
+        self.latency.saturating_add(FRAMES as u32)
     }
     fn stopped(&self) -> Option<u32> {
         self.failed.then_some(0x00000102)
     }
     fn set_offline(&mut self, offline: bool) {
-        self.offline = offline;
+        if self.offline != offline {
+            self.reset();
+            self.offline = offline;
+            if let Ok(mut engine) = self.engine.try_lock() {
+                engine.set_offline(offline);
+            }
+        }
     }
     fn has_editor(&self) -> bool {
         self.has_editor
@@ -918,5 +983,52 @@ impl Plugin for Bridge {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires the installed Carla runtime and fixed-block 32-bit fixture"]
+fn legacy_vst2_fixed_quantum_preserves_note_and_audio_order() {
+    let runtime = std::path::PathBuf::from(std::env::var_os("ML_CARLA_TEST_RUNTIME").unwrap());
+    let path = std::path::PathBuf::from(std::env::var_os("ML_CARLA_STRICT_FIXTURE").unwrap());
+    let desc = Descriptor {
+        format: os_host::Format::Vst2,
+        id: "4C4D5832".into(),
+        name: "Bridge Test Synth".into(),
+        vendor: "ML Studio test".into(),
+        version: String::new(),
+        features: vec![os_host::VST2_X86.into()],
+        kind: os_host::Kind::Instrument,
+        path,
+    };
+    let instance = create(&runtime, desc).unwrap();
+    let mut plug = instance.lock().unwrap();
+    assert_eq!(plug.reported_delay(), FRAMES as u32);
+    // Drive the render path deterministically without a Windows audio-device clock.
+    plug.set_offline(true);
+    for rate in [44100, 48000, 96000] {
+        assert!(plug.activate(rate));
+        Instrument::reset(&mut *plug);
+        let mut pcm = Vec::new();
+        let mut position = 0;
+        for chunk in [17, 91, 151, 61, 384, 127, 777] {
+            if position == 0 {
+                plug.note_on(11, 60, 1.0);
+            }
+            if position == 259 {
+                plug.note_off(24, 60);
+            }
+            let mut left = vec![0.0; chunk];
+            let mut right = vec![0.0; chunk];
+            Instrument::process(&mut *plug, rate, &mut left, &mut right);
+            assert_eq!(left, right);
+            pcm.extend_from_slice(&left);
+            position += chunk;
+        }
+        assert!(pcm[..FRAMES].iter().all(|&x| x == 0.0));
+        assert!(pcm[FRAMES..].iter().all(|&x| x.abs() < 0.5), "fixed-block plug-in returned corruption at {rate}");
+        assert!(pcm[FRAMES..FRAMES + 256].iter().any(|&x| x > 0.01), "note audio lost at {rate}");
+        assert!(pcm[FRAMES + 512..].iter().all(|&x| x <= 0.0), "note-off lost at {rate}");
     }
 }

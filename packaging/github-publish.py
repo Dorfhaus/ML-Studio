@@ -1,6 +1,7 @@
 """Publish only a prepared, checksum-verified complete DAW release, using Actions' token."""
 import hashlib,json,os,re,subprocess,tempfile,urllib.parse,urllib.request
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 root=Path(__file__).resolve().parents[1]
 plan=json.loads((root/'packaging/github-release.json').read_text())
 if os.environ.get('GH_REPO')!='Dorfhaus/ML-Studio':raise SystemExit('Wrong public repository')
@@ -9,14 +10,16 @@ if not re.fullmatch(r'v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+',tag):raise SystemEx
 def gh(*args):subprocess.run(['gh',*args],check=True)
 with tempfile.TemporaryDirectory(prefix='lemon-publication-') as folder:
     folder=Path(folder);assets=[]
-    for entry in plan['assets']:
+    def download(entry):
         parsed=urllib.parse.urlsplit(entry['url']);name=entry['name']
         if parsed.scheme!='https' or parsed.hostname!='michaellanemusic.de' or not parsed.path.startswith('/lemon-studio/') or Path(name).name!=name:raise SystemExit('Invalid artifact location')
         dest=folder/name;digest=hashlib.sha256()
         with urllib.request.urlopen(entry['url'],timeout=180) as response,dest.open('wb') as out:
             while chunk:=response.read(1024*1024):out.write(chunk);digest.update(chunk)
         if digest.hexdigest()!=entry['sha256']:raise SystemExit('Checksum mismatch: '+name)
-        assets.append(dest)
+        return dest
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        assets = list(pool.map(download,plan['assets']))
     sums=folder/'SHA256SUMS.txt';sums.write_text(''.join(e['sha256']+'  '+e['name']+'\n' for e in plan['assets']));assets.append(sums)
     notes=folder/'notes.md';notes.write_text(plan['notes'])
     existing=subprocess.run(['gh','release','view',tag,'--json','isDraft'],capture_output=True,text=True)

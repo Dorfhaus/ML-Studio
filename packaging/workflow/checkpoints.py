@@ -38,7 +38,13 @@ def exclusive(path):
         f.close()
 
 
+class VerifiedFiles(dict):
+    """Checksums just measured at the staging destination."""
+
+
 def proof(paths):
+    if isinstance(paths, VerifiedFiles):
+        return dict(paths)
     return {str(Path(p).resolve()):digest(p) for p in paths}
 
 
@@ -95,10 +101,11 @@ def plan_files(path):
     return files
 
 
-def stage_plan(path,destination):
+def stage_plan(path,destination,*,with_proof=False):
     """Only publication files cross the network; duplicate content uses one object."""
     import shutil
     path=Path(path);destination=Path(destination)
+    verified = VerifiedFiles()
     plan_files(path);p=json.loads(path.read_text(encoding='utf-8'));entries=[]
     existing=destination/'publish-plan.json'
     if existing.exists():
@@ -108,16 +115,24 @@ def stage_plan(path,destination):
     destination.mkdir(parents=True,exist_ok=True)
     for e in p['files']:
         src=path.parent/e['local'];local='objects/'+e['sha256']+'/'+src.name;dst=destination/local
+        resolved = dst.resolve()
+        if not resolved.is_relative_to(destination.resolve()):
+            raise RuntimeError('Shared object escapes staging directory: '+str(dst))
+        key = str(resolved)
         if dst.exists():
-            if digest(dst)!=e['sha256']:raise RuntimeError('Shared release object changed: '+str(dst))
+            if key not in verified and digest(dst)!=e['sha256']:raise RuntimeError('Shared release object changed: '+str(dst))
         else:
             dst.parent.mkdir(parents=True,exist_ok=True);tmp=dst.with_name(dst.name+'.pending')
             shutil.copyfile(src,tmp)
             if digest(tmp)!=e['sha256']:raise RuntimeError('Shared copy verification failed')
             os.replace(tmp,dst)
+        verified[key] = e['sha256']
         entries.append(dict(e,local=local))
     staged=dict(p,files=entries)
     if existing.exists() and json.loads(existing.read_text())!=staged:
         raise RuntimeError('Release plan changed after staging; keep the original artifacts')
     atomic_json(existing,staged)
+    if with_proof:
+        verified[str(existing.resolve())] = digest(existing)
+        return existing, verified
     return existing

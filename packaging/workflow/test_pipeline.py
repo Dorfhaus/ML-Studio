@@ -87,6 +87,22 @@ class PipelineTests(unittest.TestCase):
             cfg={'juce_source':str(root),'engines':{'windows':{'source':'old','bundle':'missing.zip'}}}
             with patch.object(p,'config',return_value=cfg),patch.object(p,'engine_id',return_value='new'):
                 with self.assertRaisesRegex(RuntimeError,'source changed'):p.probe()
+    def test_packaging_retry_verifies_existing_dmg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root/'attempt-1'
+            manifest = out/'lemon-studio/platforms/mac-arm64.json'
+            c.atomic_json(manifest,{'url':'app.dmg'})
+            plan = out/'publish-plan.json'
+            c.atomic_json(plan,{'files':[]})
+            journal = c.Journal(root/'state.json',{'commit':'a'})
+            with patch.object(b,'package_mac',return_value=plan) as make, patch.object(b,'verify_mac_package',side_effect=[RuntimeError('busy mount'),None]):
+                with self.assertRaisesRegex(RuntimeError,'busy mount'):
+                    b.mac({},'arm64',out,root/'log',journal=journal)
+                result = b.mac({},'arm64',root/'attempt-2',root/'log',journal=journal)
+                self.assertEqual(result,plan)
+                make.assert_called_once()
+
     def test_stage_rejects_path_escape(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);folder=root/'release';folder.mkdir();secret=root/'private';secret.write_bytes(b'no')
@@ -120,6 +136,8 @@ class PipelineTests(unittest.TestCase):
                 if args[0]=='worker':
                     self.assertEqual(args[2:],['--mac-only'] if mac_only else [])
                     calls.append(args[1]);barrier.wait();makeplan(share/('mac-'+args[1]),'mac-'+args[1])
+                elif args[0]=='publish-files-worker':
+                    c.atomic_json(share/args[1]/'FILES-VERIFIED.json',{'scope':args[1]})
                 elif args[0]=='publish-worker':
                     calls.append('publish-'+args[1])
                     if args[1]=='mac-arm64' and not failed[0]:failed[0]=True;raise RuntimeError('simulated lost connection')
