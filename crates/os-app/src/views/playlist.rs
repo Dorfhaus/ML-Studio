@@ -441,7 +441,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         ui.c.fill_rect(Rect::new(grid_x, y + h - gap_of(row), grid_w, gap_of(row)), t.pl_line(t.grid_gap));
     }
     // Time selection (§7).
-    if let Some((a, b)) = s.playlist.range {
+    if let Some((a, b)) = s.project.playlist_loop {
         let (x0, x1) = (g.x_of(a as f32), g.x_of(b as f32));
         ui.c.fill_rect(Rect::span(x0, x1, grid.y, grid.bottom()), ui.t.tx(0xffffff).with_alpha(18));
         ui.c.fill_rect(Rect::new(x0, grid.y, 1.0, grid.h), t.playhead.with_alpha(90));
@@ -740,7 +740,7 @@ fn ruler_paint(ui: &mut Ui, s: &State, g: &PGeom, ruler: Rect, f: &FrameInfo) {
     ui.c.fill_rect(ruler, face);
     ui.hit(ruler, Action::PlRuler, "Song position (right-drag: time selection)");
     ui.c.push_clip(ruler);
-    if let Some((a, b)) = s.playlist.range {
+    if let Some((a, b)) = s.project.playlist_loop {
         ui.c.fill_rect(Rect::span(g.x_of(a as f32), g.x_of(b as f32), ruler.y, ruler.bottom()), t.playhead.with_alpha(60));
     }
     // Bars count from the Start marker (§7a): "1" on its bar; before it the ruler is darker and the bars have no

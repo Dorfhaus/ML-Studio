@@ -63,14 +63,14 @@ pub fn is_wrapped(d: &Descriptor) -> bool {
     if WRAP_BUILTINS.with(|w| w.get()) {
         return matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2 | Format::AudioUnit);
     }
-    matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2 | Format::AudioUnit) && (!is_builtin(d) || matches!(d.name.as_str(),"ML Chop"|"ML Wave"|"ML Plasma"|"ML Pure Player") || crate::plugins::LINKED_EFFECTS.contains(&d.name.as_str()))
+    matches!(d.format, Format::Clap | Format::Vst3 | Format::Vst2 | Format::AudioUnit) && (!is_builtin(d) || matches!(d.name.as_str(),"ML Chop"|"ML Wave"|"ML Plasma"|"ML Pure Player"|ml_drums::NAME) || crate::plugins::LINKED_EFFECTS.contains(&d.name.as_str()))
 }
 
 /// The project-file identity of a hosted plugin with its saved state. A built-in effect with no file plugin of its own
 /// (`plugins::LINKED_EFFECTS`) names its CLAP bundle in the per-user CLAP folder, where `bundle-plugins --install` puts
 /// it: the wrapper takes the format from the file's extension, and another host can find the bundle there.
 pub fn plugin_ref(d: &Descriptor, state: Vec<u8>) -> PluginRef {
-    let path = if is_builtin(d) && (matches!(d.name.as_str(),"ML Chop"|"ML Wave"|"ML Plasma"|"ML Pure Player") || crate::plugins::LINKED_EFFECTS.contains(&d.name.as_str())) {
+    let path = if is_builtin(d) && (matches!(d.name.as_str(),"ML Chop"|"ML Wave"|"ML Plasma"|"ML Pure Player"|ml_drums::NAME) || crate::plugins::LINKED_EFFECTS.contains(&d.name.as_str())) {
         let file = format!("{}.clap", d.name);
         os_clap::standard_dirs().into_iter().next().map_or_else(|| file.clone().into(), |dir| dir.join(&file))
     } else {
@@ -1560,6 +1560,69 @@ mod tests {
         r.name = "Something else".into();
         assert_eq!(find(&list, &r), None);
     }
+    #[test]
+    fn ml_drums_project_reopens_and_renders_both_note_sources() {
+        use os_model::{Arrangement, Clip, ClipSource, Note, Pattern};
+        crate::transport::headless();
+        let mut app = App::new(None);
+        app.plugins = Plugins::builtins();
+        app.plugins.set_rate(48000);
+        let index = app.plugins.available.iter().position(|a| a.desc.id == ml_drums::ID).unwrap();
+        app.state.project = crate::app::test_project();
+        app.state.project.channels.clear();
+        let row = crate::app::add_plugin_channel(&mut app.state.project, ml_drums::NAME);
+        app.plugins.create(row, index).unwrap();
+        app.state.hosted_rows = vec![row];
+        let blob = app.plugins.state(row).unwrap();
+        let body = if blob.starts_with(b"{") { &blob[..] } else { &blob[8..] };
+        let mut state: serde_json::Value = serde_json::from_slice(body).unwrap();
+        let field = &mut state["fields"]["plugin-state"];
+        let mut kit: serde_json::Value = serde_json::from_str(field.as_str().unwrap()).unwrap();
+        kit["kit"]["patterns"]["patterns"][0]["lanes"][1]["steps"][4]["enabled"] = true.into();
+        *field = kit.to_string().into();
+        let body = serde_json::to_vec(&state).unwrap();
+        let mut wrapped = (body.len() as u64).to_le_bytes().to_vec();
+        wrapped.extend(body);
+        let prepared = app.plugins.prepare_preset(row, &wrapped).unwrap();
+        app.plugins.install_preset(row, prepared);
+        app.state.project.tempo = Some(120.0);
+        app.state.tempo = 120.0;
+        app.state.project.ppq = 96;
+        app.state.project.patterns = vec![Pattern { number: 1, notes: vec![
+            Note { length: 24, ..Note::step(0, 0) },
+        ], ..Default::default() }];
+        app.state.project.arrangements = vec![Arrangement { number: 1, clips: vec![
+            Clip::new(0, 384, 0, ClipSource::Pattern(1)),
+        ], ..Default::default() }];
+        let dir = os_paths::user_dir().unwrap().join("ml-drums-verification");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("beat.lmn");
+        app.state.file = None;
+        app.state.path = None;
+        app.save_to(file.clone());
+        assert!(file.is_file());
+        crate::settings_file::set_flag(ml_drums::VISIBILITY, false);
+        let mut reopened = App::new(None);
+        reopened.plugins = Plugins::builtins();
+        reopened.open(file.clone());
+        reopened.sync_wrapped();
+        assert_eq!(reopened.plugins.descriptor(row).unwrap().id, ml_drums::ID);
+        let out = dir.join("beat.wav");
+        let result = crate::render::render(&crate::render::Opts {
+            project: file, out: out.clone(), rate: 48000, hosted: crate::render::Hosted::Builtin,
+            seconds: Some(1.0), from: 0,
+        });
+        crate::settings_file::set_flag(ml_drums::VISIBILITY, true);
+        result.unwrap();
+        let wav = std::fs::read(out).unwrap();
+        let at = wav.windows(4).position(|w| w == b"data").unwrap() + 8;
+        let peak = |from: usize, to: usize| wav[at+8*from..at+8*to].chunks_exact(4)
+            .map(|b| f32::from_le_bytes(b.try_into().unwrap()).abs()).fold(0.0, f32::max);
+        assert!(peak(0, 2400) > 0.01, "Piano Roll kick");
+        assert!(peak(24000, 26400) > 0.01, "sequenced snare at beat two");
+        assert!(peak(21600, 23950) < peak(24000, 26400) * 0.15, "space before the snare");
+    }
+
     #[test]
     fn ml_plasma_project_identity_survives_updates_and_hidden_menus() {
         let list = crate::plugins::builtin();

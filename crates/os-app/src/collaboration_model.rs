@@ -14,6 +14,7 @@ const LOCAL: &[&str] = &[
     "current_group",
     "song_mode",
     "playlist_view",
+    "playlist_loop",
     "work_time",
     "data_folder",
     "show_info",
@@ -348,6 +349,7 @@ pub fn put(s: &mut crate::app::State, d: &Document) -> Result<()> {
     p.current_group = old.current_group;
     p.song_mode = old.song_mode;
     p.playlist_view = old.playlist_view;
+    p.playlist_loop = old.playlist_loop;
     p.work_time = old.work_time;
     p.data_folder = old.data_folder.clone();
     p.show_info = old.show_info;

@@ -13,7 +13,18 @@ fn main() {
     // Do not canonicalize to Windows' extended \\?\ prefix: MSBuild treats it as a URL.
     let source =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("vendor/fluidsynth");
-    let build = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("fluidsynth");
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let mut build = out.join("fluidsynth");
+    // Cargo can share OUT_DIR between worktrees. CMake's native cache belongs to
+    // one source path; leave an active checkout's configured engine intact.
+    if std::fs::read_to_string(build.join("CMakeCache.txt")).ok().and_then(|text| {
+        text.lines().find_map(|line| line.strip_prefix("CMAKE_HOME_DIRECTORY:INTERNAL=").map(PathBuf::from))
+    }).is_some_and(|home| home != source) {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut id = DefaultHasher::new();
+        source.hash(&mut id);
+        build = out.join(format!("fluidsynth-{:x}", id.finish()));
+    }
     let target = env::var("TARGET").unwrap();
     let host = env::var("HOST").unwrap();
     let cache = build.join("CMakeCache.txt");
@@ -37,7 +48,9 @@ fn main() {
         }
         PathBuf::from("cmake")
     });
+    std::fs::create_dir_all(&build).expect("Create native build directory");
     let mut configure = Command::new(&cmake);
+    configure.current_dir(&build);
     configure
         .arg("-S")
         .arg(&source)
@@ -95,6 +108,21 @@ fn main() {
             },
         ]);
     } else {
+        // Visual Studio generators ignore the Linux cross compiler passed below.
+        if host.contains("windows") && target.contains("linux") {
+            configure.args(["-G", "Ninja"]);
+            if let Some(root) = cmake.ancestors().nth(3) {
+                let ninja = root.join("Ninja/ninja.exe");
+                if ninja.is_file() {
+                    configure.arg(format!("-DCMAKE_MAKE_PROGRAM={}", ninja.display()));
+                }
+            }
+            if std::fs::read_to_string(build.join("CMakeCache.txt")).is_ok_and(|text|
+                text.lines().any(|line| line.starts_with("CMAKE_GENERATOR:INTERNAL=") && !line.ends_with("=Ninja"))
+            ) {
+                configure.arg("--fresh");
+            }
+        }
         for (cpp, name) in [(false, "C"), (true, "CXX")] {
             let tool = cc::Build::new().cpp(cpp).get_compiler();
             configure.arg(format!("-DCMAKE_{name}_COMPILER={}", tool.path().display()));

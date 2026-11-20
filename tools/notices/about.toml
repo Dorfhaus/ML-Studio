@@ -19,6 +19,11 @@ accepted = [
     "LGPL-3.0",
     "GPL-3.0",
     "GPL-3.0-or-later",
+    "GPL-3.0-only",
+    "CDLA-Permissive-2.0",
+    # The default egui editor fonts carry their own font licenses.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
 ]
 
 # vst3-sys says "GPLv3", which is no SPDX licence; its license.md grants version 3 or later.

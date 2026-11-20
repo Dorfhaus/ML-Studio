@@ -317,6 +317,7 @@ pub struct Plugins {
 /// plugins/lemon-3x-osc.md §6, plugins/citrus.md).
 pub fn builtin() -> Vec<Available> {
     lemon_chop::set_separator(crate::stem_separation::separate_for_chop);
+    static DRUMS: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static PURE: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static WAVE: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static CHOP: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
@@ -324,6 +325,7 @@ pub fn builtin() -> Vec<Available> {
     static OSC3: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     static CITRUS: OnceLock<Option<Arc<os_clap::Library>>> = OnceLock::new();
     let mut v = linked(&LIB, &lemon_sampler::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, LEMON_SAMPLER);
+    v.extend(linked(&DRUMS, &ml_drums::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, ml_drums::NAME));
     v.extend(linked(&PURE, &ml_pure_player::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, "ML Pure Player"));
     v.extend(linked(&OSC3, &lemon_3x_osc::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, crate::osc3::LEMON_TRIO));
     v.extend(linked(&WAVE, &lemon_wave::LINKED_CLAP_ENTRY as *const _ as *const std::ffi::c_void, "ML Wave"));
@@ -3259,6 +3261,207 @@ mod tests {
     fn fixture_mp3() -> String {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../os-engine/tests/data/click_sine.mp3");
         p.canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_string()
+    }
+
+    #[test]
+    fn piano_pitch_draw_plays_through_ml_wave_without_mpe() {
+        assert_pitch_draw_octave("ML Wave");
+    }
+
+    #[test]
+    fn piano_pitch_draw_plays_through_citrus_without_mpe() {
+        assert_pitch_draw_octave("ML Citrus");
+    }
+
+    fn assert_pitch_draw_octave(name: &str) {
+        let render = |bent: bool| {
+            let mut pl = Plugins { available: builtin(), scale: 1., rate: 48000, ..Default::default() };
+            pl.create_with(0, pl.index_of(name).unwrap(), None).unwrap();
+            let mut p = crate::app::test_project();
+            p.channels.truncate(1);
+            p.channels[0].kind = os_model::ChannelKind::Plugin;
+            p.tempo = Some(120.);
+            let mut curve = os_model::mpe::Expression::default();
+            curve.set(0, 0., 0., false);
+            curve.set(0, 0.5, 12., true);
+            let expression = if bent { p.mpe.add(curve) } else { 0 };
+            let note = os_model::Note { key: 69, length: 192, expression, ..os_model::Note::step(0, 0) };
+            p.patterns = vec![os_model::Pattern { number: 1, notes: vec![note], ..Default::default() }];
+            assert!(!p.mpe.config(0).enabled);
+            let mut e = os_engine::Engine::with_instruments(
+                &p, &mut os_engine::SampleLibrary::default(), 48000, os_engine::PlayMode::Pattern(1), &pl.instruments(),
+            );
+            let mut audio = vec![0.; 48000 * 2];
+            for block in audio.chunks_mut(960) { e.process(block); }
+            audio
+        };
+        let dry = render(false);
+        let bent = render(true);
+        let energy = |audio: &[f32], hz: f32, start: usize| {
+            let omega = std::f32::consts::TAU * hz / 48000.;
+            let sum = audio.chunks_exact(2).skip(start).take(9600).enumerate().fold((0., 0.), |(r, i), (n, x)| {
+                let (sin, cos) = (omega * n as f32).sin_cos();
+                (r + x[0] * cos, i + x[0] * sin)
+            });
+            sum.0.hypot(sum.1)
+        };
+        let pitch = (435..=445).max_by(|&a, &b|
+            energy(&dry, a as f32, 30000).total_cmp(&energy(&dry, b as f32, 30000))
+        ).unwrap() as f32;
+        let (low, high) = (energy(&dry, pitch, 30000), energy(&bent, pitch * 2., 30000));
+        assert!(low > 1. && high > 1., "fundamental {pitch} Hz, levels {low:.2} / {high:.2}");
+        assert!(high > 3. * energy(&bent, pitch, 30000), "{name} must follow the drawn octave");
+        assert!(high > 1.2 * energy(&dry, pitch * 2., 30000), "the octave must grow relative to the dry synth's harmonics");
+        let early = energy(&dry, pitch, 4800);
+        assert!(early > 1. && (energy(&bent, pitch, 4800) / early - 1.).abs() < 0.08,
+            "the unbent section retains the original fundamental");
+    }
+
+    #[test]
+    fn piano_pitch_draw_uses_a_shared_midi_wheel_and_recenters() {
+        use os_engine::{Engine, Instrument, PlayMode, SampleLibrary};
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Default)]
+        struct Receiver {
+            wheel: Vec<(u32, u16)>,
+            notes: Vec<u8>,
+        }
+        impl Instrument for Receiver {
+            fn note_on(&mut self, _: u32, key: u8, _: f32) { self.notes.push(key); }
+            fn note_off(&mut self, _: u32, _: u8) {}
+            fn midi(&mut self, frame: u32, [status, lo, hi]: [u8; 3]) {
+                assert_eq!(status, 0xE0);
+                self.wheel.push((frame, u16::from(lo) | u16::from(hi) << 7));
+            }
+            fn process(&mut self, _: u32, left: &mut [f32], right: &mut [f32]) {
+                left.fill(0.);
+                right.fill(0.);
+            }
+        }
+
+        let mut project = crate::app::test_project();
+        project.channels.truncate(1);
+        project.channels[0].kind = os_model::ChannelKind::Plugin;
+        let mut curve = os_model::mpe::Expression::default();
+        curve.set(0, 0., 0.5, true);
+        curve.set(0, 1., 1., false);
+        let expression = project.mpe.add(curve);
+        project.patterns = vec![os_model::Pattern {
+            number: 1,
+            notes: vec![
+                os_model::Note { key: 60, length: 96, expression, ..os_model::Note::step(0, 0) },
+                os_model::Note { key: 64, position: 24, length: 96, ..os_model::Note::step(0, 0) },
+            ],
+            ..Default::default()
+        }];
+        let receiver = Arc::new(Mutex::new(Receiver::default()));
+        let mut engine = Engine::with_instruments(
+            &project, &mut SampleLibrary::default(), 48000, PlayMode::Pattern(1), &[(0, receiver.clone())],
+        );
+        let mut block = [0.; 960];
+        for _ in 0..150 { engine.process(&mut block); }
+        let receiver = receiver.lock().unwrap();
+        assert_eq!(receiver.notes, [60, 64]);
+        assert_eq!(receiver.wheel.first(), Some(&(0, 10240)));
+        assert!(receiver.wheel.iter().any(|&(frame, value)| frame > 0 && value > 10240));
+        assert_eq!(receiver.wheel.last(), Some(&(0, 8192)));
+    }
+
+    #[test]
+    fn piano_pitch_draw_reaches_an_external_vst3_instrument() {
+        use os_host::Library as _;
+
+        let Some(path) = std::env::var_os("ML_PITCH_DRAW_TEST_VST3") else { return };
+        let library = os_vst3::Module::load(std::path::Path::new(&path)).unwrap();
+        let instrument = library.plugins().iter().find(|desc| desc.is_instrument()).unwrap();
+        let render = |bend: bool| {
+            let plugin = library.clone().create(&instrument.id).unwrap();
+            assert!(plugin.lock().unwrap().activate(48000));
+            let mut project = crate::app::test_project();
+            project.channels.truncate(1);
+            project.channels[0].kind = os_model::ChannelKind::Plugin;
+            let mut curve = os_model::mpe::Expression::default();
+            curve.set(0, 0., 0., false);
+            curve.set(0, 0.45, 2., false);
+            let expression = if bend { project.mpe.add(curve) } else { 0 };
+            project.patterns = vec![os_model::Pattern {
+                number: 1,
+                notes: vec![os_model::Note { key: 69, length: 192, expression, ..os_model::Note::step(0, 0) }],
+                ..Default::default()
+            }];
+            let mut engine = os_engine::Engine::with_instruments(
+                &project, &mut os_engine::SampleLibrary::default(), 48000, os_engine::PlayMode::Pattern(1),
+                &[(0, plugin as SharedInstrument)],
+            );
+            let mut audio = vec![0.; 48000 * 2];
+            for block in audio.chunks_mut(960) { engine.process(block); }
+            audio
+        };
+        let spectrum = |samples: &[f32], hz: f32| {
+            let (real, imag) = samples.chunks_exact(2).skip(30000).take(9600).enumerate()
+                .fold((0., 0.), |(r, i), (frame, sample)| {
+                    let (sin, cos) = (std::f32::consts::TAU * hz * frame as f32 / 48000.).sin_cos();
+                    (r + cos * sample[0], i + sin * sample[0])
+                });
+            real.hypot(imag)
+        };
+        let dry = render(false);
+        let bent = render(true);
+        let dry_level = spectrum(&dry, 440.);
+        let bent_level = spectrum(&bent, 440. * 2f32.powf(2. / 12.));
+        assert!(dry_level > 1. && bent_level > 1., "{} pitch levels {dry_level} / {bent_level}", instrument.name);
+        assert!(bent_level > 4. * spectrum(&bent, 440.), "{} should bend two semitones", instrument.name);
+    }
+
+    #[test]
+    fn piano_pitch_draw_wheel_range_survives_a_project_roundtrip() {
+        let mut project = crate::app::test_project();
+        let channel = project.channels[0].index;
+        let original = os_flp::project::load(&os_flp::project::create(&project).unwrap()).unwrap();
+        assert_eq!(original.mpe.config(channel).wheel_bend, 2);
+        let config = os_model::mpe::Config { wheel_bend: 24, ..Default::default() };
+        project.mpe.set_config(channel, config);
+        let result = os_flp::project::load(&os_flp::project::create(&project).unwrap()).unwrap();
+        assert_eq!(result.mpe.config(channel), config);
+    }
+
+    #[test]
+    fn piano_pitch_draw_plays_through_the_stock_sampler() {
+        let wav = std::env::temp_dir().join(format!("ml-pitch-draw-{}.wav", std::process::id()));
+        let samples: Vec<_> = (0..144000).flat_map(|i| {
+            let v = (std::f32::consts::TAU * 220. * i as f32 / 48000.).sin() * 0.15;
+            [v, v]
+        }).collect();
+        os_engine::wav::write_f32_stereo(&mut std::fs::File::create(&wav).unwrap(), 48000, &samples).unwrap();
+        let mut pl = Plugins { available: builtin(), scale: 1., rate: 48000, ..Plugins::default() };
+        let mut p = crate::app::test_project();
+        p.channels.truncate(1);
+        p.tempo = Some(120.);
+        let mut curve = os_model::mpe::Expression::default();
+        curve.set(0, 0., 0., false);
+        curve.set(0, 0.5, 12., true);
+        let expression = p.mpe.add(curve);
+        let left = os_model::Note { length: 192, pan: 0, expression, ..os_model::Note::step(0, 0) };
+        let right = os_model::Note { length: 192, pan: 128, ..os_model::Note::step(0, 0) };
+        p.patterns = vec![os_model::Pattern { number: 1, notes: vec![left, right], ..Default::default() }];
+        pl.create_with(0, pl.index_of(LEMON_SAMPLER).unwrap(), Some(&sampler_state(&p.channels[0]))).unwrap();
+        assert!(pl.load_sample(0, &wav.to_string_lossy()));
+        let inst = pl.hosted[&0].plugin.clone() as SharedInstrument;
+        let mut e = os_engine::Engine::new(&p, &mut os_engine::SampleLibrary::default(), 48000, os_engine::PlayMode::Pattern(1));
+        e.set_instrument(0, inst);
+        let mut audio = vec![0.; 48000 * 2];
+        for block in audio.chunks_mut(960) { e.process(block); }
+        let hz = |channel, start: usize| {
+            let n = 9600;
+            audio[start * 2 + channel..(start + n) * 2].iter().step_by(2).copied()
+                .collect::<Vec<_>>().windows(2).filter(|v| v[0] <= 0. && v[1] > 0.).count() as f32 * 5.
+        };
+        let (left_before, right_before, left_after, right_after) = (hz(0, 4800), hz(1, 4800), hz(0, 30000), hz(1, 30000));
+        let _ = std::fs::remove_file(wav);
+        assert!(left_before > 100. && right_before > 100.);
+        assert!((left_after / left_before - 2.).abs() < 0.06, "{left_before} -> {left_after}");
+        assert!((right_after / right_before - 1.).abs() < 0.06, "the unison voice stays at {right_before}, got {right_after}");
     }
 
     /// Main swing delays an off-beat step played by a hosted Lemon Sampler (spec: flp/events/project-info.md "Swing timing").

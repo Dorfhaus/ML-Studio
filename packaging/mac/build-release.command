@@ -9,6 +9,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/lemon-public-builds/ma
 python3 "$ROOT/packaging/workflow/storage.py" --prepare-build "$CARGO_TARGET_DIR"
 unset CARGO_BUILD_TARGET
 xcode-select -p >/dev/null
+python3 "$ROOT/packaging/mac/distribution_signing.py"
 cd "$ROOT"
 # A stable, locked, pipeline-owned worktree preserves Cargo build-script paths.
 BUILD_SOURCE="$(python3 "$ROOT/packaging/workflow/mac-worktree.py" "$ROOT" "${LEMON_MAC_ARCH:-$(uname -m)}")"

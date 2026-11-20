@@ -55,6 +55,7 @@ pub struct FrameInfo {
     pub tick: f64,
     pub visual_tick: f64,
     pub song: bool,
+    pub rack_play_step: Option<u32>,
     /// The tempo the toolbar shows: the one playback plays at (tempo automation moves it), else the project's.
     pub tempo: f64,
     pub peaks: (f32, f32),

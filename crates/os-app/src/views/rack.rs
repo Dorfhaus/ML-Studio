@@ -352,22 +352,43 @@ pub fn graph_rect(s: &State) -> Option<Rect> {
     Some(Rect::new(x, row_y(s, &p) + if s.vintage_2005 {28.0} else {27.0}, w, GRAPH_H))
 }
 
-/// The columns of the steps playing at ticks `a` and `b` in pattern mode, when they differ: lit steps down the
-/// column and the footer marker (§16) are all that a new step changes.
-pub fn step_columns(s: &State, a: f64, b: f64) -> Vec<Rect> {
-    if !rk::show_steps() { return Vec::new(); }
-    let per_step = f64::from(rk::per_step(s).max(1));
+pub(crate) fn play_step(s: &State, tick: f64, song: bool) -> Option<u32> {
     let len = rk::pattern_steps(s).max(1);
-    let step = |t: f64| (t / per_step).floor().max(0.0) as u32 % len;
-    let (ka, kb) = (step(a), step(b));
-    if ka == kb {
-        return Vec::new();
+    let per_step = f64::from(rk::per_step(s).max(1));
+    if song {
+        let tick = os_engine::engine::arrangement_pattern_tick(&s.project, s.pattern, tick)?;
+        let step = (tick / per_step) as u32;
+        return (step < len).then_some(step);
     }
+    Some((tick / per_step) as u32 % len)
+}
+
+fn mini_playhead_x(area: Rect, step: u32, len: u32) -> f32 {
+    (area.x + area.w * (step as f32 / len.max(1) as f32)).round()
+}
+
+/// Repair the rows at the old and new playback positions.
+pub fn step_columns(s: &State, before: Option<u32>, after: Option<u32>) -> Vec<Rect> {
+    if !rk::show_steps() || before == after { return Vec::new(); }
     let win = rect(s);
     let inner = panel(s);
-    let x0 = win.x + cols(s).step_x - sx(s);
+    let area = row_view(s);
+    let left = win.x + cols(s).step_x;
+    let w = step_width(s);
+    let step_grid = Rect::new(left, inner.y, visible_steps(s) as f32 * w, inner.h);
+    let scroll = sx(s);
+    let len = rk::pattern_steps(s);
     let bottom = win.bottom() - 22.0;
-    [ka, kb].into_iter().map(|k| Rect::new(x0 + step_width(s) * k as f32 - 2.0, inner.y, step_width(s) + 1.0, bottom - inner.y)).collect()
+    let mut damage = Vec::with_capacity(4);
+    for step in [before, after].into_iter().flatten() {
+        let x = left + w * step as f32 - scroll;
+        damage.push(Rect::new(x - 2.0, inner.y, w + 2.0, bottom - inner.y));
+        if !s.vintage_2005 {
+            let x = mini_playhead_x(step_grid, step, len);
+            damage.push(Rect::new(x - 1.0, area.y, 3.0, area.h).intersect(&area));
+        }
+    }
+    damage
 }
 
 /// The bars area of the graph editor (above its tab row).
@@ -457,8 +478,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
     let bars = if show_steps { rk::pattern_bars(s, len * per_step) } else { Vec::new() };
     let pat = s.project.pattern(s.pattern);
     let notes: &[os_model::Note] = pat.map_or(&[], |p| &p.notes);
-    // Playback position (pattern mode): the current step (§16).
-    let cur_step = (f.playing && !f.song).then(|| (f.tick / f64::from(per_step)).floor() as u32);
+    let cur_step = f.rack_play_step;
     let step_x0 = x + c.step_x;
     let steps_right = (step_x0 + steps_shown as f32 * step_width(s) - 2.0).min(rows_clip.right());
 
@@ -635,7 +655,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
                 let sr = Rect::new(step_x0 + step_width(s) * k as f32 - sx, ry + if s.vintage_2005 {0.0} else {4.0}, step_width(s) - if s.vintage_2005 { 0.0 } else { 3.0 }, if s.vintage_2005 { 28.0 } else { 19.0 });
                 let on = rk::step_on(notes, ch.index, k, per_step);
                 let hov = ui.hit(sr.intersect(&step_area), Action::Step(i, k), "Step - click or drag to paint (left / right)");
-                step_button(ui, sr, (k / group) % 2 == 1, on, k >= row_len, hov, on && cur_step.is_some_and(|c| c % len.max(1) == k));
+                step_button(ui, sr, (k / group) % 2 == 1, on, k >= row_len, hov, on && cur_step == Some(k));
             }
             ui.c.pop_clip();
         }
@@ -697,7 +717,6 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
     resize_handles(ui, s, win, show_steps);
     if !show_steps { return; }
     if let Some(k) = cur_step {
-        let k = k % len.max(1);
         let px = step_x0 + step_width(s) * k as f32 - sx;
         if px >= step_x0 - 1.0 && px + 13.0 <= steps_right + 2.0 {
             if lemon {

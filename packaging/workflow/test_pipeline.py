@@ -57,6 +57,25 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(environments[0]['LEMON_VISUALIZER_SOURCE'], 'renderer-source.zip')
         self.assertTrue(all('LEMON_VISUALIZER_WORKER' not in e and 'LEMON_VISUALIZER_SOURCE' not in e for e in environments[1:]))
 
+    def test_direct_downloads_follow_mixed_platform_versions(self):
+        template = (p.r.ROOT/'packaging/download-page.html').read_bytes()
+        manifests = {}
+        for platform in p.PLATFORMS:
+            mac = platform.startswith('mac-')
+            build = 45 if mac else 44
+            folder = 'mac' if mac else 'linux' if platform == 'linux' else 'downloads'
+            manifests[platform] = dict(version=build, url=f'{folder}/{build}/{platform}.bin',
+                                       source=f'{"mac" if mac else "updates"}/{build}/{platform} Source.zip')
+        mixed = p.download_page.render(template, manifests, p.r.DOWNLOAD_PAGE)
+        for name, manifest in manifests.items():
+            for field in ('url', 'source'):
+                expected = ('href="' + p.r.DOWNLOAD_PAGE + p.urllib.parse.quote(manifest[field]) + '"').encode()
+                self.assertEqual(mixed.count(expected), 2 if (name, field) == ('windows', 'source') else 1)
+        self.assertEqual(mixed, p.download_page.render(mixed, manifests, p.r.DOWNLOAD_PAGE))
+        incomplete = mixed.replace(b'data-platform="linux"', b'data-platform="missing"')
+        with self.assertRaisesRegex(ValueError, 'Expected one matching download link'):
+            p.download_page.render(incomplete, manifests, p.r.DOWNLOAD_PAGE)
+
     def test_mix_reference_download_is_website_only(self):
         self.assertTrue(p.r.permitted(p.r.MIX_REFERENCE_PATH,'website'))
         for scope in (*p.PLATFORMS,'windows-linux','helper'):
@@ -120,6 +139,7 @@ class PipelineTests(unittest.TestCase):
                 changes=[(p.platform,'system',lambda:'Windows'),(p,'config',lambda:{'source_sync':'fixture','juce_source':'fixture'}),(p,'probe',lambda:None),(p,'remote',remote),(p,'prepare',lambda n:None),(p,'release_notes',lambda:{}),(p,'identity',lambda:{'version':7,'commit':'abc'}),(p,'output_root',lambda:out),(p,'shared_run',lambda:share),(p,'stage',stage),(p,'verify_live',verify),(p,'github_stage',lambda *a:({'commit':'abc','tag':'fixture'},[out/'github-release.json'])),(p,'github_verify',ghverify),(p.r,'ROOT',source),(p.r,'PRIVATE',root/'private'),(p.r,'git',lambda *a:'' if a[0]=='status' else 'abc'),(p.r,'run',lambda *a:None),(p.r,'shared_folder',lambda:share),(b,'windows',win),(b,'linux_compile',lin),(b,'linux_package',lambda cfg,binary,wp,folder,log:makeplan(folder,'linux-package')),(b,'merged_plan',lambda plans,folder:makeplan(folder/'combined','windows-linux')),(b,'command',backup),(p.r,'write_plan',lambda site,folder,scope:makeplan(folder,scope))]
                 for obj,name,value in changes:stack.enter_context(patch.object(obj,name,value))
                 stack.enter_context(patch.object(p.r, 'version', return_value=7))
+                stack.enter_context(patch.object(p, 'render_website', return_value=b'page'))
                 stack.enter_context(patch.object(p, 'mix_reference_pack', return_value=reference))
                 stack.enter_context(patch.object(p.discord_changelog, 'bot_api', return_value=object()))
                 post = stack.enter_context(patch.object(p.discord_changelog, 'publish', return_value={'verified': True}))

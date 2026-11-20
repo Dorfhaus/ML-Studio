@@ -26,4 +26,5 @@ publish.local.json
 
 # Public native starter assets must travel with the shared repository.
 !crates/os-app/assets/startup.wav
+!plugins/ml-drums/resources/default_samples/*.wav
 !crates/os-app/assets/templates/Lemon Starter.flp

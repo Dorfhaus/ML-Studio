@@ -29,7 +29,7 @@ use clap_sys::fixedpoint::{CLAP_BEATTIME_FACTOR, CLAP_SECTIME_FACTOR};
 use clap_sys::ext::audio_ports::{clap_audio_port_info, clap_plugin_audio_ports, CLAP_EXT_AUDIO_PORTS};
 use clap_sys::ext::gui::{clap_host_gui, clap_plugin_gui, clap_window, clap_window_handle, CLAP_EXT_GUI, CLAP_WINDOW_API_COCOA, CLAP_WINDOW_API_WIN32, CLAP_WINDOW_API_X11};
 use clap_sys::ext::latency::{clap_host_latency, clap_plugin_latency, CLAP_EXT_LATENCY};
-use clap_sys::ext::note_ports::{clap_note_port_info, clap_plugin_note_ports, CLAP_EXT_NOTE_PORTS, CLAP_NOTE_DIALECT_CLAP};
+use clap_sys::ext::note_ports::{clap_note_port_info, clap_plugin_note_ports, CLAP_EXT_NOTE_PORTS, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI_MPE};
 use clap_sys::ext::params::{
     clap_host_params, clap_param_info, clap_plugin_params, CLAP_EXT_PARAMS, CLAP_PARAM_IS_AUTOMATABLE, CLAP_PARAM_IS_BYPASS,
     CLAP_PARAM_IS_ENUM, CLAP_PARAM_IS_HIDDEN, CLAP_PARAM_IS_MODULATABLE_PER_NOTE_ID, CLAP_PARAM_IS_READONLY, CLAP_PARAM_IS_STEPPED,
@@ -509,6 +509,7 @@ enum Kind {
     Tune,
     /// A named voice's gain (note expression); `velocity` holds the gain.
     Gain,
+    Pitch,
     Slide,
 }
 
@@ -553,6 +554,7 @@ const NAMED_VOICES: usize = 512;
 struct NoteParams {
     drive:Option<u32>,
     echo_pitch: Option<u32>,
+    draw_pitch: Option<u32>,
     mods: [Option<(u32, f64)>; 2],
 }
 
@@ -612,6 +614,9 @@ pub struct Plugin {
     /// Glides as MIDI pitch bend, for a plugin whose note inputs take MIDI only (no tuning expression; spec:
     /// audio/channel-voices.md). `None`: glides are tuning expressions.
     bend: Option<os_engine::TuningBend>,
+    draw_by_wheel: bool,
+    draw_wheel: os_engine::TuningBend,
+    named_tuning: bool,
     /// Kept alive for the plugin, which holds a pointer to it.
     _host: Box<clap_host>,
     host_data: Box<HostData>,
@@ -765,20 +770,19 @@ pub type SharedPlugin = Arc<Mutex<Plugin>>;
 
 const MAX_FRAMES: u32 = 4096;
 
-/// True when the plugin's note inputs take CLAP note events, and with them tuning expressions (or it declares no note
-/// ports: it is sent CLAP events as before). False for a plugin whose note inputs speak MIDI only. Main thread.
-unsafe fn takes_clap_notes(ports: *const clap_plugin_note_ports, plugin: *const clap_plugin) -> bool {
+/// Dialects of the note input that receives the host's events. Legacy plug-ins
+/// without the extension keep the CLAP event behavior.
+unsafe fn note_dialects(ports: *const clap_plugin_note_ports, plugin: *const clap_plugin) -> u32 {
     unsafe {
-        let Some(ports) = ports.as_ref() else { return true };
-        let (Some(count), Some(get)) = (ports.count, ports.get) else { return true };
-        let n = count(plugin, true);
-        if n == 0 {
-            return true;
+        let Some(get) = ports.as_ref().and_then(|ports| ports.get) else {
+            return CLAP_NOTE_DIALECT_CLAP;
+        };
+        let mut info: clap_note_port_info = std::mem::zeroed();
+        if get(plugin, 0, true, &mut info) {
+            info.supported_dialects
+        } else {
+            CLAP_NOTE_DIALECT_CLAP
         }
-        (0..n).any(|i| {
-            let mut info: clap_note_port_info = std::mem::zeroed();
-            get(plugin, i, true, &mut info) && info.supported_dialects & CLAP_NOTE_DIALECT_CLAP != 0
-        })
     }
 }
 
@@ -851,7 +855,14 @@ impl Plugin {
             let render = ext(CLAP_EXT_RENDER) as *const clap_plugin_render;
             let voice_info = ext(CLAP_EXT_VOICE_INFO) as *const clap_plugin_voice_info;
             let audio_ports = ext(CLAP_EXT_AUDIO_PORTS) as *const clap_plugin_audio_ports;
-            let bend = (!takes_clap_notes(ext(CLAP_EXT_NOTE_PORTS) as *const clap_plugin_note_ports, plugin)).then(os_engine::TuningBend::default);
+            let dialects = note_dialects(ext(CLAP_EXT_NOTE_PORTS) as *const clap_plugin_note_ports, plugin);
+            let bend = (dialects & CLAP_NOTE_DIALECT_CLAP == 0).then(os_engine::TuningBend::default);
+            // These stock devices implement note expressions and do not need a patch's wheel range.
+            let named_tuning = matches!(id, "org.openstudio.open-3x-osc" | "org.openstudio.citrus"
+                | "de.michaellane.ml-plasma" | "org.lemonstudio.lemon-chop" | "de.michaellane.ml-drums");
+            let draw_by_wheel = !named_tuning && !matches!(id,
+                "org.openstudio.open-sampler" | "org.lemonstudio.lemon-wave"
+            ) && dialects & (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE) != 0;
             let ranges = params::read_ranges(params, plugin);
             Ok(Plugin {
                 desc,
@@ -921,6 +932,9 @@ impl Plugin {
                 voice_info,
                 ledger: VoiceLedger::new(),
                 bend,
+                draw_by_wheel,
+                draw_wheel: Default::default(),
+                named_tuning,
                 ranges,
                 param_queue: Vec::new(),
                 auto: Vec::with_capacity(params::MAX_AUTO),
@@ -1182,6 +1196,10 @@ impl Plugin {
                     let n = CStr::from_ptr(info.name.as_ptr()).to_string_lossy();
                     // NIH-plug accepts this internal per-note modulation, but
                     // deliberately omits the modulation flag for hidden parameters.
+                    if n == "Pitch Draw offset" && info.flags & CLAP_PARAM_IS_HIDDEN != 0 {
+                        np.draw_pitch = Some(info.id);
+                        continue;
+                    }
                     if n == "Sampler echo pitch" && info.flags & CLAP_PARAM_IS_HIDDEN != 0 {
                         np.echo_pitch = Some(info.id);
                         continue;
@@ -1475,7 +1493,13 @@ impl Plugin {
         }
         for e in self.queue.drain(..) {
             if e.time < n && e.kind == Kind::Tune {
-                // Portamento glides (spec: audio/channel-voices.md): CLAP tuning expression, semitones.
+                // CLAP tuning expression, in semitones. A named point applies only to its original voice.
+                let (id, key) = if let Some(voice) = e.voice {
+                    let Some(&(_, id, key)) = self.named.iter().find(|v| v.0 == voice) else { continue };
+                    (id, key)
+                } else {
+                    (-1, e.key)
+                };
                 self.exprs.push(clap_event_note_expression {
                     header: clap_event_header {
                         size: std::mem::size_of::<clap_event_note_expression>() as u32,
@@ -1485,10 +1509,10 @@ impl Plugin {
                         flags: 0,
                     },
                     expression_id: CLAP_NOTE_EXPRESSION_TUNING,
-                    note_id: -1,
+                    note_id: id,
                     port_index: 0,
                     channel: 0,
-                    key: i16::from(e.key),
+                    key: i16::from(key),
                     value: f64::from(e.velocity),
                 });
                 seq.push(Seq::Expr(self.exprs.len() - 1));
@@ -1504,6 +1528,11 @@ impl Plugin {
                         seq.push(Seq::Expr(self.exprs.len()-1));
                     }
                 }
+            } else if e.time < n && e.kind == Kind::Pitch {
+                let Some((param, &(_, id, key))) = self.note_levels.and_then(|p| p.draw_pitch.or(p.echo_pitch))
+                    .zip(self.named.iter().find(|v| Some(v.0) == e.voice)) else { continue; };
+                self.mods.push(param_mod(e.time, param, id, key, f64::from(e.velocity) / 96.0));
+                seq.push(Seq::Mod(self.mods.len() - 1));
             } else if e.time < n && e.kind == Kind::Gain {
                 // A named voice's gain (`use_voice_gains`): CLAP volume expression with its note id; a voice that has
                 // ended is not sent one.
@@ -1548,7 +1577,7 @@ impl Plugin {
                     Kind::Off if id >= 0 => self.ledger.release_voice(id),
                     Kind::Off => self.ledger.release(e.key),
                     Kind::Choke if id >= 0 => self.ledger.choke_voice(id),
-                    Kind::Choke | Kind::Tune | Kind::Gain | Kind::Slide => self.ledger.choke(e.key),
+                    Kind::Choke | Kind::Tune | Kind::Gain | Kind::Pitch | Kind::Slide => self.ledger.choke(e.key),
                 }
                 self.notes.push(clap_event_note {
                     header: clap_event_header {
@@ -1558,7 +1587,7 @@ impl Plugin {
                         type_: match e.kind {
                             Kind::On => CLAP_EVENT_NOTE_ON,
                             Kind::Off => CLAP_EVENT_NOTE_OFF,
-                            Kind::Choke | Kind::Tune | Kind::Gain | Kind::Slide => CLAP_EVENT_NOTE_CHOKE,
+                            Kind::Choke | Kind::Tune | Kind::Gain | Kind::Pitch | Kind::Slide => CLAP_EVENT_NOTE_CHOKE,
                         },
                         flags: 0,
                     },
@@ -1629,14 +1658,15 @@ impl Plugin {
         // in time order; parameter values go before the notes at the same frame.
         self.fill_param_events();
         self.take_automation(n);
-        // Controller messages were put first: a stable sort keeps every frame's order otherwise.
-        if !self.midis.is_empty() {
-            let time = |s: &Seq| match *s {
-                Seq::Mod(m) => self.mods[m].header.time,
-                Seq::Note(i) => self.notes[i].header.time,
-                Seq::Expr(x) => self.exprs[x].header.time,
-                Seq::Midi(m) => self.midis[m].header.time,
-            };
+        // Controllers and separate voices can have interleaved offsets. Preserve the
+        // order of events at the same frame so a new voice exists before its first bend.
+        let time = |s: &Seq| match *s {
+            Seq::Mod(m) => self.mods[m].header.time,
+            Seq::Note(i) => self.notes[i].header.time,
+            Seq::Expr(x) => self.exprs[x].header.time,
+            Seq::Midi(m) => self.midis[m].header.time,
+        };
+        if seq.windows(2).any(|pair| time(&pair[0]) > time(&pair[1])) {
             seq.sort_by_key(time);
         }
         self.order.clear();
@@ -1980,6 +2010,9 @@ impl os_engine::Instrument for Plugin {
         if let Some(m) = self.bend.as_mut().and_then(|b| b.reset()) {
             self.midi_queue.push((0, m));
         }
+        if let Some(m) = self.draw_wheel.reset() {
+            self.midi_queue.push((0, m));
+        }
         self.level_voices.clear();
         self.mod_resend.clear();
         self.named.clear();
@@ -2031,6 +2064,38 @@ impl os_engine::Instrument for Plugin {
 
     fn voice_gains(&self) -> bool {
         self.voice_gains
+    }
+
+    fn voice_pitch_supported(&self) -> bool {
+        self.named_tuning || self.note_levels.is_some_and(|p| p.draw_pitch.is_some() || p.echo_pitch.is_some())
+    }
+
+    fn voice_pitch(&mut self, offset: u32, voice: u32, base: f32, semitones: f32) {
+        if self.named_tuning {
+            self.queue.push(Ev { voice: Some(voice), ..Ev::new(offset, Kind::Tune, 0, (base + semitones).clamp(-120., 120.)) });
+        } else if self.voice_pitch_supported() {
+            self.queue.push(Ev { voice: Some(voice), ..Ev::new(offset, Kind::Pitch, 0, semitones.clamp(-96., 96.)) });
+        }
+    }
+
+    fn voice_tune(&mut self, offset: u32, key: u8, voice: u32, semitones: f32) {
+        if self.named_tuning {
+            self.voice_pitch(offset, voice, semitones, 0.);
+        } else {
+            self.tune(offset, key, semitones);
+        }
+    }
+
+    fn draw_pitch(&mut self, offset: u32, key: u8, base: f32, semitones: f32, range: u8) {
+        if self.draw_by_wheel {
+            let wheel = self.bend.as_mut().unwrap_or(&mut self.draw_wheel);
+            let range = if self.desc.id == "com.mlstudio.pureplayer" { 2 } else { range };
+            if let Some(event) = wheel.draw(key, base + semitones, range) {
+                self.midi_queue.push((offset, event));
+            }
+        } else {
+            self.tune(offset, key, base + semitones);
+        }
     }
 
     fn voice_gain(&mut self, offset: u32, voice: u32, gain: f32) {

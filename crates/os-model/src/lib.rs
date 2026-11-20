@@ -96,6 +96,9 @@ pub struct Project {
     pub auto_crossfades: Option<bool>,
     /// Playlist scroll, time zoom and track height (event 242). `None` = not in the file.
     pub playlist_view: Option<PlaylistView>,
+    /// The Playlist ruler's selected playback range in project ticks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playlist_loop: Option<(u32, u32)>,
     /// Main volume 0..=16000, 12800 = unity (mixer record id 0 at place 0x4000; spec: audio/mixer.md "Main volume").
     /// `None` = not in the file (12800).
     pub main_volume: Option<u16>,
@@ -295,6 +298,9 @@ impl Project {
             a.timeline.rescale(from, to);
             a.staff_notation.iter_mut().for_each(|c| c.rescale(from, to));
         }
+        self.playlist_loop = self.playlist_loop
+            .map(|(start, end)| (rescale_tick(start, from, to), rescale_tick(end, from, to)))
+            .filter(|(start, end)| start < end);
         if let Some(v) = &mut self.playlist_view {
             let k = f64::from(to) / f64::from(from);
             v.set_left(v.left() * k);

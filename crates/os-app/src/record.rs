@@ -188,8 +188,66 @@ struct Take {
     channels: Vec<u16>,
     span: Option<(u32, u32)>,
     new: Vec<Note>,
-    /// SONG mode: the clip the take records into (track, position), made longer when playback runs past it (spec §2).
-    clip: Option<(u16, u32)>,
+    /// The Song-mode clip or, when there is no room in the Playlist, the start of the unplaced take.
+    clip: Option<TakePlacement>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TakePlacement {
+    row: Option<u16>,
+    start: u32,
+    /// Only fresh clips can move down when the take grows into another clip.
+    separate: bool,
+}
+
+/// Find an editable lane at or below the starting row with room for the entire take.
+fn take_lane(s: &State, from: u16, start: u32, end: u32, own: Option<usize>) -> Option<u16> {
+    use crate::{playlist as pl, playlist_links};
+    let rows = pl::Rows::new(s);
+    let mut occupied = [false; pl::TRACKS as usize];
+    for (index, clip) in pl::clips(s).iter().enumerate() {
+        if Some(index) != own && clip.position < end && clip.position.saturating_add(clip.length) > start {
+            if let Some(row) = occupied.get_mut(usize::from(clip.track)) { *row = true; }
+        }
+    }
+    let channel = crate::piano::channel(s);
+    let arrangement = s.project.arrangement().map(|a| a.number);
+    rows.order.iter().copied().skip(usize::from(rows.rank(from))).find(|&row| {
+        !occupied[usize::from(row)]
+            && (row >= rows.count || !rows.strip(row))
+            && !s.mixer.recording.live.iter().any(|take| take.row == row)
+            && !pl::track_info(s, row).is_some_and(|t| t.locked || t.frozen.is_some() || t.folder || t.comp.is_some())
+            && !pl::group_track(s, row).and_then(|parent| pl::track_info(s, parent))
+                .is_some_and(|t| t.locked || t.frozen.is_some() || t.comp.is_some())
+            && playlist_links::mode(s, row) != os_model::PlaylistTrackMode::Audio
+            && !s.project.instrument_lanes.iter().any(|&(id, owner, lane, _)| {
+                lane == row && Some(owner) == arrangement && Some(id) != channel
+            })
+    })
+}
+
+fn extend_take_clip(s: &mut State, pattern: u16, end: u32) {
+    use crate::playlist as pl;
+    let Some(placement) = s.rec.take.as_ref().and_then(|take| take.clip) else { return };
+    let Some(row) = placement.row else { return };
+    let Some((index, clip)) = pl::clips(s).iter().enumerate().find(|(_, c)| {
+        c.source == ClipSource::Pattern(pattern) && c.track == row && c.position == placement.start && c.window.is_none()
+    }) else { return };
+    if end <= clip.position.saturating_add(clip.length) { return; }
+    let bar = s.project.bar_ticks().max(1);
+    let end = end.div_ceil(bar).saturating_mul(bar);
+    let destination = if placement.separate { take_lane(s, row, clip.position, end, Some(index)) } else { Some(row) };
+    let Some(destination) = destination else {
+        s.message = Some("Notes are recorded in the pattern. No free Playlist lane below has room for the full take.".into());
+        return;
+    };
+    let clip = &mut pl::arr_mut(s).clips[index];
+    clip.track = destination;
+    clip.length = end.saturating_sub(clip.position);
+    if let Some(clip) = s.rec.take.as_mut().and_then(|take| take.clip.as_mut()) {
+        clip.row = Some(destination);
+    }
+    s.piano.dirty = true;
 }
 
 /// Record's state (spec §2).
@@ -412,7 +470,7 @@ impl App {
     /// playlist's in SONG mode; one with no length does not count.
     pub(crate) fn selection_loop(&self) -> Option<(u32, u32)> {
         let s = &self.state;
-        let r = if s.song_mode { s.playlist.range } else if s.shown(crate::app::Win::PianoRoll) { s.piano.range } else { None };
+        let r = if s.song_mode { s.project.playlist_loop } else if s.shown(crate::app::Win::PianoRoll) { s.piano.range } else { None };
         r.filter(|r| r.1 > r.0)
     }
 
@@ -603,14 +661,12 @@ impl App {
         let pattern = s.pattern;
         let whole = |c: &os_model::Clip| c.source == ClipSource::Pattern(pattern) && c.window.is_none();
         let ti = t.max(0.0) as u32;
-        let mine = s.rec.take.as_ref().and_then(|k| k.clip);
-        if let Some((track, at)) = mine.filter(|&(_, at)| ti >= at) {
-            if let Some(c) = crate::playlist::arr_mut(s).clips.iter_mut().find(|c| whole(c) && c.track == track && c.position == at) {
-                if ti >= at + c.length {
-                    c.length = (ti / bar + 1) * bar - at;
-                    s.piano.dirty = true;
-                }
-                return Some(t - f64::from(at));
+        if let Some(placement) = s.rec.take.as_ref().and_then(|take| take.clip).filter(|take| ti >= take.start) {
+            let exists = placement.row.is_none_or(|row| crate::playlist::clips(s).iter()
+                .any(|c| whole(c) && c.track == row && c.position == placement.start));
+            if exists {
+                extend_take_clip(s, pattern, ti.saturating_add(1));
+                return Some(t - f64::from(placement.start));
             }
         }
         if let Some(p) = crate::piano::pattern_tick_in_song(s, t) {
@@ -618,40 +674,41 @@ impl App {
             let under = crate::playlist::clips(s)
                 .iter()
                 .filter(|c| whole(c) && c.position <= ti && (f64::from(c.position) + p - t).abs() < 1e-6)
-                .max_by_key(|c| c.position)
-                .map(|c| (c.track, c.position));
+                .max_by_key(|c| c.position);
+            let placement = under.map(|c| TakePlacement { row: Some(c.track), start: c.position, separate: false });
             if let Some(k) = s.rec.take.as_mut().filter(|k| k.clip.is_none()) {
-                k.clip = under;
+                k.clip = placement;
             }
             return Some(p);
         }
-        // A later take on an instrument lane continues the same timeline, not a
-        // second instance writing from pattern tick zero over the earlier take.
-        let lane = crate::smart_recording::instrument_lane(s)
-            .filter(|(_, p)| *p == pattern).map(|(lane, _)| lane)
-            .unwrap_or(s.playlist.track);
+        // A later take for the same pattern continues its timeline, including
+        // a clip that was previously recorded onto a lane below the instrument.
+        let instrument = crate::smart_recording::instrument_lane(s).filter(|(_, p)| *p == pattern);
+        let lane = instrument.map_or(s.playlist.track, |(lane, _)| lane);
         let earlier = crate::playlist::clips(s).iter()
-            .filter(|c| whole(c) && c.track == lane && c.position <= ti)
-            .max_by_key(|c| c.position).map(|c| (c.track, c.position));
-        if let Some((track, at)) = earlier {
-            let c = crate::playlist::arr_mut(s).clips.iter_mut()
-                .find(|c| whole(c) && c.track == track && c.position == at)?;
-            c.length = c.length.max((ti / bar + 1) * bar - at);
-            if let Some(k) = s.rec.take.as_mut() { k.clip = Some((track, at)); }
-            s.piano.dirty = true;
-            return Some(t - f64::from(at));
+            .filter(|c| whole(c) && c.position <= ti && (c.track == lane || instrument.is_some()))
+            .max_by_key(|c| (c.track == lane, c.position))
+            .map(|c| TakePlacement { row: Some(c.track), start: c.position, separate: false });
+        if let Some(placement) = earlier {
+            if let Some(k) = s.rec.take.as_mut() { k.clip = Some(placement); }
+            extend_take_clip(s, pattern, ti.saturating_add(1));
+            return Some(t - f64::from(placement.start));
         }
+
         let at = ti / bar * bar;
         let len = crate::piano::pattern_length(s, pattern).max(bar);
-        let track = crate::smart_recording::instrument_lane(s).filter(|(_,p)|*p==pattern).map(|(t,_)|t)
-            .unwrap_or_else(||crate::playlist::free_track(s,0,at,at+len));
-        let clip = os_model::Clip::new(at, len, track, ClipSource::Pattern(pattern));
-        crate::playlist::arr_mut(s).clips.push(clip);
-        if let Some(k) = s.rec.take.as_mut() {
-            k.clip = Some((track, at));
+        let row = take_lane(s, lane, at, at.saturating_add(len), None);
+        if let Some(track) = row {
+            crate::playlist::arr_mut(s).clips.push(os_model::Clip::new(at, len, track, ClipSource::Pattern(pattern)));
+            s.piano.dirty = true;
+        } else {
+            s.message = Some("Recording into the pattern. No free Playlist lane below has room for the take.".into());
+            self.invalidate();
         }
-        s.piano.dirty = true;
-        crate::piano::pattern_tick_in_song(s, t)
+        if let Some(k) = self.state.rec.take.as_mut() {
+            k.clip = Some(TakePlacement { row, start: at, separate: true });
+        }
+        Some(t - f64::from(at))
     }
 
     /// Writes held note `h`, ending at playback tick `now` (None: where it started). A note held over the pattern's
@@ -692,14 +749,8 @@ impl App {
         }
         // A held note may end beyond the last note-on's bar. Keep its tail inside
         // the same playlist clip, including across a later recording take.
-        if let Some((track, at)) = s.rec.take.as_ref().and_then(|take| take.clip) {
-            let bar = s.project.bar_ticks().max(1);
-            let end = at.saturating_add(b);
-            let length = end.div_ceil(bar).saturating_mul(bar).saturating_sub(at);
-            if let Some(c) = crate::playlist::arr_mut(s).clips.iter_mut()
-                .find(|c| c.source == ClipSource::Pattern(pattern) && c.track == track && c.position == at && c.window.is_none()) {
-                c.length = c.length.max(length);
-            }
+        if let Some(placement) = s.rec.take.as_ref().and_then(|take| take.clip) {
+            extend_take_clip(s, pattern, placement.start.saturating_add(b));
         }
         // The time selection stays (it may be looping, spec §5).
         s.piano.select_notes(pattern, h.channel, Vec::new());
@@ -793,7 +844,8 @@ impl App {
         }
         self.state.rec.was_live = live;
         let note_row = if self.state.song_mode && self.rec_live(Opt::Notes) {
-            crate::smart_recording::instrument_lane(&self.state).map(|(row, _)| row)
+            self.state.rec.take.as_ref().and_then(|take| take.clip)
+                .map_or_else(|| crate::smart_recording::instrument_lane(&self.state).map(|(row, _)| row), |clip| clip.row)
         } else {
             None
         };
@@ -1016,6 +1068,97 @@ mod tests {
         // Undo takes the clip away with the notes.
         crate::history::undo(&mut app.state);
         assert!(crate::playlist::clips(&app.state).is_empty() && notes(&app).is_empty());
+    }
+
+    #[test]
+    fn recording_new_instrument_patterns_uses_free_lanes_below() {
+        use crate::playlist as pl;
+        for attached in [false, true] {
+            let mut app = app();
+            app.state.project.channels[0].kind = os_model::ChannelKind::Plugin;
+            pl::arr_mut(&mut app.state).clips.clear();
+            assert!(app.route_instrument_lane(0, 10));
+            if attached {
+                crate::attached_mixer::toggle(&mut app);
+            }
+            let base = crate::smart_recording::instrument_lane(&app.state).unwrap().0;
+            let bar = app.state.project.bar_ticks();
+            app.toggle_record();
+
+            let record_note = |app: &mut App, start: u32, end: u32, note: u8| {
+                app.transport.pretend_at(f64::from(start), true);
+                app.record_tick();
+                app.record_down_with(Src::Midi(note), u16::from(note), 100, Extra::default());
+                app.transport.pretend_at(f64::from(end), true);
+                app.record_up_with(Src::Midi(note), None);
+                stop(app);
+            };
+            record_note(&mut app, 24, 72, 60);
+            let first = pl::clips(&app.state)[0].clone();
+            assert_eq!((first.source, first.track), (ClipSource::Pattern(1), base));
+
+            // Fresh pattern takes use the next lane with room, including with the Mixer attached.
+            crate::patterns::select(&mut app.state, 2);
+            record_note(&mut app, 24, 72, 64);
+            let second = pl::clips(&app.state)[1].clone();
+            assert_eq!(second.source, ClipSource::Pattern(2));
+            assert_eq!(second.position, first.position);
+            let rows = pl::Rows::new(&app.state);
+            assert!(rows.rank(second.track) > rows.rank(first.track), "the second take appears below the first");
+            if !attached { assert_eq!(second.track, first.track + 1); }
+            assert!(app.state.project.pattern(1).unwrap().notes.iter().any(|n| n.key == 60 && n.channel == 0));
+            assert!(app.state.project.pattern(2).unwrap().notes.iter().any(|n| n.key == 64 && n.channel == 0));
+            assert_eq!(app.state.project.channels[0].mixer_track, 10);
+
+            // Adding notes to that pattern again continues its existing clip.
+            record_note(&mut app, bar + 24, bar + 72, 67);
+            assert_eq!(pl::clips(&app.state).len(), 2);
+            assert_eq!(pl::clips(&app.state)[1].track, second.track);
+            assert_eq!(pl::clips(&app.state)[1].length, 2 * bar);
+            crate::history::undo(&mut app.state);
+            assert_eq!(pl::clips(&app.state)[1], second);
+            crate::history::undo(&mut app.state);
+            assert_eq!(pl::clips(&app.state), [first.clone()]);
+            crate::history::redo(&mut app.state);
+            assert_eq!(pl::clips(&app.state), [first, second]);
+        }
+    }
+
+    #[test]
+    fn growing_takes_skip_blocked_lanes_and_preserve_notes_at_capacity() {
+        use crate::playlist as pl;
+        let mut app = app();
+        app.state.project.channels[0].kind = os_model::ChannelKind::Plugin;
+        pl::arr_mut(&mut app.state).clips.clear();
+        assert!(app.route_instrument_lane(0, 10));
+        let bar = app.state.project.bar_ticks();
+        let old_pattern = ClipSource::Pattern(99);
+        pl::arr_mut(&mut app.state).clips = vec![
+            os_model::Clip::new(0, bar, 0, old_pattern),
+            os_model::Clip::new(bar, bar, 3, old_pattern),
+        ];
+        pl::arr_mut(&mut app.state).tracks[1].locked = true;
+        pl::arr_mut(&mut app.state).tracks[2].mode = os_model::PlaylistTrackMode::Audio;
+        pl::arr_mut(&mut app.state).visible_tracks = Some(4);
+        app.toggle_record();
+        key(&mut app, KeyCode::KeyZ, true, 24.0, true);
+        assert_eq!(pl::clips(&app.state)[2].track, 3, "the other clip starts at the end of the first bar");
+        key(&mut app, KeyCode::KeyZ, false, f64::from(bar + 96), true);
+        assert_eq!(pl::clips(&app.state)[2].track, 4, "growing into an occupied bar moves the entire take");
+        assert_eq!(pl::clips(&app.state)[2].length, 2 * bar);
+        assert_eq!(pl::track_count(&app.state), 5, "recording reveals a new lane when needed");
+        stop(&mut app);
+
+        for row in 1..pl::TRACKS as usize {
+            pl::arr_mut(&mut app.state).tracks[row].locked = true;
+        }
+        crate::patterns::select(&mut app.state, 2);
+        key(&mut app, KeyCode::KeyX, true, 24.0, true);
+        key(&mut app, KeyCode::KeyX, false, 96.0, true);
+        assert!(app.state.message.as_deref().unwrap().contains("No free Playlist lane below"));
+        assert_eq!(pl::clips(&app.state).len(), 3, "at capacity, the app never stacks a clip");
+        assert_eq!(app.state.project.pattern(2).unwrap().notes.len(), 1, "MIDI notes are still recorded");
+        stop(&mut app);
     }
 
     /// SONG mode: one clip per take; when playback runs past its end the clip is made longer to the bar's end instead

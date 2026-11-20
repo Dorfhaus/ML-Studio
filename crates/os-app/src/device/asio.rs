@@ -13,7 +13,7 @@
 //! reads the registry and loads none.
 // spec: audio/devices.md
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use asio_sys as sys;
@@ -36,6 +36,32 @@ pub(crate) struct AsioOut {
     driver: sys::Driver,
     callback: sys::BufferCallbackId,
     events: sys::DriverEventCallbackId,
+    preferred_buffer: u32,
+    buffer_event: Arc<AtomicU32>,
+}
+
+impl AsioOut {
+    /// An explicit size from a notification takes effect even if the driver has not updated its preferred size yet.
+    pub(crate) fn buffer_change(&self, reset_in_panel: bool) -> Option<Option<u32>> {
+        let event = self.buffer_event.swap(0, Ordering::AcqRel);
+        let preferred = self.driver.buffersize_range().ok().map(|range| preferred_size(range.preferred));
+        driver_buffer_change(self.preferred_buffer, preferred, event, reset_in_panel)
+    }
+}
+
+fn preferred_size(preference: sys::BufferPreference) -> u32 {
+    match preference {
+        sys::BufferPreference::Only(size) | sys::BufferPreference::Preferred(size)
+        | sys::BufferPreference::Stepped { preferred: size, .. } => size,
+    }
+}
+
+fn driver_buffer_change(before: u32, preferred: Option<u32>, event: u32, reset_in_panel: bool) -> Option<Option<u32>> {
+    // Zero means no notification; one means the driver signaled a change without naming a size.
+    if let Some(size) = event.checked_sub(1) {
+        return Some((size > 0 && preferred != Some(size)).then_some(size));
+    }
+    (preferred.is_some_and(|size| size != before) || reset_in_panel).then_some(None)
 }
 
 impl Drop for AsioOut {
@@ -110,7 +136,7 @@ pub(crate) fn open(name: &str, rate: Option<u32>, buffer: Option<u32>, mut mix: 
     let range = driver.buffersize_range().map_err(|e| e.to_string())?;
     let sizes = sizes(&range);
     // A length it refuses after all: its own.
-    let ask = buffer.filter(|b| sizes.contains(b)).map(|b| b as i32);
+    let ask = buffer.filter(|&b| accepts_override(&range, b)).map(|b| b as i32);
     // Its inputs with its outputs, else its outputs alone (a driver that refuses its inputs, or has none, plays on).
     let ins = counts.ins.clamp(0, MAX_INPUTS) as usize;
     let in_format = driver.input_data_type().ok().and_then(|t| Format::of(&t));
@@ -176,15 +202,22 @@ pub(crate) fn open(name: &str, rate: Option<u32>, buffer: Option<u32>, mut mix: 
     });
     // Drivers may ask to be reset while they start; that is not a reason to open them anew.
     let started = Arc::new(AtomicBool::new(false));
+    let buffer_event = Arc::new(AtomicU32::new(0));
     let events = driver.add_event_callback({
         let started = started.clone();
+        let buffer_event = buffer_event.clone();
         move |e| {
             use sys::AsioMessageSelectors::*;
             let on = started.load(Ordering::Acquire);
             match e {
                 // The messages this host takes besides the ones asio-sys answers for itself.
                 sys::AsioDriverEvent::Message { selector: kAsioSelectorSupported, value } => value == kAsioOverload as i32 || value == kAsioBufferSizeChange as i32,
-                sys::AsioDriverEvent::Message { selector: kAsioResetRequest | kAsioBufferSizeChange, .. } if on => {
+                sys::AsioDriverEvent::Message { selector: kAsioBufferSizeChange, value } if on => {
+                    buffer_event.store(value.max(0) as u32 + 1, Ordering::Release);
+                    errors.fail("the driver changed its buffer length".into());
+                    true
+                }
+                sys::AsioDriverEvent::Message { selector: kAsioResetRequest, .. } if on => {
                     errors.fail("the driver asked to be reset".into());
                     true
                 }
@@ -204,8 +237,11 @@ pub(crate) fn open(name: &str, rate: Option<u32>, buffer: Option<u32>, mut mix: 
             }
         }
     });
-    let out = AsioOut { driver, callback, events };
+    let mut out = AsioOut { driver, callback, events, preferred_buffer: preferred_size(range.preferred), buffer_event };
     out.driver.start().map_err(|e| e.to_string())?;
+    if let Ok(range) = out.driver.buffersize_range() {
+        out.preferred_buffer = preferred_size(range.preferred);
+    }
     started.store(true, Ordering::Release);
     let buffers = (range.min.max(1) as u32, range.max.max(1) as u32);
     let lat = out.driver.latencies().ok();
@@ -214,16 +250,20 @@ pub(crate) fn open(name: &str, rate: Option<u32>, buffer: Option<u32>, mut mix: 
     Ok(Opened { out, rate: now.round() as u32, frames: frames as u32, buffers, channels: channels as u16, inputs, rates, sizes, latency, input_latency })
 }
 
+fn accepts_override(range: &sys::BufferSizeRange, frames: u32) -> bool {
+    let (min, max) = (range.min.max(1) as u32, range.max.max(1) as u32);
+    (min..=max).contains(&frames) && match range.preferred {
+        sys::BufferPreference::Only(_) => frames.is_power_of_two(),
+        sys::BufferPreference::Preferred(_) => false,
+        sys::BufferPreference::Stepped { step, .. } => (frames - min) % step.max(1) == 0,
+    }
+}
+
 /// The supported sizes to offer: within its range, and a power of two or a whole number of steps
 /// past its smallest as it says (`ASIOGetBufferSize`'s granularity; asio-sys gives -1, powers of two, as `Only`). A
 /// driver with one length (its smallest is its largest, or no granularity): none, its own being the one.
 fn sizes(r: &sys::BufferSizeRange) -> Vec<u32> {
     let (min, max) = (r.min.max(1) as u32, r.max.max(1) as u32);
-    let takes = |b: u32| match r.preferred {
-        sys::BufferPreference::Only(_) => b.is_power_of_two(),
-        sys::BufferPreference::Preferred(_) => false,
-        sys::BufferPreference::Stepped { step, .. } => (b - min) % step.max(1) == 0,
-    };
     if min >= max {
         return Vec::new();
     }
@@ -231,7 +271,7 @@ fn sizes(r: &sys::BufferSizeRange) -> Vec<u32> {
         sys::BufferPreference::Stepped { step, .. } if (max - min) / step.max(1) <= 64 => {
             (min..=max).step_by(step.max(1) as usize).collect()
         }
-        _ => crate::audio_cfg::BUFFERS.into_iter().filter(|&b| (min..=max).contains(&b) && takes(b)).collect(),
+        _ => crate::audio_cfg::BUFFERS.into_iter().filter(|&b| accepts_override(r, b)).collect(),
     }
 }
 
@@ -426,6 +466,22 @@ mod tests {
         unsafe { write(buf.as_mut_ptr(), &mix, Side::Both, 2, Format::F32, false) };
         assert_eq!(buf[..4], 0.0f32.to_le_bytes());
         assert_eq!(buf[4..], 0.5f32.to_le_bytes());
+    }
+
+    #[test]
+    fn asio_panel_buffer_change_uses_the_drivers_new_choice() {
+        assert_eq!(driver_buffer_change(128, Some(128), 0, false), None, "viewing the panel keeps the preset");
+        assert_eq!(driver_buffer_change(128, Some(64), 0, false), Some(None), "modal edit with no notification");
+        assert_eq!(driver_buffer_change(128, Some(64), 65, false), Some(None), "follow the saved driver preference");
+        assert_eq!(driver_buffer_change(128, Some(128), 65, false), Some(Some(64)), "keep the notified choice");
+        assert_eq!(driver_buffer_change(128, None, 1, false), Some(None), "a change with no size");
+        assert_eq!(driver_buffer_change(128, Some(128), 0, true), Some(None), "a reset signaled while the panel was open");
+        let range = sys::BufferSizeRange {
+            min: 32, max: 2048, preferred: sys::BufferPreference::Stepped { preferred: 128, step: 8 },
+        };
+        assert!(accepts_override(&range, 48));
+        assert!(!accepts_override(&range, 49));
+        assert!(!accepts_override(&range, 8));
     }
 
     /// The buffer lengths offered for a driver: those of the usual list it takes.

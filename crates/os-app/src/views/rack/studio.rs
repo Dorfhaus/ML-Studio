@@ -51,8 +51,7 @@ pub(super) fn paint(ui: &mut Ui, s: &State, frame: &FrameInfo) {
     });
     let length = if show_steps { rk::pattern_steps(s) } else { 0 };
     let per_step = rk::per_step(s).max(1);
-    let play_step = (frame.playing && !frame.song)
-        .then(|| (frame.tick / f64::from(per_step)).floor() as u32 % length.max(1));
+    let play_step = frame.rack_play_step;
     let notes = s
         .project
         .pattern(s.pattern)
@@ -712,6 +711,10 @@ fn sequence(
                 2.0,
             );
             ui.c.fill_rrect(mark, 1.0, ui.t.accent);
+        }
+        if let Some(step) = play_step {
+            let x = mini_playhead_x(row, step, end.div_ceil(per_step));
+            ui.c.fill_rect(Rect::new(x, row.y + 1.0, 1.0, row.h - 2.0), ui.t.glyph);
         }
         ui.hit(
             row,

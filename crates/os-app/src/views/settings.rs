@@ -306,6 +306,8 @@ pub const LIVE: &[&str] = &[
     "Add folder...",
     "Find new plugins",
     "Rescan all",
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    crate::legacy_vst::INSTALL,
     "Load theme...",
     "Reset",
     ASSOCIATE_CHECK,
@@ -774,11 +776,9 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                 if presets.len() > 1 {
                     rows.push(combo(preset, 190.0, LATENCY_PRESET));
                     rows.push(txt("Shorter buffers respond faster. Larger buffers help with clicks during playback."));
-                    if let (Some(wanted), Some(actual)) = (st.audio.buffer, st.driver.as_ref().and_then(|d| d.fixed))
-                        && st.asio_open && wanted != actual
-                    {
-                        rows.push(Text(format!("Your driver is using {} frames.", actual), true));
-                    }
+                }
+                if st.asio_open && let Some(actual) = st.driver.as_ref().and_then(|d| d.fixed) {
+                    rows.push(Text(format!("Your driver is using {actual} frames."), true));
                 }
                 if st.audio.asio_driver().is_some() {
                     rows.push(Buttons(vec![(SHOW_ASIO_PANEL, 136.0)]));

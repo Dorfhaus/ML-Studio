@@ -118,6 +118,7 @@ pub enum Command {
     MoveVideo(usize),
     RemoveVideo(usize),
     PreviewVideo,
+    SetupVideo,
 }
 
 #[derive(Clone, Debug)]
@@ -690,6 +691,9 @@ pub fn press(app: &mut App, lane: Lane, header: bool, right: bool) {
                     command("Ruler in elapsed time", Command::RulerTime(!time_ruler(s)))
                         .mark(Mark::Check(time_ruler(s))),
                 ];
+                if header && video::tool().is_err() {
+                    items.push(command("Set up video playback...", Command::SetupVideo));
+                }
                 if !data(s).videos.is_empty() {
                     items.push(
                         command("Video preview", Command::PreviewVideo)
@@ -957,6 +961,9 @@ pub fn run(app: &mut App, cmd: Command) -> Option<String> {
             if lane == Lane::Tempo && !visible {
                 s.playlist.scoring.warp = false;
             }
+            if lane == Lane::Video && visible && video::tool().is_err() {
+                video::setup::offer(app, None);
+            }
         }
         Command::RulerTime(enabled) => {
             crate::settings_file::set_flag("playlist_ruler_seconds", enabled)
@@ -1040,7 +1047,13 @@ pub fn run(app: &mut App, cmd: Command) -> Option<String> {
                 map.videos.remove(i);
             }
         }),
-        Command::PreviewVideo => s.playlist.scoring.video.open = !s.playlist.scoring.video.open,
+        Command::PreviewVideo => {
+            s.playlist.scoring.video.open = !s.playlist.scoring.video.open;
+            if s.playlist.scoring.video.open && video::tool().is_err() {
+                video::setup::offer(app, None);
+            }
+        }
+        Command::SetupVideo => video::setup::offer(app, None),
     }
     app.invalidate();
     None

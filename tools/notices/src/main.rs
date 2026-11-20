@@ -32,17 +32,16 @@ fn cargo() -> Command {
 
 fn main() {
     let root = root();
-    let out = cargo()
-        .current_dir(&root)
-        .args(["about", "generate", "--locked", "-c", "tools/notices/about.toml", "tools/notices/about.hbs"])
-        .output()
-        .expect("cargo runs");
-    if !out.status.success() {
-        eprint!("{}", String::from_utf8_lossy(&out.stderr));
+    let generated = std::env::temp_dir().join(format!("ml-studio-notices-{}.txt", std::process::id()));
+    let status = cargo().current_dir(&root)
+        .args(["about", "generate", "--locked", "-c", "tools/notices/about.toml", "--output-file"])
+        .arg(&generated).arg("tools/notices/about.hbs").status().expect("cargo runs");
+    if !status.success() {
         eprintln!("cargo about failed; it installs with `cargo install cargo-about --locked --features cli`");
         std::process::exit(1);
     }
-    let section = tidy(&String::from_utf8_lossy(&out.stdout));
+    let section = tidy(&std::fs::read_to_string(&generated).expect("read generated notices"));
+    let _ = std::fs::remove_file(generated);
     let path = root.join(FILE);
     let text = std::fs::read_to_string(&path).expect("THIRD-PARTY-NOTICES.txt").replace('\r', "");
     let kept = match section_start(&text) {
@@ -50,7 +49,10 @@ fn main() {
         None => &text,
     };
     let kept = kept.trim_end_matches('\n');
-    std::fs::write(&path, format!("{kept}\n\n{section}")).expect("THIRD-PARTY-NOTICES.txt written");
+    // Integrated engines and sound-bank terms follow the generated Rust licenses.
+    let appendix = text.find("\nMichael Lane edition additions - 31 October 2026\n")
+        .map(|i| format!("\n{}", &text[i..])).unwrap_or_default();
+    std::fs::write(&path, format!("{kept}\n\n{section}{appendix}")).expect("THIRD-PARTY-NOTICES.txt written");
     println!("{FILE}: {} crates", listed(&section).len());
 }
 

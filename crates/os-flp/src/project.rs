@@ -761,6 +761,7 @@ pub fn load(file: &FlpFile) -> Result<Project, ProjectError> {
         main_pitch: l.main_pitch.map(|i| int(&events[i]) as u16 as i16),
         main_volume: main_volume(l.mixer_params.and_then(|i| events[i].data()).unwrap_or(&[])),
         playlist_view: l.playlist_view.and_then(|i| events[i].data()).and_then(PlaylistView::from_bytes),
+        playlist_loop: read_playlist_loop(file),
         work_time: l.work_time.and_then(|i| events[i].data()).and_then(work_time_from),
         show_info: l.show_info.map(|i| int(&events[i]) != 0),
         // Events 167 and 202 (spec: ui/data-folder.md §2); 202 is read as it is, empty or not.
@@ -3315,6 +3316,7 @@ pub fn apply(project: &Project, file: &mut FlpFile) -> Result<(), ProjectError> 
     write_attached_lanes(project, file);
     write_attached_order(project, file);
     write_playlist_sizes(project, file);
+    write_playlist_loop(project, file);
     write_frozen_tracks(project, file);
     write_extra_fx(project, file);
     write_audio_warps(project,file);
@@ -3864,6 +3866,7 @@ pub fn create(project: &Project) -> Result<FlpFile, ProjectError> {
     write_attached_lanes(project, &mut file);
     write_attached_order(project, &mut file);
     write_playlist_sizes(project, &mut file);
+    write_playlist_loop(project, &mut file);
     write_frozen_tracks(project, &mut file);
     write_extra_fx(project, &mut file);
     write_audio_warps(project,&mut file);
@@ -7165,14 +7168,22 @@ fn write_mpe(p:&Project,file:&mut FlpFile){
  for &(id,c)in &p.mpe.channels{let c=c.valid();d.extend(id.to_le_bytes());d.extend([c.enabled as u8,c.upper as u8,c.members,c.bend]);for v in [c.sensitivity,c.pressure,c.slide]{d.extend(v.to_le_bytes());}}
  let notes:Vec<_>=p.patterns.iter().flat_map(|pat|pat.notes.iter().enumerate().filter_map(|(i,n)|p.mpe.get(n.expression).map(|e|(pat.number,i,e)))).collect();
  d.extend((notes.len()as u32).to_le_bytes());for(pat,i,e)in notes{d.extend(pat.to_le_bytes());d.extend((i as u32).to_le_bytes());for lane in &e.lanes{d.extend((lane.len()as u32).to_le_bytes());for p in lane{d.extend(p.at.to_le_bytes());d.extend(p.value.to_le_bytes());d.push(p.smooth as u8);}}}
+ // Optional trailer. Older readers still load the expressions and MPE configuration.
+ if p.mpe.channels.iter().any(|(_, config)| config.valid().wheel_bend != 2) {
+  d.extend(p.mpe.channels.iter().map(|(_, config)| config.valid().wheel_bend));
+ }
  file.chunks.push(Chunk{tag:MPE_DATA,body:ChunkBody::Raw(d)});
 }
 fn read_mpe(file:&FlpFile,p:&mut Project){
  fn parse(d:&[u8])->Option<(os_model::mpe::Data,Vec<(u16,usize,u32)>)>{
   struct Read<'a>(&'a[u8]);impl Read<'_>{fn bytes<const N:usize>(&mut self)->Option<[u8;N]>{let x=self.0.get(..N)?.try_into().ok()?;self.0=&self.0[N..];Some(x)}fn u8(&mut self)->Option<u8>{Some(self.bytes::<1>()?[0])}fn u16(&mut self)->Option<u16>{Some(u16::from_le_bytes(self.bytes()?))}fn u32(&mut self)->Option<u32>{Some(u32::from_le_bytes(self.bytes()?))}fn f32(&mut self)->Option<f32>{let v=f32::from_le_bytes(self.bytes()?);v.is_finite().then_some(v)}}
   if d.len()>32*1024*1024{return None;}let mut r=Read(d);if r.u8()?!=1{return None;}let mut data=os_model::mpe::Data::default();let mut links=vec![];
-  for _ in 0..r.u16()?{let id=r.u16()?;let c=os_model::mpe::Config{enabled:r.u8()?!=0,upper:r.u8()?!=0,members:r.u8()?,bend:r.u8()?,sensitivity:r.f32()?,pressure:r.f32()?,slide:r.f32()?};data.set_config(id,c);}
-  let count=r.u32()?;if count>1_000_000{return None;}for _ in 0..count{let pat=r.u16()?;let note=r.u32()?as usize;let mut e=os_model::mpe::Expression::default();for lane in 0..3{let n=r.u32()?;if n>100_000{return None;}for _ in 0..n{let at=r.f32()?;let value=r.f32()?;let smooth=r.u8()?!=0;e.lanes[lane].push(os_model::mpe::Point{at:at.clamp(0.,1.),value:if lane==0{value.clamp(-96.,96.)}else{value.clamp(0.,1.)},smooth});}e.lanes[lane].sort_by(|a,b|a.at.total_cmp(&b.at));}let id=data.add(e);links.push((pat,note,id));}Some((data,links))
+  for _ in 0..r.u16()?{let id=r.u16()?;let c=os_model::mpe::Config{enabled:r.u8()?!=0,upper:r.u8()?!=0,members:r.u8()?,bend:r.u8()?,sensitivity:r.f32()?,pressure:r.f32()?,slide:r.f32()?,..Default::default()};data.set_config(id,c);}
+  let count=r.u32()?;if count>1_000_000{return None;}for _ in 0..count{let pat=r.u16()?;let note=r.u32()?as usize;let mut e=os_model::mpe::Expression::default();for lane in 0..3{let n=r.u32()?;if n>100_000{return None;}for _ in 0..n{let at=r.f32()?;let value=r.f32()?;let smooth=r.u8()?!=0;e.lanes[lane].push(os_model::mpe::Point{at:at.clamp(0.,1.),value:if lane==0{value.clamp(-96.,96.)}else{value.clamp(0.,1.)},smooth});}e.lanes[lane].sort_by(|a,b|a.at.total_cmp(&b.at));}let id=data.add(e);links.push((pat,note,id));}
+  if r.0.len() == data.channels.len() {
+   for ((_, config), &range) in data.channels.iter_mut().zip(r.0) {config.wheel_bend = range.clamp(1,96);}
+  }
+  Some((data,links))
  }
  for c in &file.chunks{if c.tag!=MPE_DATA{continue;}let ChunkBody::Raw(d)=&c.body else{continue;};let Some((mut data,links))=parse(d)else{continue;};data.channels.retain(|(id,_)|p.channels.iter().any(|c|c.index==*id));for(pat,index,id)in links{if let Some(n)=p.patterns.iter_mut().find(|p|p.number==pat).and_then(|p|p.notes.get_mut(index)){n.expression=id;}}p.mpe=data;}
 }
@@ -7320,6 +7331,26 @@ fn write_playlist_sizes(project: &Project, file: &mut FlpFile) {
     if !sizes.is_empty() {
         let bytes = serde_json::to_vec(&(1u8, sizes)).expect("Playlist sizes are serializable");
         file.chunks.push(Chunk { tag: PLAYLIST_SIZES, body: ChunkBody::Raw(bytes) });
+    }
+}
+
+const PLAYLIST_LOOP: Tag = Tag(*b"LSLR");
+
+fn read_playlist_loop(file: &FlpFile) -> Option<(u32, u32)> {
+    file.chunks.iter().rev().filter(|chunk| chunk.tag == PLAYLIST_LOOP).find_map(|chunk| {
+        let ChunkBody::Raw(bytes) = &chunk.body else { return None };
+        let [1, bounds @ ..] = bytes.as_slice() else { return None };
+        let (start, end): (u32, u32) = serde_json::from_slice(bounds).ok()?;
+        (start < end).then_some((start, end))
+    })
+}
+
+fn write_playlist_loop(project: &Project, file: &mut FlpFile) {
+    file.chunks.retain(|chunk| chunk.tag != PLAYLIST_LOOP);
+    if let Some(range) = project.playlist_loop.filter(|(start, end)| start < end) {
+        let mut data = vec![1];
+        data.extend(serde_json::to_vec(&range).expect("Playlist loop is serializable"));
+        file.chunks.push(Chunk { tag: PLAYLIST_LOOP, body: ChunkBody::Raw(data) });
     }
 }
 

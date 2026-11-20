@@ -6,10 +6,11 @@ import release as r
 import builders as b
 import storage
 import discord_changelog
+import download_page
 from checkpoints import Journal, atomic_json, digest, exclusive, plan_files, stage_plan
 
 CONFIG=r.PRIVATE/'pipeline.json'
-PLATFORMS=('windows','linux','mac-arm64','mac-x86_64')
+PLATFORMS=download_page.PLATFORMS
 MAC_PLATFORMS=PLATFORMS[2:]
 WINDOWS_LINUX_LINKS=('platforms/windows.json','platforms/linux.json','updates/stable.json','updates/linux-x64/stable.json')
 REPOSITORY='Dorfhaus/ML-Studio'
@@ -181,7 +182,7 @@ def worker(arch,mac_only=False):
     with exclusive(r.PRIVATE/('pipeline-mac-'+arch+'.lock')), storage.active_release(root.parent.parent):
         j=Journal(root/'state.json',identity())
         def build(attempt):
-            plan=b.mac(config(),arch,root/f'build-{attempt}',root/'build.log',verify_au=mac_only);return str(plan),plan_files(plan)
+            plan=b.mac(config(),arch,root/f'build-{attempt}',root/'build.log');return str(plan),plan_files(plan)
         plan=j.step('Build mac-'+arch,build)
         if r.git('status','--porcelain') or r.git('rev-parse','HEAD')!=j.data['identity']['commit']:raise RuntimeError('Mac source changed during build; publication stopped')
         j.step('Stage mac-'+arch,lambda _:stage(plan,'mac-'+arch))
@@ -210,6 +211,18 @@ def artifacts(plans,platforms=PLATFORMS):
         if rel.startswith('helper/') and rel.endswith('.zip'):
             assets.append(dict(name=f.name,url=r.BASE+urllib.parse.quote(rel),sha256=h,path=rel,local=str(f)))
     return index,assets
+
+
+def render_website(plans, mac_only):
+    platforms = MAC_PLATFORMS if mac_only else PLATFORMS
+    index, _ = artifacts(plans, platforms)
+    manifests = {}
+    for name in PLATFORMS:
+        rel = 'platforms/' + name + '.json'
+        raw = index[rel][0].read_bytes() if name in platforms else read_url(r.BASE + rel + '?verify=' + str(time.time_ns()))
+        manifests[name] = json.loads(raw)
+    template = (r.ROOT/'packaging/download-page.html').read_bytes()
+    return download_page.render(template, manifests, r.DOWNLOAD_PAGE)
 
 
 def helper_stage(out):
@@ -247,8 +260,13 @@ def verify_live(plans,out,website_plan,protected=None):
             Ed25519PublicKey.from_public_bytes(bytes.fromhex(key.read_text().strip())).verify(bytes.fromhex(value['signature']),value['payload'].encode())
             value=json.loads(value['payload'])
         if value['version']!=r.version():raise RuntimeError('Wrong live release version')
-    if read_url(r.DOWNLOAD_PAGE+'?verify='+str(time.time_ns()))!=(r.ROOT/'packaging/download-page.html').read_bytes():raise RuntimeError('Live changelog page differs')
+    live_page = read_url(r.DOWNLOAD_PAGE+'?verify='+str(time.time_ns()))
+    live_manifests = {name: json.loads(read_url(r.BASE+'platforms/'+name+'.json?verify='+str(time.time_ns()))) for name in PLATFORMS}
+    if download_page.render(live_page, live_manifests, r.DOWNLOAD_PAGE) != live_page:
+        raise RuntimeError('Live download buttons differ from the published manifests')
     website = json.loads(Path(website_plan).read_text())
+    if hashlib.sha256(live_page).hexdigest() != next(e['sha256'] for e in website['files'] if e['path']=='index.html'):
+        raise RuntimeError('Live download page differs from the staged website')
     reference_hash = None
     if mac_only:
         if protected != download_digests(WINDOWS_LINUX_LINKS):
@@ -398,7 +416,7 @@ def coordinator(notes=None,check=False,no_changelog=False,mac_only=False):
             helper=j.step('Stage optional Melli',lambda _:helper_stage(out))
             plans=[win_shared,*macplans]
         def website(_):
-            folder=out/'website';site=folder/'lemon-studio';site.mkdir(parents=True,exist_ok=True);shutil.copy2(r.ROOT/'packaging/download-page.html',site/'index.html')
+            folder=out/'website';site=folder/'lemon-studio';site.mkdir(parents=True,exist_ok=True);(site/'index.html').write_bytes(render_website(plans, mac_only))
             if not mac_only:
                 target = site / r.MIX_REFERENCE_PATH
                 target.parent.mkdir(parents=True, exist_ok=True)

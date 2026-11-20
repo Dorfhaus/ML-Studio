@@ -374,6 +374,10 @@ impl App {
         }
     }
     pub(crate) fn params_tick(&mut self) {
+        #[cfg(any(windows, target_os = "macos"))]
+        let rack_during_fader_drag = (matches!(self.drag, Some(crate::app::Drag::Fader { .. }))
+            && crate::mixer::view(&self.state) == crate::rack_mixer::VIEW)
+            .then_some(&self.state.project.mixer);
         let ui = &mut self.state.params;
         ui.lists.retain(|k, _| self.plugins.hosted.contains_key(k));
         let mut moved = None;
@@ -400,7 +404,21 @@ impl App {
             let weak = Arc::downgrade(&h.plugin);
             let count = p.param_count();
             let stale = ui.lists.get(&key).is_none_or(|l| l.params.len() != count || !Weak::ptr_eq(&l.plugin, &weak));
+            // A docked controller may make a slow native call while reading its
+            // parameter bank. A host fader gesture only needs the cached values
+            // and queued plugin events. Resume polling as soon as it ends.
+            #[cfg(any(windows, target_os = "macos"))]
+            let defer_docked_poll = h.window.is_none() && rack_during_fader_drag.is_some_and(|mixer| {
+                crate::plugins::fx_of(key).is_some_and(|(track, slot)| mixer.iter().any(|m| {
+                    m.index == track && m.rack_strip.as_ref().is_some_and(|strip| strip.slot == slot)
+                }))
+            });
+            #[cfg(not(any(windows, target_os = "macos")))]
+            let defer_docked_poll = false;
             if stale {
+                if defer_docked_poll {
+                    continue;
+                }
                 let params: Vec<Entry> = (0..count)
                     .map(|i| match p.param_info(i) {
                         Some(info) => Entry { id: info.id, name: info.name, hidden: info.hidden, read_only:info.read_only, default: info.default, steps: info.steps },
@@ -473,7 +491,7 @@ impl App {
             }
             // A VST3 controller can read hundreds of values here. Prepare its
             // UI-only snapshot now, then run it after releasing the DSP lock.
-            let defer_poll = poll_time >= POLL_BUDGET;
+            let defer_poll = defer_docked_poll || poll_time >= POLL_BUDGET;
             let list = ui.lists.get_mut(&key).expect("parameter list initialized");
             // Reverse immediately changes the visible waveform. Its single native parameter
             // read follows attention even when the rest of the bank is polled in batches.
@@ -1137,7 +1155,7 @@ mod tests {
         pl::arr_mut(&mut app.state).clips.clear();
         app.state.project.patterns[0].notes.push(os_model::Note::step(1, 0));
         pl::arr_mut(&mut app.state).clips.push(os_model::Clip::new(384,768,2,os_model::ClipSource::Pattern(1)));
-        app.state.playlist.range=Some((96,480));
+        app.state.project.playlist_loop=Some((96,480));
         let before=app.state.project.clone();
         app.toggle_automation_capture();
         assert!(app.state.params.capture_armed);
@@ -1366,6 +1384,42 @@ mod tests {
             for n in 0..3 { assert_eq!(app.state.params.lists[&(key+n)].values.borrow()[&879],0.5+tick as f64/100.); }
         }
         for (_,reads) in &probes { assert_eq!(reads.load(Ordering::Relaxed),3*POLL_BATCH,"no plugin starved"); }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn host_fader_drag_defers_strip_controller_reads_and_preserves_plugin_events() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (mut app, key) = eq_app();
+        let desc = app.plugins.hosted[&key].plugin.lock().unwrap().desc().clone();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::default());
+        let controller = Arc::new(Mutex::new(CapturePlugin {
+            delay: std::time::Duration::ZERO, bank: 873, desc,
+            events: events.clone(), value: 0.2, snapshot: None, reads: reads.clone(),
+        }));
+        let plugin: Arc<Mutex<dyn os_host::Plugin>> = controller.clone();
+        controller.lock().unwrap().snapshot = Some(Arc::downgrade(&plugin));
+        app.plugins.hosted.insert(key, crate::plugins::Hosted::new(plugin));
+        crate::mixer::set_regular_layout(&mut app.state, crate::rack_mixer::VIEW);
+        app.state.vintage_2005 = false;
+        app.state.project.mixer[2].rack_strip = Some(os_model::RackStrip {
+            slot: 1, native_bypassed: false, eq_on: true,
+        });
+
+        app.params_tick();
+        let before = reads.load(Relaxed);
+        assert!(before > 0);
+        app.drag = Some(crate::app::Drag::Fader { track: 2, y0: 100., v0: 0.8,
+            group: vec![(2, 0.8)], per_px: 0.01 });
+        events.lock().unwrap().push(os_host::ParamEvent::Value(879, 0.7));
+        app.params_tick();
+        assert_eq!(reads.load(Relaxed), before);
+        assert_eq!(app.state.params.lists[&key].values.borrow()[&879], 0.7);
+
+        app.drag = None;
+        app.params_tick();
+        assert!(reads.load(Relaxed) > before);
     }
 
     struct CapturePlugin { delay:std::time::Duration, bank:usize, desc: os_host::Descriptor, events: Arc<Mutex<Vec<os_host::ParamEvent>>>, value:f64, snapshot:Option<Weak<Mutex<dyn os_host::Plugin>>>, reads:Arc<std::sync::atomic::AtomicUsize> }

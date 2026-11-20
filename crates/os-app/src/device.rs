@@ -377,7 +377,7 @@ pub(crate) fn pump() {
 enum Stream {
     Cpal(#[allow(dead_code)] cpal::Stream),
     #[cfg(windows)]
-    Asio(#[allow(dead_code)] asio::AsioOut),
+    Asio { stream: asio::AsioOut, requested_buffer: Option<u32> },
     #[cfg(windows)]
     Wasapi(#[allow(dead_code)] wasapi::WasapiOut),
 }
@@ -469,16 +469,35 @@ impl OutputDevice {
         self.open.as_mut()?.note.take()
     }
 
-    /// Opens the ASIO driver's own settings window (opening the driver first if it is closed).
-    pub(crate) fn asio_panel(&mut self) -> Result<(), String> {
+    /// Opens the ASIO panel and reports whether the stream needs rebuilding after an edit.
+    pub(crate) fn asio_panel(&mut self) -> Result<bool, String> {
         self.open()?;
         if !self.is_asio() {
             return Err("the output is not an ASIO driver".into());
         }
         #[cfg(windows)]
-        return asio::control_panel();
+        {
+            asio::control_panel()?;
+            Ok(self.adopt_asio_buffer_change(true))
+        }
         #[cfg(not(windows))]
-        Ok(())
+        Ok(false)
+    }
+
+    /// Adopt buffer edits before recovery can reopen the stream with an old preset.
+    pub(crate) fn adopt_asio_buffer_change(&self, _from_panel: bool) -> bool {
+        #[cfg(windows)]
+        if let Some(open) = &self.open
+            && let Stream::Asio { stream, requested_buffer } = &open._stream
+            && let Some(buffer) = stream.buffer_change(_from_panel && open.failed.load(Ordering::Acquire))
+        {
+            AudioCfg::adopt_driver_buffer(&open.info.name, *requested_buffer, buffer);
+            if !open.failed.swap(true, Ordering::AcqRel) && let Ok(mut fault) = open.fault.lock() {
+                *fault = Some("the driver changed its buffer length".into());
+            }
+            return true;
+        }
+        false
     }
 
     /// Plays `source` from the next block on (opening the device first if it is closed).
@@ -635,7 +654,7 @@ fn open_asio(name: &str, cfg: &AudioCfg, xruns: &Arc<AtomicU64>) -> Result<Open,
     let a = open(cfg.buffer).or_else(|error| if cfg.buffer.is_some() { open(None) } else { Err(error) })?;
     let (fixed, buffers) = (Some(a.frames), Some(a.buffers));
     let info = DeviceInfo { host: ASIO, name: name.to_string(), rate: a.rate, fixed, buffers, channels: a.channels, inputs: a.inputs, input_latency: a.input_latency, rates: a.rates, sizes: a.sizes, latency: a.latency, instead: None };
-    Ok(Open { _stream: Stream::Asio(a.out), inbox, outbox, info, note: None, failed: errors.failed, fault: errors.fault })
+    Ok(Open { _stream: Stream::Asio { stream: a.out, requested_buffer: cfg.buffer }, inbox, outbox, info, note: None, failed: errors.failed, fault: errors.fault })
 }
 
 /// Opens a Windows (ALSA, Core Audio) device's stream for `cfg`: its device, rate and buffer length, else the
@@ -783,10 +802,19 @@ mod tests {
         sf::write("headphones_profile",&serde_json::to_string(text).unwrap());
         sf::write("headphones_model","Synthetic test headphones");
         sf::write("headphones_on","true");
-        let restored=crate::headphones::UiState::default();assert!(restored.on);assert_eq!(restored.name,"Synthetic test headphones");
+        let restored=crate::headphones::UiState::default();
+        assert!(restored.on && restored.auto_gain, "existing profiles default to Auto gain");
+        assert_eq!(restored.name,"Synthetic test headphones");
         let (mut m,inbox,_)=mix(4);m.headphones.set_rate(48000);
         let (a,_,_)=level(0.25);let (b,_,_)=level(0.5);
         assert!(inbox.push(a).is_ok() && inbox.push(b).is_ok());
+        for _ in 0..20 {m.block(64);}
+        assert!(m.block(64).iter().all(|v|(*v-0.75).abs()<0.00001));
+        sf::set_flag(crate::headphones::AUTO_GAIN_VISIBILITY, false);
+        let mut app = crate::app::App::new(None);
+        assert!(app.state.headphones.auto_gain, "hiding the switch preserves processing");
+        crate::headphones::toggle_auto_gain(&mut app);
+        assert!(!crate::headphones::UiState::default().auto_gain, "the choice survives restart");
         for _ in 0..20 {m.block(64);}
         assert!(m.block(64).iter().all(|v|(*v-0.75*10f32.powf(-6./20.)).abs()<0.00001));
         sf::write("headphones_on","false");let _=crate::headphones::UiState::default();

@@ -231,7 +231,18 @@ mod tests {
             })
         });
 
-        request_install(&mut app);
+        use crate::app::Action;
+        use crate::views::settings::{self, SAct};
+        app.open_settings(settings::PLUGINS);
+        let mut canvas = os_ui::Canvas::new(1920, 1080, 1.0).unwrap();
+        app.paint(&mut canvas, None);
+        let download = app.hits.iter()
+            .find(|hit| hit.action == Action::Settings(SAct::Button(INSTALL)))
+            .expect("bridge installer must be clickable in Settings > Plugins")
+            .rect;
+        app.mouse_move(download.cx(), download.cy());
+        app.mouse_down();
+        app.mouse_up();
         wait_for_scan(&mut app, |app| {
             app.state
                 .plugdb

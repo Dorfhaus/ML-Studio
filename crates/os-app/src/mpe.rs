@@ -14,6 +14,7 @@ pub enum Command {
     Upper(bool),
     Members(u8),
     Bend(u8),
+    WheelBend(u8),
     Sensitivity(f32),
     Pressure(f32),
     Slide(f32),
@@ -100,6 +101,13 @@ pub fn menu(s: &State) -> PItem {
                     .collect(),
             ),
             PItem::sub(
+                "Pitch Draw wheel range",
+                [2, 12, 24, 48, 96].into_iter().map(|n| {
+                    item(format!("±{n} semitones"), Command::WheelBend(n))
+                        .mark(Mark::Radio(c.wheel_bend == n))
+                }).collect(),
+            ),
+            PItem::sub(
                 "Pitch sensitivity",
                 [0.25, 0.5, 1., 1.5, 2.]
                     .into_iter()
@@ -175,6 +183,7 @@ pub fn command(app: &mut App, cmd: Command) {
                 Command::Upper(v) => c.upper = v,
                 Command::Members(v) => c.members = v,
                 Command::Bend(v) => c.bend = v,
+                Command::WheelBend(v) => c.wheel_bend = v,
                 Command::Sensitivity(v) => c.sensitivity = v,
                 Command::Pressure(v) => c.pressure = v,
                 Command::Slide(v) => c.slide = v,

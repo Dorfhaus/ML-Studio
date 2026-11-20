@@ -6,10 +6,14 @@ pub struct Config {
     pub upper: bool,
     pub members: u8,
     pub bend: u8,
+    #[serde(default = "default_wheel_bend")]
+    pub wheel_bend: u8,
     pub sensitivity: f32,
     pub pressure: f32,
     pub slide: f32,
 }
+fn default_wheel_bend() -> u8 { 2 }
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -17,6 +21,7 @@ impl Default for Config {
             upper: false,
             members: 15,
             bend: 48,
+            wheel_bend: default_wheel_bend(),
             sensitivity: 1.,
             pressure: 1.,
             slide: 1.,
@@ -28,6 +33,7 @@ impl Config {
         Self {
             members: self.members.clamp(1, 15),
             bend: self.bend.clamp(1, 96),
+            wheel_bend: self.wheel_bend.clamp(1, 96),
             sensitivity: finite(self.sensitivity, 1.).clamp(0.25, 2.),
             pressure: finite(self.pressure, 1.).clamp(0.25, 4.),
             slide: finite(self.slide, 1.).clamp(0.25, 4.),

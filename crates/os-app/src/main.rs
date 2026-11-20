@@ -132,6 +132,7 @@ mod monitor;
 mod params;
 mod piano;
 mod piano_note_mode;
+mod piano_pitch;
 mod piano_note_properties;
 mod piano_snap;
 mod piano_split;

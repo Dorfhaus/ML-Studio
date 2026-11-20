@@ -14,6 +14,8 @@ use std::{io::Read, sync::mpsc, time::Duration};
 
 pub const CATALOG: &str = include_str!("../assets/headphones/catalog.tsv");
 const REV: &str = include_str!("../assets/headphones/REVISION");
+pub(crate) const AUTO_GAIN_VISIBILITY: &str = "visible_headphones_auto_gain";
+const AUTO_GAIN: &str = "headphones_auto_gain";
 const H200_PATH: &str = "oratory1990/bundled-adam-h200";
 
 const HPM1000_PATH: &str = "SeokHwan-BAE1234/bundled-behringer-hpm1000";
@@ -158,8 +160,10 @@ impl Form {
 pub struct UiState {
     pub name: String,
     pub on: bool,
+    pub auto_gain: bool,
     pub status: String,
     profile: Option<Profile>,
+    makeup: f64,
     text: String,
 }
 impl Default for UiState {
@@ -171,17 +175,24 @@ impl Default for UiState {
         let profile = parse(&text).ok();
         let on =
             profile.is_some() && settings_file::get("headphones_on").as_deref() == Some("true");
-        publish(profile.unwrap_or_default(), on);
-        Self {
+        let state = Self {
             name,
             on,
+            auto_gain: settings_file::flag(AUTO_GAIN, true),
             status: String::new(),
             profile,
+            makeup: profile.map(level_match).unwrap_or(1.),
             text,
-        }
+        };
+        state.apply();
+        state
     }
 }
 impl UiState {
+    fn apply(&self) {
+        publish(self.profile.unwrap_or_default(), self.on, self.auto_gain.then_some(self.makeup));
+    }
+
     fn save(&self) {
         settings_file::write_all(&[
             ("headphones_model".into(), self.name.clone()),
@@ -194,7 +205,7 @@ impl UiState {
     }
 }
 pub struct Job {
-    rx: mpsc::Receiver<Result<(usize, String), String>>,
+    rx: mpsc::Receiver<Result<(usize, String, Profile, f64), String>>,
 }
 pub fn open(app: &mut App) {
     app.show_form(Body::Headphones(Form::new()));
@@ -216,10 +227,21 @@ pub fn toggle(app: &mut App) {
     }
     let s = &mut app.state.headphones;
     s.on = !s.on;
-    publish(s.profile.unwrap(), s.on);
+    s.apply();
     s.save();
     app.invalidate();
 }
+
+pub(crate) fn toggle_auto_gain(app: &mut App) {
+    let s = &mut app.state.headphones;
+    s.auto_gain = !s.auto_gain;
+    if s.on {
+        s.apply();
+    }
+    settings_file::set_flag(AUTO_GAIN, s.auto_gain);
+    app.invalidate();
+}
+
 pub fn select(app: &mut App, index: usize) {
     if app.headphone_job.is_some() || index >= catalog().len() {
         return;
@@ -236,7 +258,10 @@ pub fn select(app: &mut App, index: usize) {
     let (tx, rx) = mpsc::channel();
     app.headphone_job = Some(Job { rx });
     std::thread::spawn(move || {
-        let result = load(index).map(|s| (index, s));
+        let result = load(index).and_then(|text| {
+            let profile = parse(&text)?;
+            Ok((index, text, profile, level_match(profile)))
+        });
         let _ = tx.send(result);
     });
     app.invalidate();
@@ -299,18 +324,16 @@ pub fn tick(app: &mut App) {
     app.headphone_job = None;
     let s = &mut app.state.headphones;
     match result {
-        Ok((i, text)) => match parse(&text) {
-            Ok(p) => {
-                s.name = catalog()[i].0.into();
-                s.on = true;
-                s.profile = Some(p);
-                s.text = text;
-                s.status = format!("{} active | Headroom {:.1} dB", s.name, p.preamp);
-                publish(p, true);
-                s.save();
-            }
-            Err(e) => s.status = e,
-        },
+        Ok((i, text, profile, makeup)) => {
+            s.name = catalog()[i].0.into();
+            s.on = true;
+            s.profile = Some(profile);
+            s.makeup = makeup;
+            s.text = text;
+            s.status = format!("{} loaded", s.name);
+            s.apply();
+            s.save();
+        }
         Err(e) => s.status = e,
     }
     app.invalidate();
@@ -319,6 +342,7 @@ pub fn tick(app: &mut App) {
 struct Config {
     profile: Profile,
     on: bool,
+    makeup: Option<f64>,
 }
 #[cfg(not(test))]
 static CONFIG: Mutex<Config> = Mutex::new(Config {
@@ -333,17 +357,19 @@ static CONFIG: Mutex<Config> = Mutex::new(Config {
         preamp: 0.,
     },
     on: false,
+    makeup: None,
 });
 #[cfg(not(test))]
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 #[cfg(test)]
 thread_local! {static TEST_CONFIG:std::cell::Cell<(u64,Config)>=std::cell::Cell::new((1,Config::default()));}
-fn publish(profile: Profile, on: bool) {
+fn publish(profile: Profile, on: bool, makeup: Option<f64>) {
+    let config = Config { profile, on, makeup };
     #[cfg(test)]
-    TEST_CONFIG.with(|c| c.set((c.get().0 + 1, Config { profile, on })));
+    TEST_CONFIG.with(|c| c.set((c.get().0 + 1, config)));
     #[cfg(not(test))]
     if let Ok(mut c) = CONFIG.lock() {
-        *c = Config { profile, on };
+        *c = config;
         GENERATION.fetch_add(1, Ordering::Release);
     }
 }
@@ -418,11 +444,52 @@ impl Biquad {
         y
     }
 }
+// Calibrate once per profile against a pink reference with the same loudness meter used
+// by the app's loudness tools. The resulting trim stays constant as the music changes.
+fn level_match(profile: Profile) -> f64 {
+    use ebur128::{EbuR128, Mode};
+    use std::sync::OnceLock;
+
+    const RATE: u32 = 48_000;
+    static REFERENCE: OnceLock<Vec<f32>> = OnceLock::new();
+    let reference = REFERENCE.get_or_init(|| {
+        let mut seed = 12345u32;
+        let mut white = || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            (seed >> 8) as f32 / (1u32 << 23) as f32 - 1.
+        };
+        // Voss-McCartney pink noise. Update one octave row per sample and add white
+        // noise so the reference still has energy near the top of the spectrum.
+        let mut rows = [0.; 12];
+        let mut sum = 0.;
+        (1..=RATE).map(|n| {
+            let row = (n.trailing_zeros() as usize).min(rows.len() - 1);
+            let value = white();
+            sum += value - rows[row];
+            rows[row] = value;
+            (sum + white()) / (rows.len() + 1) as f32
+        }).collect()
+    });
+    let mut chain = Chain::new(Config { profile, on: true, makeup: None }, RATE);
+    let corrected: Vec<_> = reference.iter().map(|&x| chain.sample(f64::from(x), 0) as f32).collect();
+    let loudness = |samples: &[f32]| -> Option<f64> {
+        let mut meter = EbuR128::new(1, RATE, Mode::M).ok()?;
+        meter.add_frames_f32(samples).ok()?;
+        meter.loudness_momentary().ok().filter(|db| db.is_finite())
+    };
+    let db = loudness(reference).zip(loudness(&corrected))
+        .map_or(-profile.preamp, |(dry, wet)| dry - wet)
+        .clamp(-12., 12.);
+    10f64.powf(db / 20.)
+}
+
 #[derive(Clone, Copy)]
 struct Chain {
     filters: [Biquad; 12],
     count: usize,
     gain: f64,
+    peak_gain: f64,
+    release: f64,
 }
 impl Default for Chain {
     fn default() -> Self {
@@ -430,6 +497,8 @@ impl Default for Chain {
             filters: [Biquad::default(); 12],
             count: 0,
             gain: 1.,
+            peak_gain: 1.,
+            release: 0.,
         }
     }
 }
@@ -439,7 +508,8 @@ impl Chain {
             return Self::default();
         }
         let mut s = Self {
-            gain: 10f64.powf(c.profile.preamp / 20.),
+            gain: 10f64.powf(c.profile.preamp / 20.) * c.makeup.unwrap_or(1.),
+            release: if c.makeup.is_some() { 1. - (-1. / (f64::from(rate) * 0.05)).exp() } else { 0. },
             ..Self::default()
         };
         s.count = c.profile.count;
@@ -454,6 +524,22 @@ impl Chain {
             v = f.sample(v, ch);
         }
         v
+    }
+
+    fn frame(&mut self, [left, right]: [f64; 2]) -> [f64; 2] {
+        let l = self.sample(left, 0);
+        let r = self.sample(right, 1);
+        if self.release == 0. {
+            return [l, r];
+        }
+        // A linked sample-peak ceiling protects the device output without delaying live audio.
+        const CEILING: f64 = 0.9885531; // -0.1 dBFS
+        let peak = l.abs().max(r.abs());
+        self.peak_gain += (1. - self.peak_gain) * self.release;
+        if peak > CEILING {
+            self.peak_gain = self.peak_gain.min(CEILING / peak);
+        }
+        [l * self.peak_gain, r * self.peak_gain]
     }
 }
 /// Fixed storage, no allocation or blocking lock in the device callback. Crossfades old/new chains.
@@ -495,15 +581,16 @@ impl Processor {
         }
         for pair in out.chunks_exact_mut(2) {
             let wet = 1. - self.fade as f64 / self.total as f64;
-            for (ch, v) in pair.iter_mut().enumerate() {
-                let x = *v as f64;
-                let y = self.current.sample(x, ch);
-                *v = if self.fade > 0 {
-                    (self.old.sample(x, ch) * (1. - wet) + y * wet) as f32
-                } else {
-                    y as f32
-                };
+            let input = [f64::from(pair[0]), f64::from(pair[1])];
+            let mut output = self.current.frame(input);
+            if self.fade > 0 {
+                let old = self.old.frame(input);
+                for ch in 0..2 {
+                    output[ch] = old[ch] * (1. - wet) + output[ch] * wet;
+                }
             }
+            pair[0] = output[0] as f32;
+            pair[1] = output[1] as f32;
             self.fade = self.fade.saturating_sub(1);
         }
     }
@@ -524,6 +611,50 @@ mod tests {
         let text = fetch(path).unwrap();
         assert_eq!(parse(&text).unwrap().count, 10);
     }
+    #[test]
+    fn headphone_auto_gain_matches_loudness_and_protects_monitor_peaks() {
+        let flat = parse("Preamp: -9 dB\nFilter 1: ON PK Fc 1000 Hz Gain 0 dB Q 1").unwrap();
+        let gain = level_match(flat);
+        assert!((20. * gain.log10() - 9.).abs() < 0.001);
+        for profile in [
+            parse(bundled_text(H200_PATH).unwrap()).unwrap(),
+            parse(bundled_text(HPM1000_PATH).unwrap()).unwrap(),
+            parse(include_str!("../assets/headphones/test-hd650.txt")).unwrap(),
+        ] {
+            let db = 20. * level_match(profile).log10();
+            assert!(db > 3. && db < 12., "expected meaningful makeup for this profile: {db:.2} dB");
+        }
+
+        for rate in [44100, 48000, 96000, 192000] {
+            let profile = parse("Preamp: -9 dB\nFilter 1: ON PK Fc 1000 Hz Gain 9 dB Q 3").unwrap();
+            publish(profile, true, Some(level_match(profile)));
+            let mut processor = Processor::default();
+            processor.set_rate(rate);
+            let samples = |amp: f32| -> Vec<f32> {
+                (0..rate / 2).flat_map(|n| {
+                    let sample = (std::f64::consts::TAU * 1000. * f64::from(n) / f64::from(rate)).sin() as f32 * amp;
+                    [sample, sample * 0.3]
+                }).collect()
+            };
+            let mut hot = samples(0.95);
+            processor.process(&mut hot);
+            assert!(hot.iter().all(|v| v.abs() < 0.989));
+            for frame in hot.chunks_exact(2) {
+                assert!((frame[0] * 0.3 - frame[1]).abs() < 1e-6, "linked stereo preserves balance");
+            }
+            let mut quiet = samples(0.05);
+            processor.process(&mut quiet);
+            let end = &quiet[quiet.len() - rate as usize / 4..];
+            assert!(end.iter().any(|v| v.abs() > 0.08), "the guard releases after a peak");
+            publish(profile, false, None);
+            let mut dry = samples(0.05);
+            let expected = dry.clone();
+            processor.process(&mut dry);
+            let fade_samples = 2 * (rate / 50) as usize;
+            assert_eq!(&dry[fade_samples..], &expected[fade_samples..]);
+        }
+    }
+
     #[test]
     fn headphone_profiles_audio_and_bypass() {
         assert_eq!(catalog().len(), CATALOG.lines().count() + 2);
@@ -549,6 +680,7 @@ mod tests {
                     Config {
                         profile: p,
                         on: true,
+                        makeup: None,
                     },
                     rate,
                 );
@@ -624,10 +756,10 @@ mod tests {
             engine.set_span(0, 96);
             engine.render_all(96)
         };
-        publish(p, false);
+        publish(p, false, None);
         let before = render();
         assert!(before.iter().any(|v| v.abs() > 0.001));
-        publish(p, true);
+        publish(p, true, Some(level_match(p)));
         assert_eq!(
             before,
             render(),
@@ -636,12 +768,12 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let mut dsp = Processor::default();
         dsp.set_rate(48000);
-        publish(p, true);
+        publish(p, true, None);
         let mut b = vec![0.1; 9600];
         dsp.process(&mut b);
         assert!(b.iter().all(|v| v.is_finite()));
         assert!((b[9598] - 0.0501187).abs() < 0.0001);
-        publish(p, false);
+        publish(p, false, None);
         let mut dry = vec![0.1; 9600];
         dsp.process(&mut dry);
         assert_eq!(dry[9598], 0.1);

@@ -300,7 +300,7 @@ mod tests {
     fn touch_and_latch_preserve_old_curves_and_roundtrip_undo() {
         for latching in [false,true] {
             let mut app=recording(latching);let target=os_model::target::mixer(1,os_model::target::MIXER_VOLUME);
-            app.state.playlist.range=Some((0,384));
+            app.state.project.playlist_loop=Some((0,384));
             let old=crate::playlist::create_automation(&mut app.state,target,"Old",0.2);
             let original=app.state.project.automation(old).unwrap().clone();
             app.state.history.reset();app.smart_begin_parameter(target,0.2,true);write(&mut app,target,0.8);
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn later_existing_clips_cannot_override_the_new_latched_take() {
         let mut app=recording(true);let target=os_model::target::TEMPO;
-        for start in [0,192] {app.state.playlist.range=Some((start,start+384));crate::playlist::create_automation(&mut app.state,target,"Old",0.1);}
+        for start in [0,192] {app.state.project.playlist_loop=Some((start,start+384));crate::playlist::create_automation(&mut app.state,target,"Old",0.1);}
         write(&mut app,target,0.9);app.transport.pretend_at(288.,true);app.smart_record_tick();app.smart_finish();
         let clips=crate::playlist::clips(&app.state);assert_eq!(clips.len(),4);
         assert_eq!((clips[2].position,clips[2].length),(96,96));assert_eq!((clips[3].position,clips[3].length),(192,96));

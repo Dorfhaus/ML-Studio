@@ -899,7 +899,16 @@ fn headphones_box(ui:&mut Ui,s:&State,m:&Modal,f:&crate::headphones::Form){
  let on=s.headphones.on;let b=Rect::new(r.x+18.,y+37.,76.,26.);
  let hover=hit(ui,b,DHit::HeadphoneToggle,"Enable / bypass the selected headphone correction");
  ui.c.fill_rrect(b,4.,if on{ui.t.s(0x416c52)}else if hover{ui.t.button_hi}else{ui.t.s(0x303b40)});ui.c.text_center(Font::new(11).bold(),b,ink,if on{"ON"}else{"OFF"});
- ui.c.text_clip(Font::new(12),r.x+106.,y+42.,r.w-124.,ink,if s.headphones.name.is_empty(){"No headphones selected"}else{&s.headphones.name});
+ let show_auto_gain=crate::workspace_visibility::shown(crate::headphones::AUTO_GAIN_VISIBILITY);
+ let name_width=r.w-124.-if show_auto_gain{126.}else{0.};
+ ui.c.text_clip(Font::new(12),r.x+106.,y+42.,name_width,ink,if s.headphones.name.is_empty(){"No headphones selected"}else{&s.headphones.name});
+ if show_auto_gain {
+     let button=Rect::new(r.right()-132.,y+37.,114.,26.);
+     let hovered=hit(ui,button,DHit::HeadphoneAutoGain,"Match headphone correction to the bypass level. Off uses the original profile headroom.");
+     let active=s.headphones.auto_gain;
+     ui.c.fill_rrect(button,4.,if hovered{ui.t.button_hi}else if active{ui.t.s(0x416c52)}else{ui.t.s(0x303b40)});
+     ui.c.text_center(Font::new(11).bold(),button,ink,if active{"Auto gain: On"}else{"Auto gain: Off"});
+ }
  let status=if s.headphones.status.is_empty(){"Downloaded and bundled profiles work offline."}else{&s.headphones.status};
  let sr=Rect::new(r.x+18.,y+69.,r.w-36.,20.);ui.hit(sr,Action::Swallow,status.to_string());
  ui.c.text_clip(Font::new(10),sr.x,sr.y,sr.w,dim,status);

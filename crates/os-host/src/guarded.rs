@@ -114,6 +114,18 @@ impl<P: Plugin> Instrument for Guarded<P> {
     fn voice_gains(&self) -> bool {
         self.look(false, |p| p.voice_gains())
     }
+    fn voice_pitch_supported(&self) -> bool {
+        self.look(false, |p| p.voice_pitch_supported())
+    }
+    fn voice_pitch(&mut self, offset: u32, voice: u32, base: f32, semitones: f32) {
+        self.run((), |p| p.voice_pitch(offset, voice, base, semitones))
+    }
+    fn voice_tune(&mut self, offset: u32, key: u8, voice: u32, semitones: f32) {
+        self.run((), |p| p.voice_tune(offset, key, voice, semitones))
+    }
+    fn draw_pitch(&mut self, offset: u32, key: u8, base: f32, semitones: f32, range: u8) {
+        self.run((), |p| p.draw_pitch(offset, key, base, semitones, range))
+    }
     fn voice_gain(&mut self, offset: u32, voice: u32, gain: f32) {
         self.sleep.wake();
         self.run((), |p| p.voice_gain(offset, voice, gain))

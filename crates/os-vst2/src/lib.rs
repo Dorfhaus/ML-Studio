@@ -1183,6 +1183,12 @@ impl os_engine::Instrument for Plugin {
         }
     }
 
+    fn draw_pitch(&mut self, offset: u32, key: u8, base: f32, semitones: f32, range: u8) {
+        if let Some(event) = self.bend.draw(key, base + semitones, range) {
+            os_engine::Instrument::midi(self, offset, event);
+        }
+    }
+
     fn set_bend_range(&mut self, semitones: u32) {
         self.bend.set_range(semitones);
     }

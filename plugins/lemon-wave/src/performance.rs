@@ -186,6 +186,7 @@ struct Root {
     mouse: bool,
     velocity: f32,
     tuning: f32,
+    draw_pitch: f32,
     owner: u64,
     down: bool,
     sustained: bool,
@@ -257,7 +258,7 @@ impl Player {
         for &note in &notes[..count] {
             engine.start_voice(note, root.velocity, root.channel, None, root.owner);
         }
-        engine.tune_owner(root.owner, root.tuning);
+        engine.tune_owner(root.owner, root.tuning + root.draw_pitch);
     }
     pub fn configure(&mut self, engine: &mut Engine, p: &Patch) {
         let choice = |k: usize| p[k].clamp(0., SETTINGS[k].range.1 as f32) as usize;
@@ -327,6 +328,7 @@ impl Player {
             mouse,
             velocity: vel,
             tuning: 0.,
+            draw_pitch: 0.,
             owner: self.next_owner,
             down: true,
             sustained: false,
@@ -381,16 +383,21 @@ impl Player {
             return;
         }
         for root in &mut self.roots {
-            if !root.mouse
-                && root.channel == ch
-                && root.note == note
-                && id.is_none_or(|i| root.id == Some(i))
-            {
+            // MPE tuning can address just the note ID, with both key and channel unspecified.
+            if !root.mouse && id.map_or(root.channel == ch && root.note == note, |i| root.id == Some(i)) {
                 root.tuning = amount;
-                engine.tune_owner(root.owner, amount);
+                engine.tune_owner(root.owner, amount + root.draw_pitch);
             }
         }
     }
+    pub fn draw_pitch(&mut self, engine: &mut Engine, id: i32, amount: f32) {
+        if !amount.is_finite() { return; }
+        if let Some(root) = self.roots.iter_mut().find(|root| !root.mouse && root.id == Some(id)) {
+            root.draw_pitch = amount.clamp(-96., 96.);
+            engine.tune_owner(root.owner, root.tuning + root.draw_pitch);
+        }
+    }
+
     pub fn all_off(&mut self, engine: &mut Engine, ch: u8, hard: bool) {
         if ch >= 16 {
             return;
@@ -468,7 +475,7 @@ impl Player {
             None,
             tone.root.owner,
         );
-        engine.tune_owner(tone.root.owner, tone.root.tuning);
+        engine.tune_owner(tone.root.owner, tone.root.tuning + tone.root.draw_pitch);
         self.sounding = Some(tone.root.owner);
     }
     pub fn render(&mut self, engine: &mut Engine, left: &mut [f32], right: &mut [f32]) {

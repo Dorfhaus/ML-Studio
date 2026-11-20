@@ -180,7 +180,7 @@ mod tests {
     fn loop_audio_records_three_lanes_without_trimming_away_previous_passes() {
         let _lock=crate::capture::TEST_RECORDING.lock().unwrap_or_else(|e|e.into_inner());
         let mut app=App::new(None);app.state.project=crate::app::test_project();app.state.project.tempo=Some(120.);app.state.tempo=120.;
-        app.state.playlist.range=Some((0,192));flag(Opt::Loop,true);
+        app.state.project.playlist_loop=Some((0,192));flag(Opt::Loop,true);
         app.set_mixer_input(1,Some(Input{device:"Test ASIO".into(),asio:true,first:0,stereo:false}));
         app.prepare_mixer_take().unwrap();app.transport.pretend_at(0.,true);app.transport.pretend_seconds(0.);app.one_click_tick();
         for _ in 0..80 {crate::capture::push_inputs(true,600,|_,_|0.25);}
@@ -204,7 +204,7 @@ mod tests {
         };
         let before=render(&app.state.project);
         let source=pl::clips(&app.state).iter().position(|c|crate::comping::parent(&app.state,c.track)==Some(p)&&c.window.is_some_and(|w|w.0==1000.)).unwrap();
-        app.state.playlist.range=Some((96,144));assert!(crate::comping::choose(&mut app.state,source,true).starts_with("Comp updated"));
+        app.state.project.playlist_loop=Some((96,144));assert!(crate::comping::choose(&mut app.state,source,true).starts_with("Comp updated"));
         let after=render(&app.state.project);
         let at=25000*2;assert!(before[at].abs()>0.01);assert!((after[at]/before[at]-2.0).abs()<0.01,"chosen source must actually play: before={} after={}",before[at],after[at]);
         let mut without_takes=app.state.project.clone();without_takes.arrangements[0].clips.retain(|c|c.track==p);

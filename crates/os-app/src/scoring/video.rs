@@ -1,4 +1,5 @@
 //! Reference video is decoded off-thread using a local FFmpeg executable.
+pub(crate) mod setup;
 use super::*;
 use os_model::timeline::Video;
 use std::{
@@ -24,6 +25,7 @@ pub struct Player {
     import: Option<Import>,
     last: Option<Instant>,
     error: Option<String>,
+    setup: Option<setup::Run>,
 }
 
 impl Default for Player {
@@ -38,11 +40,12 @@ impl Default for Player {
             import: None,
             last: None,
             error: None,
+            setup: None,
         }
     }
 }
 
-fn tool() -> Result<PathBuf, String> {
+pub(super) fn tool() -> Result<PathBuf, String> {
     let custom = std::env::var_os("ML_STUDIO_FFMPEG")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute());
@@ -61,6 +64,7 @@ fn tool() -> Result<PathBuf, String> {
                 .into_iter()
                 .flat_map(|dir| [dir.join(name), dir.join("Sample Exchange").join(name)]),
         )
+        .chain(setup::installed())
         .chain(
             path.as_deref()
                 .into_iter()
@@ -70,8 +74,7 @@ fn tool() -> Result<PathBuf, String> {
         )
         .find(|path| path.is_file())
         .ok_or_else(|| {
-            "FFmpeg is required for video preview. Install FFmpeg and put it on PATH, then retry."
-                .into()
+            "Right-click the Video track header and choose Set up video playback.".into()
         })
 }
 
@@ -304,8 +307,13 @@ pub fn import(app: &mut App, path: PathBuf, start: f64, relink: Option<Video>) {
         app.invalidate();
         return;
     }
+    let arrangement = s.project.arrangement_index();
+    if tool().is_err() {
+        setup::offer(app, Some(setup::ImportFile { arrangement, path, start, relink }));
+        return;
+    }
     let (tx, rx) = mpsc::sync_channel(1);
-    s.playlist.scoring.video.import = Some((s.project.arrangement_index(), relink, rx));
+    s.playlist.scoring.video.import = Some((arrangement, relink, rx));
     s.message = Some("Reading reference video...".into());
     std::thread::spawn(move || {
         let _ = tx.send(probe(path, start));
@@ -350,6 +358,7 @@ fn finish_import(
 }
 
 pub fn poll(app: &mut App) {
+    setup::poll(app);
     let s = &mut app.state;
     let player = &mut s.playlist.scoring.video;
     let result = player

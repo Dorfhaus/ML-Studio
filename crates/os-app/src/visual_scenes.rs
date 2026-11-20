@@ -189,8 +189,8 @@ fn add(s: &mut State, tick: u32, source: Option<VisualScene>) {
         return;
     }
     let duration = s
-        .playlist
-        .range
+        .project
+        .playlist_loop
         .filter(|r| r.0.min(r.1) == tick && r.0 != r.1)
         .map(|r| r.0.abs_diff(r.1))
         .unwrap_or_else(|| {

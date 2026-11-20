@@ -22,7 +22,7 @@ Save normally to retain the source path, or use the project sample-collection/ZI
 
 ### Resize the Playlist loop selection
 Keywords: loop ruler time selection edge drag
-Right-drag in the Playlist ruler to select a loop. Near either end of the loop, the pointer becomes a horizontal resize arrow. Drag that edge to resize the loop while keeping the other edge fixed. A right-click inside the loop keeps it selected. Double-click the ruler away from the edges to clear it.
+Right-drag in the Playlist ruler to select a loop. The loop range is saved with the project. A loop that starts offscreen is brought into view when you reopen. Near either end of the loop, the pointer becomes a horizontal resize arrow. Drag that edge to resize the loop while keeping the other edge fixed. A right-click inside the loop keeps it selected. Double-click the ruler away from the edges to clear it.
 
 ### Type notes without losing C or T
 Keywords: typing keyboard piano slice mute shortcuts
@@ -171,7 +171,7 @@ Listen on headphones and disable any unintended second monitoring path. Record a
 Keywords: midi controller record piano keyboard velocity
 Guide: midi
 Enable the device in Options > MIDI settings. Select the instrument channel, test a few notes, then enable recording and select note recording if prompted.
-Start playback in the desired mode and perform. Open the pattern's Piano Roll to correct timing and velocity.
+Start playback in the desired mode and perform. Open the pattern's Piano Roll to correct timing and velocity. In Song mode, recording a new pattern over an existing clip puts the new take on the next Playlist lane below with room for it. The notes still play through the same instrument and Mixer channel. Select the same pattern again to record into its existing clip.
 
 ### Fix delay, crackles or no sound
 Keywords: latency underruns cpu stutter dropout silence device troubleshooting
@@ -285,6 +285,17 @@ Keywords: arpeggiate piano roll note pattern bake print written arp sampler wren
 To write individual notes into a pattern, select the source notes and open **Arpeggiate** from the Piano Roll Tools menu. Preview the generated phrase, apply it to the selection, and edit the resulting notes in the grid. Undo restores the original phrase.
 To have the Sampler generate notes during playback, use **Arpeggiator** on its wrench tab. This applies to that channel when the relevant MIDI notes play and leaves the Piano Roll notes as entered. Use this approach when you want to change the pulse, range or direction without rewriting the pattern.
 Related: Quantize and shape notes | Set up Sampler arpeggios, echoes and tracking
+
+### Draw pitch directly on Piano Roll notes
+Keywords: pitch draw pitch ribbon bend points vibrato MPE sampler semitones
+Click **Pitch Draw** beside Undo in the Piano Roll. Notes display pitch as a ribbon on the keyboard grid. Choose **Draw** to sketch a curve across one note. Choose **Points** to add control points and drag an existing handle to reshape the bend. Right-click a handle to remove it. With **Vibrato**, drag across the part of the note you want to affect and move vertically to set its depth.
+**Bend** sets the maximum offset you can draw. **Snap** follows the current Piano Roll grid and rounds to semitones. Hold Alt to place freely. Press Escape during a drag to cancel. **Clear bend** removes pitch from the selected notes. Use Undo or Redo for a completed edit.
+Pitch Draw curves follow their notes and are saved in the project. ML Wave, Sampler, ML Citrus and ML Trio can bend notes independently in polyphonic mode. ML Chop, ML Drums and ML Plasma apply tuning to the sounding pad, slice or key. ML Pure Player uses its two-semitone pitch wheel. Stock instruments that play one voice at a time follow the current note.
+
+Third-party instruments can play curves through their note expression or MIDI pitch-wheel support. With a shared wheel, the most recent sounding drawn note bends the entire channel, including other held notes. The wheel returns to center when the drawn notes end. The default wheel range is two semitones. For instruments configured for a wider range, match **Piano Roll menu > MPE / Note expression > Pitch Draw wheel range** to their pitch-wheel range. The **Bend** control in the Pitch Draw toolbar sets how far you can draw the curve.
+
+If the instrument supports MPE and you need independently bent notes, enable **MPE / Note expression** in ML Studio and the instrument and match their MPE bend ranges. Closing Pitch Draw or hiding its button under Settings > Visibility > Piano Roll leaves the curves available for playback.
+Related: Edit per-note expression with MPE
 
 ### Edit per-note expression with MPE
 Keywords: mpe pitch bend pressure slide timbre controller lanes
@@ -552,7 +563,7 @@ Click **Tracks > Import video** above the Playlist track headers to add a video 
 
 Edges and cuts follow the source frame grid. Clips keep their time in seconds during tempo changes. Escape cancels a move or trim in progress. Use Undo to reverse a completed edit. Click inside a clip to cue the picture, or toggle **Video preview** from the Video lane header. Preview follows the edited source range and may skip frames during playback.
 
-The project keeps references to the original video files and saves the edits. The source files stay intact. Keep the originals with the project or relink them after moving to another computer. Preview depends on FFmpeg on PATH or alongside the application. The Video lane is a silent picture reference. Audio export renders the score through the Mixer. Supported codecs depend on your FFmpeg build.
+The project keeps references to the original video files and saves the edits. The source files stay intact. Keep the originals with the project or relink them after moving to another computer. The first time you enable Video track or import video, ML Studio offers to download FFmpeg if it cannot find a usable copy. On Windows it shares the copy installed by Visualizer export. FFmpeg on PATH or alongside the app also works. The prompt shows the download size for your platform, and you can cancel or retry from **Set up video playback** in the Video track header menu. When setup finishes, the selected video imports automatically and future previews can run offline. The Video lane is a silent picture reference. Audio export renders the score through the Mixer. Supported codecs depend on your FFmpeg build.
 
 ### Edit several MIDI clips on one timeline
 Keywords: edit selected MIDI clips together ghost notes outlined parts midi import Playlist pattern placement
@@ -736,7 +747,7 @@ Use drive and saturation for harmonics, Transient Processor to shape attack and 
 Keywords: headphones phones autoeq monitor correction profile ADAM Audio H200 OPRA
 Guide: phones
 Click the Master strip's headphone icon, search for the exact model, and choose the matching profile. Match the impedance, pads or ANC setting if the catalog lists variants. Most models download once, then work offline. A failed download leaves the previous correction active. The bundled **ADAM Audio H200** profile by oratory1990 via OPRA works offline on first use. See **Credits** in the selector for sources and licenses.
-Use the **PHONES** switch to compare or bypass correction. Its initial state is off. This is a listening preference saved per profile and applied at ML Studio's device output. It includes live instruments and Browser previews, works independently of Master bypass, and is excluded from audio exports, freeze, bounce and Mixer recording. Use PHONES to bypass while listening through speakers.
+Use the **PHONES** switch to compare or bypass correction. Its initial state is off. This is a listening preference saved per profile and applied at ML Studio's device output. It includes live instruments and Browser previews, works independently of Master bypass, and is excluded from audio exports, freeze, bounce and Mixer recording. Use PHONES to bypass while listening through speakers. **Auto gain** is on by default and reduces the level difference between correction and bypass. Turn it off in the headphone selector to use the original profile headroom.
 Related: Read signal levels, latency and plugin load | Export mixer stems and choose what gets processed
 
 ### Balance tracks with Mix Assistant
@@ -983,6 +994,14 @@ Keywords: synth oscillator wavetable modulation lfo envelope unassign
 ![ML Wave | ML Wave editor](../crates/os-app/assets/plugin-picker/lemon-wave.png)
 Add ML Wave as an instrument and choose a preset as a starting point. Change oscillator and filter settings while playing a few notes, then shape the sound with the envelope.
 Assign an LFO or envelope to a control to add movement. Right-click a modulated control to manage or remove its assignment. Save a new preset before changing patches.
+
+### Make a beat with ML Drums
+
+Add **ML Drums** from the Channel Rack instrument picker. The eight pads start with a playable kit. A normal Channel Rack step plays the kick. In the Piano Roll or on a MIDI controller, notes 36–43 and 60–67 both play pads 1 through 8. During playback the SEQ view follows the project tempo and song position. Click steps to program a beat and use the lane controls for swing, probability and per-step edits.
+
+In Windows, drag a one-shot from the ML Studio Browser or File Explorer onto a pad in the PADS view. You can also use the pad’s file picker. Adjust its start, end, pitch, decay, level and pan. Choose a sample folder in the toolbar to analyze your own collection and explore the Map. Scanning makes samples available for selection and dice rolls while keeping the current kit in place.
+
+Saving an ML Studio project includes the pad sounds and pattern bank. The pads feed one stereo Mixer insert. Settings > Visibility > ML Drums in plugin menus hides its picker entry and keeps saved projects playable.
 
 ### Design sounds with ML Plasma
 Keywords: ml plasma gridline wavetable synthesizer oscillator modulation preset
@@ -1550,7 +1569,7 @@ Use the Theme Editor to preview changes and apply or cancel them. Export the the
 
 ### Audio device and latency
 Keywords: settings audio normal advanced driver output device mode sample rate hz buffer length latency show asio panel reset underruns auto close
-Open Settings > Audio. Normal shows Output device and Latency. Use a shorter buffer when playing live and a larger buffer if playback clicks or drops out. Advanced exposes the device's sample rate (Hz) and buffer length. Under ASIO, Show ASIO panel opens the driver's own controls in both Normal and Advanced, including when latency presets are available. Shared or Exclusive mode is shown for supported Windows and Linux devices.
+Open Settings > Audio. Normal shows Output device and Latency. Use a shorter buffer when playing live and a larger buffer if playback clicks or drops out. Advanced exposes the device's sample rate (Hz) and buffer length. Under ASIO, Show ASIO panel opens the driver's own controls in both Normal and Advanced. Changing the buffer there replaces the ML Studio latency preset. Normal shows the buffer the driver is using. Shared or Exclusive mode is shown for supported Windows and Linux devices.
 Use the status and underrun counters to check that the selected settings took effect. Reset underruns clears the counter so you can check a new configuration. Available options depend on your driver and platform. Greyed controls show when a choice is unavailable.
 
 ### Why does audio stop when switching apps?
@@ -2397,6 +2416,11 @@ Activation is saved outside projects and theme settings and survives normal upda
 The Donate button has fixed colors and size and is excluded from toolbar visibility and layout customization until supporter activation. This is an intentional exception to Workspace Visibility. Export failures, cancellations, and intermediate renders do not show donation reminders.
 
 <!-- source-reference-start -->
+### Visibility: Offer to use saved templates at startup (Project templates)
+Keywords: visibility: offer to use saved templates at startup (project templates) reference controls options settings
+To show or hide **Offer to use saved templates at startup**, open **Settings > Visibility > Project templates > Offer to use saved templates at startup**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Host and join sessions (Collaboration)
 Keywords: visibility: host and join sessions (collaboration) reference controls options settings
 To show or hide **Host and join sessions**, open **Settings > Visibility > Collaboration > Host and join sessions**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2567,6 +2591,11 @@ Keywords: visibility: touch controller shortcut (toolbar window shortcuts) refer
 To show or hide **Touch Controller shortcut**, open **Settings > Visibility > Toolbar window shortcuts > Touch Controller shortcut**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: ML Patch in plugin menus (Stock plugins)
+Keywords: visibility: ml patch in plugin menus (stock plugins) reference controls options settings
+To show or hide **ML Patch in plugin menus**, open **Settings > Visibility > Stock plugins > ML Patch in plugin menus**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Advanced DSP controls (Stock plugins)
 Keywords: visibility: advanced dsp controls (stock plugins) reference controls options settings
 To show or hide **Advanced DSP controls**, open **Settings > Visibility > Stock plugins > Advanced DSP controls**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2625,6 +2654,11 @@ Turning on visibility exposes the control where that feature is supported; it do
 ### Visibility: Area color adjustments (Theme customization)
 Keywords: visibility: area color adjustments (theme customization) reference controls options settings
 To show or hide **Area color adjustments**, open **Settings > Visibility > Theme customization > Area color adjustments**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Track & clip colors (Theme customization)
+Keywords: visibility: track & clip colors (theme customization) reference controls options settings
+To show or hide **Track & clip colors**, open **Settings > Visibility > Theme customization > Track & clip colors**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: Typing keyboard octave menu (Input customization)
@@ -2702,6 +2736,11 @@ Keywords: visibility: lemon hall in plugin menus (toolbar extras) reference cont
 To show or hide **Lemon Hall in plugin menus**, open **Settings > Visibility > Toolbar extras > Lemon Hall in plugin menus**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: ML Drums in plugin menus (Toolbar extras)
+Keywords: visibility: ml drums in plugin menus (toolbar extras) reference controls options settings
+To show or hide **ML Drums in plugin menus**, open **Settings > Visibility > Toolbar extras > ML Drums in plugin menus**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: ML Plasma in plugin menus (Toolbar extras)
 Keywords: visibility: ml plasma in plugin menus (toolbar extras) reference controls options settings
 To show or hide **ML Plasma in plugin menus**, open **Settings > Visibility > Toolbar extras > ML Plasma in plugin menus**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2742,6 +2781,11 @@ Keywords: visibility: report a bug button (toolbar extras) reference controls op
 To show or hide **Report a Bug button**, open **Settings > Visibility > Toolbar extras > Report a Bug button**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Browser layout setting (Browser)
+Keywords: visibility: browser layout setting (browser) reference controls options settings
+To show or hide **Browser layout setting**, open **Settings > Visibility > Browser > Browser layout setting**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Empty-space file actions (Browser)
 Keywords: visibility: empty-space file actions (browser) reference controls options settings
 To show or hide **Empty-space file actions**, open **Settings > Visibility > Browser > Empty-space file actions**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2760,6 +2804,11 @@ Turning on visibility exposes the control where that feature is supported; it do
 ### Visibility: Favorites tab (Browser)
 Keywords: visibility: favorites tab (browser) reference controls options settings
 To show or hide **Favorites tab**, open **Settings > Visibility > Browser > Favorites tab**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Collection folder controls (Browser)
+Keywords: visibility: collection folder controls (browser) reference controls options settings
+To show or hide **Collection folder controls**, open **Settings > Visibility > Browser > Collection folder controls**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: Sample preview panel (Browser)
@@ -2862,6 +2911,11 @@ Keywords: visibility: sample drop choices (playlist) reference controls options 
 To show or hide **Sample drop choices**, open **Settings > Visibility > Playlist > Sample drop choices**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Add button below Playlist tracks (Playlist)
+Keywords: visibility: add button below playlist tracks (playlist) reference controls options settings
+To show or hide **Add button below Playlist tracks**, open **Settings > Visibility > Playlist > Add button below Playlist tracks**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Track drag destination (Playlist)
 Keywords: visibility: track drag destination (playlist) reference controls options settings
 To show or hide **Track drag destination**, open **Settings > Visibility > Playlist > Track drag destination**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -2875,6 +2929,11 @@ Turning on visibility exposes the control where that feature is supported; it do
 ### Visibility: Vocal tuning button (Playlist)
 Keywords: visibility: vocal tuning button (playlist) reference controls options settings
 To show or hide **Vocal tuning button**, open **Settings > Visibility > Playlist > Vocal tuning button**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Vocal editor resize grip (Playlist)
+Keywords: visibility: vocal editor resize grip (playlist) reference controls options settings
+To show or hide **Vocal editor resize grip**, open **Settings > Visibility > Playlist > Vocal editor resize grip**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: Audio warp editor (Playlist)
@@ -3052,6 +3111,11 @@ Keywords: visibility: tools menu shortcut (piano roll) reference controls option
 To show or hide **Tools menu shortcut**, open **Settings > Visibility > Piano Roll > Tools menu shortcut**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Pitch Draw button (Piano Roll)
+Keywords: visibility: pitch draw button (piano roll) reference controls options settings
+To show or hide **Pitch Draw button**, open **Settings > Visibility > Piano Roll > Pitch Draw button**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Chord Workspace shortcut (Piano Roll)
 Keywords: visibility: chord workspace shortcut (piano roll) reference controls options settings
 To show or hide **Chord Workspace shortcut**, open **Settings > Visibility > Piano Roll > Chord Workspace shortcut**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -3177,6 +3241,11 @@ Keywords: visibility: mix assistant (mixer) reference controls options settings
 To show or hide **Mix Assistant**, open **Settings > Visibility > Mixer > Mix Assistant**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Headphone correction Auto gain switch (Mixer)
+Keywords: visibility: headphone correction auto gain switch (mixer) reference controls options settings
+To show or hide **Headphone correction Auto gain switch**, open **Settings > Visibility > Mixer > Headphone correction Auto gain switch**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Group lock option in Mixer padlock menu (Mixer)
 Keywords: visibility: group lock option in mixer padlock menu (mixer) reference controls options settings
 To show or hide **Group lock option in Mixer padlock menu**, open **Settings > Visibility > Mixer > Group lock option in Mixer padlock menu**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
@@ -3282,9 +3351,19 @@ Keywords: visibility: open menus on hover (workspace) reference controls options
 To show or hide **Open menus on hover**, open **Settings > Visibility > Workspace > Open menus on hover**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
+### Visibility: Solo Playlist tracks export (Workspace)
+Keywords: visibility: solo playlist tracks export (workspace) reference controls options settings
+To show or hide **Solo Playlist tracks export**, open **Settings > Visibility > Workspace > Solo Playlist tracks export**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
 ### Visibility: Advanced Export tab (Workspace)
 Keywords: visibility: advanced export tab (workspace) reference controls options settings
 To show or hide **Advanced Export tab**, open **Settings > Visibility > Workspace > Advanced Export tab**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
+Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
+
+### Visibility: Auto-number duplicate exports (Workspace)
+Keywords: visibility: auto-number duplicate exports (workspace) reference controls options settings
+To show or hide **Auto-number duplicate exports**, open **Settings > Visibility > Workspace > Auto-number duplicate exports**. The default visibility is **on**. This choice is saved per profile. Settings > General > Workspace > Workspace Visibility > Choose what to show opens the same controls.
 Turning on visibility exposes the control where that feature is supported; it does not enable a separate preference, load a plugin, or satisfy selection/input requirements. Return to the relevant editor or Settings page to use it. A toolbar layout or customized menu may also hide its entry; check View > Toolbars or Settings > Menus when applicable.
 
 ### Visibility: User Guide menu item (Workspace)
@@ -3989,6 +4068,11 @@ Keywords: setting: double-click resets faders and knobs reference controls optio
 Checkbox; default: off.
 This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
 
+### Setting: Use legacy browser
+Keywords: setting: use legacy browser reference controls options settings
+Checkbox; default: off.
+This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
+
 ### Setting: Open menus on hover
 Keywords: setting: open menus on hover reference controls options settings
 Checkbox; default: on.
@@ -4293,6 +4377,7 @@ Keywords: mixer - menu labels 2 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
 - Reset selected track(s) routing
+- Delete selected insert(s)
 - Separator
 - Channel Strip mixer [submenu]
 - Channel layout [submenu]
@@ -4307,12 +4392,12 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Inspector on left
 - Attached inspector layout [submenu]
 - Plugin delay compensation [submenu]
-- View [submenu]
 
 ### Mixer - menu labels 3
 Keywords: mixer - menu labels 3 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
+- View [submenu]
 - Detached
 - Trim unused tracks [submenu]
 - Remove all (audio editor) instances
@@ -4328,12 +4413,12 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - View editor
 - Rename, color and icon...
 - Scaling [submenu]
-- Export visualizer video...
 
 ### Mixer - menu labels 4
 Keywords: mixer - menu labels 4 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
+- Export visualizer video...
 - None
 - Remove
 - Cancel
@@ -4387,6 +4472,7 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Zone [submenu]
 - Member channels [submenu]
 - Pitch bend range [submenu]
+- Pitch Draw wheel range [submenu]
 - Pitch sensitivity [submenu]
 - Pressure response [submenu]
 - Slide response [submenu]
@@ -4664,17 +4750,18 @@ These are menu labels declared for this area, not a sequence of steps. Some comm
 - Group with above track
 - Collapse group
 - Insert one
+- Delete all Playlist tracks...
 - Move up
 - Move down
 - Track type and routing [submenu]
 - Add marker...
 - Add time signature...
-- Move content left
 
 ### Playlist - menu labels 9
 Keywords: playlist - menu labels 9 reference controls options settings
 These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
 
+- Move content left
 - Move content right
 - Set cue time in seconds...
 - Marker timebase [submenu]
@@ -4954,6 +5041,19 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Close (puts the notes back)
 - Group arpeggiated notes
 
+### Library view - control hints 1
+Keywords: library view - control hints 1 reference controls options settings
+These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
+
+- Create a folder in this collection
+
+### Library view - menu labels 1
+Keywords: library view - menu labels 1 reference controls options settings
+These are menu labels declared for this area, not a sequence of steps. Some commands appear only in the appropriate selection/context. Entries marked not implemented cannot be used. Dynamic plugin/device/preset lists vary with the current project and installation.
+
+- Add to collection [submenu]
+- Move to folder [submenu]
+
 ### Browser view - control hints 1
 Keywords: browser view - control hints 1 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
@@ -5057,7 +5157,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Full Mixer size
 - Mixer options
 - Add a new track after the selected track
-- Mute / solo
+- Mute; right-click solo; Alt-click solo with inputs
 - Reverse polarity
 - Swap left & right channels
 - Drag to resize this inspector section
@@ -5124,6 +5224,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Vertical zoom: drag up/down or use the wheel. Right-click resets
 - Piano roll options
 - Target channel (wheel: channels with notes; right-click: settings)
+- Pitch Draw · edit pitch on individual notes
 - Drag: move the play start - right-drag: select a time range
 - Event panel: drag to resize, double-click to hide or show
 - Event panel: choose which note property to edit
@@ -5133,12 +5234,12 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Chord workspace (Alt+P)
 - Undo (Ctrl+Z)
 - Draw (P)
-- Paint (B): drag to paint notes along the row
 
 ### Piano Roll view - control hints 2
 Keywords: piano roll view - control hints 2 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
+- Paint (B): drag to paint notes along the row
 - Slice (C): drag a line to cut notes
 - Delete (D): click or swipe to delete notes
 - Mute (T): click or swipe to mute / unmute notes
@@ -5172,6 +5273,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Toggle looping for Clip Picker previews
 - Clip sources
 - Track height: drag up/down or use wheel; right-click or Alt-click resets
+- Add a Playlist track
 - Song position (right-drag: time selection)
 - Time marker (click: song position, drag moves, right-click: menu)
 - Open track instrument; right-click to choose an instrument
@@ -5179,12 +5281,12 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Mute track (right-click / Ctrl+click: solo)
 - Piano Roll; right-click to insert an instrument
 - Show / hide automation overlay
-- Piano Roll; right-click to insert an instrument on this channel
 
 ### Playlist view - control hints 2
 Keywords: playlist view - control hints 2 reference controls options settings
 These are the control hints shown by this editor. Read modifier instructions as applying to that specific control.
 
+- Piano Roll; right-click to insert an instrument on this channel
 - Drag tracks onto a folder to add them, or onto another track to reorder
 - Collapse / expand the group
 - Drag to resize this Playlist track
@@ -5216,7 +5318,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Zipped channel - Alt+U unzips all
 - Mute / solo  (shift/ctrl+)0..9
 - Global Pitch Follow: toggle without changing the current pitch
-- Click: plug-in window; drag: select channels; Ctrl+drag: move rows
+- Click: plug-in window; Ctrl+click: select only; drag: select channels; Ctrl+drag: move rows
 - Select (Up/Down)
 - Audio waveform: click for sample settings; right-click for channel menu
 - Piano roll preview - click to open the Piano roll
@@ -5361,6 +5463,7 @@ These are the control hints shown by this editor. Read modifier instructions as 
 - Drag empty space to select; choose Draw to paint pitch
 - Drag pitch scrollbar
 - Drag time navigator; the Playlist timeline stays aligned
+- Drag to resize the vocal editor. Double-click to expand or restore.
 - Vocal tools
 
 ### Warp - control hints 1
@@ -5395,6 +5498,7 @@ Settings > General > Input > Manage shortcuts changes these defaults. Apply keep
 - Mixer: F9
 - Metronome: Ctrl+M
 - Typing piano keyboard: Ctrl+T
+- Maximize / restore focused editor: Enter
 
 ### Citrus - parameter names 1
 Keywords: citrus - parameter names 1 reference controls options settings
@@ -5546,6 +5650,26 @@ These are host-visible parameter names declared by the plugin. Use the plugin ed
 - Delay
 - Phase
 - Effects position
+
+### ML Wave - parameter names 1
+Keywords: ml wave - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Pitch Draw offset
+
+### Ml Drums - parameter names 1
+Keywords: ml drums - parameter names 1 reference controls options settings
+These are host-visible parameter names declared by the plugin. Use the plugin editor or Browse parameters to locate them. Names alone do not imply a particular unit or audible result; consult the instrument/effect workflow articles and the displayed value.
+
+- Kit edit
+- Master Volume
+- Comp Threshold
+- Drive
+- Limiter
+- Reverb Mix
+- Delay Mix
+- Delay Time
+- DJ Filter
 
 ### ML Tesla - parameter names 1
 Keywords: ml tesla - parameter names 1 reference controls options settings

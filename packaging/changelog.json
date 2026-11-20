@@ -3,6 +3,22 @@
   "intro": "The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Upstream development predates this edition.",
   "sections": [
     {
+      "date": "2026-11-20",
+      "title": "ML Drums, Piano Roll Pitch Draw, and plugin fixes \u00b7 public build 2026112001",
+      "changes": [
+        "Added ML Drums, an eight-pad drum machine with a built-in kit, sequencer, sample drag-and-drop, effects, and MIDI export.",
+        "Added Pitch Draw in the Piano Roll with editable bends and vibrato. Supported instruments can play independent note bends. Conventional plugins with a pitch wheel can follow a shared bend.",
+        "Fixed the disabled Download 32-bit VST2 bridge button on Windows. Installing the bridge automatically rescans for legacy plugins.",
+        "Fixed a Windows crash when dropping samples onto ML Drums pads. Undo restores the previous pad sample.",
+        "Added Auto gain to headphone correction to keep monitoring levels more consistent when switching profiles.",
+        "The Playlist Video track can set up FFmpeg on first use and reuse an existing installation, including the Visualizer\u2019s FFmpeg on Windows.",
+        "Windows ASIO buffer changes made in a driver\u2019s control panel now survive the driver restart.",
+        "Playlist loop selections now survive saving and reopening. New instrument takes can use free lanes below the active take.",
+        "Improved recording count-in feedback, Channel Strip fader response, and pattern numbering and playback indicators in the Channel Rack.",
+        "Updated Mac download links and first-launch instructions. Both Mac packages now check the app and bundled components against the macOS 12 minimum."
+      ]
+    },
+    {
       "date": "2026-11-19",
       "title": "Piano Roll loops, Mixer responsiveness, and Playlist fixes \u00b7 public build 2026111901",
       "changes": [

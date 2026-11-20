@@ -525,6 +525,13 @@ impl Plugin for LemonChop {
                         ..
                     } => self.note(note, channel, velocity, true),
                     NoteEvent::NoteOff { note, channel, .. } => self.note(note, channel, 0., false),
+                    NoteEvent::PolyTuning { note, channel, tuning, .. } => {
+                        for voice in &mut self.voices {
+                            if voice.active && !voice.preview && voice.note == note && voice.channel == channel {
+                                voice.tune(tuning, gains);
+                            }
+                        }
+                    }
                     NoteEvent::MidiCC {
                         channel, cc, value, ..
                     } if self.doc.slab => {

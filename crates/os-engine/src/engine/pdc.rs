@@ -733,6 +733,54 @@ mod tests {
     }
 
     #[test]
+    fn count_in_keeps_its_last_beat_with_plugin_latency() {
+        let mut p = project(&[], 3);
+        p.tempo = Some(100.0);
+        let rate = 48_000;
+        let beat_frames = rate * 60 / 100;
+        let count_frames = 4 * beat_frames;
+
+        for (start, click_track, effect_track) in [(0, 0, 0), (96, 1, 2)] {
+            let render = |delay| {
+                let mut e = engine(&p, vec![(effect_track, 0, Late::new(delay))], false);
+                e.set_looping(true);
+                if start > 0 {
+                    e.seek_tick(start);
+                }
+                let click = Arc::new(crate::metronome::Switch::default());
+                click.set_on(true);
+                click.set_track(click_track);
+                e.set_metronome(click);
+                e.set_count_in(1);
+
+                let mut out = Vec::new();
+                let mut first_playing = None;
+                while out.len() < (count_frames + beat_frames / 2) * 2 {
+                    let (audio, tick, _, held, _) = e.next_tick().unwrap();
+                    if !held && first_playing.is_none() {
+                        first_playing = Some((out.len() / 2, tick));
+                    }
+                    out.extend_from_slice(audio);
+                }
+                let (frame, tick) = first_playing.unwrap();
+                // Delay can make a returned block straddle the transition by part of a tick.
+                assert!((count_frames..count_frames + beat_frames / 96).contains(&frame));
+                assert!((start as f64..start as f64 + 1.0).contains(&tick));
+                for beat in 0..=4 {
+                    let offset = beat * beat_frames * 2;
+                    assert!(out[offset..offset + 480].iter().any(|&sample| sample.abs() > 1e-6),
+                        "expected beat {beat} with a delay of {delay} frames");
+                }
+                out.truncate((count_frames + beat_frames / 2) * 2);
+                out
+            };
+            let direct = render(0);
+            let compensated = render(5_760);
+            assert!(direct == compensated, "count-in and playback use one delay timeline");
+        }
+    }
+
+    #[test]
     fn an_export_shows_no_delay_where_one_insert_is_late() {
         // Channels on inserts 1 and 2, both into the master; insert 1 holds an effect 100 frames late.
         let p = project(&[1, 2], 3);

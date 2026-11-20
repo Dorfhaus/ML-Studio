@@ -421,6 +421,9 @@ impl Instrument for NativePlugin {
     }
 
     /// A tuning moves its voice's pitch (`Ev::Tune`), which the generator reads while the voice sounds.
+    fn draw_pitch(&mut self, offset: u32, key: u8, base: f32, semitones: f32, _range: u8) {
+        self.tune(offset, key, base + semitones);
+    }
     fn takes_tuning(&self) -> bool {
         true
     }

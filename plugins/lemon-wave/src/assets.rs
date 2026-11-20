@@ -13,6 +13,7 @@ use std::{
 };
 pub const FIELD: &str = "lemon-wave-tables-v1";
 pub const MAX_STATE: usize = 64 * 1024 * 1024;
+pub(crate) const PITCH_DRAW: u32 = 0x50495443;
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sources {
@@ -30,6 +31,7 @@ pub struct Tables {
 }
 pub struct WaveParams {
     pub base: Arc<FxParams>,
+    pitch_draw: FloatParam,
     pub page: std::sync::atomic::AtomicUsize,
     pub env_tab: std::sync::atomic::AtomicUsize,
     pub filter_tab: std::sync::atomic::AtomicUsize,
@@ -48,7 +50,10 @@ pub struct WaveParams {
 }
 impl Default for WaveParams {
     fn default() -> Self {
-        Self { origin:Default::default(), audition:Default::default(), keyboard:Default::default(), details:Default::default(), filter_tab:Default::default(), fx_scroll:Default::default(), fx_add:Default::default(), env_tab:Default::default(), lfo_tab:Default::default(), page:Default::default(), curves:RwLock::default(), telemetry:Default::default(), base:Arc::new(FxParams::new(controls::SPEC)), tables:RwLock::new(Arc::default()), retired:Mutex::default(), status:Mutex::new("Choose cycle length, then Import WAV. Imported tables travel with saved projects and presets.".into()) }
+        Self { origin:Default::default(), audition:Default::default(), keyboard:Default::default(), details:Default::default(), filter_tab:Default::default(), fx_scroll:Default::default(), fx_add:Default::default(), env_tab:Default::default(), lfo_tab:Default::default(), page:Default::default(), curves:RwLock::default(), telemetry:Default::default(), base:Arc::new(FxParams::new(controls::SPEC)),
+            pitch_draw: FloatParam::new("Pitch Draw offset", 0.5, FloatRange::Linear { min: 0., max: 1. })
+                .with_poly_modulation_id(PITCH_DRAW).hide(),
+            tables:RwLock::new(Arc::default()), retired:Mutex::default(), status:Mutex::new("Choose cycle length, then Import WAV. Imported tables travel with saved projects and presets.".into()) }
     }
 }
 impl WaveParams {
@@ -90,7 +95,9 @@ impl WaveParams {
 // SAFETY: parameter pointers are owned by base, which lives as long as this Params object.
 unsafe impl Params for WaveParams {
     fn param_map(&self) -> Vec<(String, ParamPtr, String)> {
-        self.base.param_map()
+        let mut parameters = self.base.param_map();
+        parameters.push(("pitch-draw-offset".into(), self.pitch_draw.as_ptr(), String::new()));
+        parameters
     }
     fn serialize_fields(&self) -> BTreeMap<String, String> {
         let mut fields = self.base.serialize_fields();

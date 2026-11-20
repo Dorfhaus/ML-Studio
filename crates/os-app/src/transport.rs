@@ -2160,10 +2160,10 @@ fn audio_thread(rx: Receiver<Cmd>, shared: Arc<Shared>, latest: Arc<Mutex<Option
                 }
             }
             Ok(Cmd::AsioPanel) if closed => report(&shared, "the output is let go of (Auto close)".into()),
-            Ok(Cmd::AsioPanel) => {
-                if let Err(e) = device.asio_panel() {
-                    report(&shared, e);
-                }
+            Ok(Cmd::AsioPanel) => match device.asio_panel() {
+                Ok(true) => open_asio = Some((Instant::now(), 0)),
+                Ok(false) => {},
+                Err(e) => report(&shared, e),
             }
             Ok(Cmd::Close) => {
                 for (session, _) in picker_previews.drain(..) { retire(session, &mut closing); }
@@ -2281,6 +2281,9 @@ fn audio_thread(rx: Receiver<Cmd>, shared: Arc<Shared>, latest: Arc<Mutex<Option
         // the other streams go; it goes on when the device opens again (spec: audio/devices.md).
         if lost.is_none() {
             if let Some((name, why)) = device.failure() {
+                if device.adopt_asio_buffer_change(false) {
+                    open_asio = Some((Instant::now(), 0));
+                }
                 picker_previews.clear();
                 if let Some(s) = session.take() {
                     let at = At { preview_loop: false, tick: f64::from_bits(shared.tick.load(Ordering::Relaxed)), paused: s.paused(), truncated: s.truncated, count_in: 0 };

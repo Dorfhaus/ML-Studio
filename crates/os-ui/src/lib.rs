@@ -872,6 +872,17 @@ impl Canvas {
         }
     }
 
+    /// A continuous line with rounded ends and joins, including at steep bends.
+    pub fn rounded_polyline(&mut self, pts: &[(f32, f32)], width: f32, c: Color) {
+        if let Some(path) = poly_path(pts, false) {
+            let stroke = Stroke {
+                width, line_cap: tiny_skia::LineCap::Round, line_join: tiny_skia::LineJoin::Round,
+                ..Stroke::default()
+            };
+            self.stroke_with(&path, &stroke, c);
+        }
+    }
+
     pub fn fill_polygon(&mut self, pts: &[(f32, f32)], c: Color) {
         if let Some(path) = poly_path(pts, true) {
             self.fill(&path, c);
@@ -936,11 +947,14 @@ impl Canvas {
     }
 
     pub fn stroke(&mut self, path: &tiny_skia::Path, width: f32, c: Color) {
-        if self.outside(path.bounds(), width + 1.0) {
+        self.stroke_with(path, &Stroke { width, ..Stroke::default() }, c);
+    }
+
+    fn stroke_with(&mut self, path: &tiny_skia::Path, stroke: &Stroke, c: Color) {
+        if self.outside(path.bounds(), stroke.width + 1.0) {
             return;
         }
-        let s = Stroke { width, ..Stroke::default() };
-        if let Some(cov) = self.coverage(path, Some(&s)) {
+        if let Some(cov) = self.coverage(path, Some(stroke)) {
             self.blend(&cov, c, None);
         }
     }

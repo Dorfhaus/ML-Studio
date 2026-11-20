@@ -67,6 +67,10 @@ pub trait Instrument: Send {
     fn voice_gain(&mut self, offset: u32, voice: u32, gain: f32) {
         let _ = (offset, voice, gain);
     }
+    /// Applies a drawn pitch offset to a named instrument voice, in semitones.
+    /// Absolute note-expression adapters also receive the voice's base tuning.
+    fn voice_pitch(&mut self, _offset: u32, _voice: u32, _base: f32, _semitones: f32) {}
+    fn voice_pitch_supported(&self) -> bool { false }
     /// Cuts voice `voice` of `key` as `choke` does (its audio clip's end), leaving the key's other voices. Default:
     /// `choke`.
     fn voice_choke(&mut self, offset: u32, key: u8, voice: u32) {
@@ -81,6 +85,14 @@ pub trait Instrument: Send {
     /// audio/channel-voices.md). Default: ignored (no glide).
     fn tune(&mut self, offset: u32, key: u8, semitones: f32) {
         let _ = (offset, key, semitones);
+    }
+    /// Sets the starting tuning of a named voice. Key-based adapters use their regular tuning path.
+    fn voice_tune(&mut self, offset: u32, key: u8, _voice: u32, semitones: f32) {
+        self.tune(offset, key, semitones);
+    }
+    /// Applies a drawn pitch to a regular instrument note. MIDI instruments receive the channel wheel.
+    fn draw_pitch(&mut self, offset: u32, _key: u8, base: f32, semitones: f32, range: u8) {
+        self.midi(offset, pitch_wheel(base + semitones, range));
     }
     /// A slide changes only voices in the note's color group. Velocity is the target note byte / 128.
     fn slide(&mut self, offset: u32, key: u8, color: u8, semitones: f32, velocity: f32, pan: f32) {
@@ -325,7 +337,20 @@ impl Default for TuningBend {
     }
 }
 
+/// MIDI channel 1 pitch wheel, with exact center and clamped endpoints.
+pub fn pitch_wheel(semitones: f32, range: u8) -> [u8; 3] {
+    let value = (8192.0 + f64::from(semitones) * 8192.0 / f64::from(range.max(1)))
+        .round().clamp(0.0, 16383.0) as u16;
+    [0xE0, (value & 0x7F) as u8, (value >> 7) as u8]
+}
+
 impl TuningBend {
+    pub fn draw(&mut self, key: u8, semitones: f32, range: u8) -> Option<[u8; 3]> {
+        self.key = Some(key);
+        self.tune = semitones;
+        self.send(pitch_wheel(semitones, range))
+    }
+
     /// The range in semitones (1..=48; others are taken as the default).
     pub fn set_range(&mut self, semitones: u32) {
         self.range = if (1..=48).contains(&semitones) { semitones } else { DEFAULT_BEND_RANGE };
@@ -354,12 +379,16 @@ impl TuningBend {
     }
 
     fn bend(&mut self) -> Option<[u8; 3]> {
-        let v = (8192.0 + f64::from(self.tune) / f64::from(self.range) * 8192.0).round().clamp(0.0, 16383.0) as u16;
+        self.send(pitch_wheel(self.tune, self.range as u8))
+    }
+
+    fn send(&mut self, event: [u8; 3]) -> Option<[u8; 3]> {
+        let v = u16::from(event[1]) | u16::from(event[2]) << 7;
         if v == self.sent {
             return None;
         }
         self.sent = v;
-        Some([0xE0, (v & 0x7F) as u8, (v >> 7) as u8])
+        Some(event)
     }
 }
 

@@ -1,7 +1,11 @@
 {
-  "generated_articles": 426,
-  "guide_articles": 708,
+  "generated_articles": 443,
+  "guide_articles": 745,
   "records": [
+    {
+      "title": "Visibility: Offer to use saved templates at startup (Project templates)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
     {
       "title": "Visibility: Host and join sessions (Collaboration)",
       "source": "crates/os-app/src/workspace_visibility.rs"
@@ -139,6 +143,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: ML Patch in plugin menus (Stock plugins)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Advanced DSP controls (Stock plugins)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -184,6 +192,10 @@
     },
     {
       "title": "Visibility: Area color adjustments (Theme customization)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Track & clip colors (Theme customization)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -247,6 +259,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: ML Drums in plugin menus (Toolbar extras)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: ML Plasma in plugin menus (Toolbar extras)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -279,6 +295,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Browser layout setting (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Empty-space file actions (Browser)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -292,6 +312,10 @@
     },
     {
       "title": "Visibility: Favorites tab (Browser)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Collection folder controls (Browser)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -375,6 +399,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Add button below Playlist tracks (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Track drag destination (Playlist)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -384,6 +412,10 @@
     },
     {
       "title": "Visibility: Vocal tuning button (Playlist)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Vocal editor resize grip (Playlist)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -527,6 +559,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Pitch Draw button (Piano Roll)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Chord Workspace shortcut (Piano Roll)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -627,6 +663,10 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Headphone correction Auto gain switch (Mixer)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Group lock option in Mixer padlock menu (Mixer)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
@@ -711,7 +751,15 @@
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
+      "title": "Visibility: Solo Playlist tracks export (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
       "title": "Visibility: Advanced Export tab (Workspace)",
+      "source": "crates/os-app/src/workspace_visibility.rs"
+    },
+    {
+      "title": "Visibility: Auto-number duplicate exports (Workspace)",
       "source": "crates/os-app/src/workspace_visibility.rs"
     },
     {
@@ -1143,6 +1191,10 @@
       "source": "crates/os-app/src/prefs.rs"
     },
     {
+      "title": "Setting: Use legacy browser",
+      "source": "crates/os-app/src/prefs.rs"
+    },
+    {
       "title": "Setting: Open menus on hover",
       "source": "crates/os-app/src/prefs.rs"
     },
@@ -1511,6 +1563,14 @@
       "source": "crates/os-app/src/views/arpeggiate.rs"
     },
     {
+      "title": "Library view - control hints 1",
+      "source": "crates/os-app/src/views/browser/library.rs"
+    },
+    {
+      "title": "Library view - menu labels 1",
+      "source": "crates/os-app/src/views/browser/library.rs"
+    },
+    {
       "title": "Browser view - control hints 1",
       "source": "crates/os-app/src/views/browser.rs"
     },
@@ -1703,14 +1763,22 @@
       "source": "plugins/lemon-small-fx"
     },
     {
+      "title": "ML Wave - parameter names 1",
+      "source": "plugins/lemon-wave"
+    },
+    {
+      "title": "Ml Drums - parameter names 1",
+      "source": "plugins/ml-drums"
+    },
+    {
       "title": "ML Tesla - parameter names 1",
       "source": "plugins/tesla"
     }
   ],
   "explicit_exclusions": {
     "settings_comments_needing_reverification": 16,
-    "dynamic_or_nonliteral_hints": 568,
-    "dynamic_menu_labels": 212
+    "dynamic_or_nonliteral_hints": 583,
+    "dynamic_menu_labels": 217
   },
   "scope": "Static preference declarations, direct editor hints, literal menu labels, configurable command shortcuts and constructor parameter names. Dynamic controls and behavioral completeness require manual review; catalog presence is not a claim that every feature is fully documented."
 }

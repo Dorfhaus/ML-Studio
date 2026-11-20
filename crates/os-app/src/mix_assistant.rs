@@ -809,8 +809,8 @@ pub(crate) fn open(app: &mut App) {
     });
     let selection = app
         .state
-        .playlist
-        .range
+        .project
+        .playlist_loop
         .filter(|(a, b)| a != b)
         .map(|(a, b)| (u64::from(a.min(b)), u64::from(a.max(b))));
     app.state.playlist.popup = None;

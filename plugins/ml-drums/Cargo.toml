@@ -1,0 +1,24 @@
+[package]
+name = "ml-drums"
+description = "ML Studio stock drum machine, adapted from Autokit"
+version = "0.5.3"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+os-plugkit = { path = "../../crates/os-plugkit" }
+os-paths.workspace = true
+symphonia = { version = "0.5", features = ["wav", "flac", "ogg", "vorbis", "pcm", "mp3", "aiff"] }
+base64 = "0.22"
+rubato = "0.16"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+realfft = "3"
+rand = "0.9"
+walkdir = "2"
+rfd = "0.15"

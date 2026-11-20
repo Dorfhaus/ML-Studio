@@ -69,11 +69,11 @@ fn community_loop_edges_keep_the_opposite_endpoint() {
     let mut app=App::new(None);app.state.project=test_project();
     let grid=Rect::new(200.,100.,800.,500.);
     let g=crate::playlist::PGeom::new(&app.state,grid);
-    app.state.playlist.range=Some((96,384));
+    app.state.project.playlist_loop=Some((96,384));
     app.mouse=(g.x64(384.) as f32,90.);
     crate::playlist::press_ruler(&mut app,grid,false);
     assert!(matches!(app.drag,Some(Drag::Pl(crate::playlist::PlDrag::TimeSel{t0:96,resizing:true,..}))));
-    assert_eq!(app.state.playlist.range,Some((96,384)));
+    assert_eq!(app.state.project.playlist_loop,Some((96,384)));
     app.mouse=(g.x64(96.) as f32,90.);
     crate::playlist::press_ruler(&mut app,grid,true);
     assert!(matches!(app.drag,Some(Drag::Pl(crate::playlist::PlDrag::TimeSel{t0:384,resizing:true,..}))));

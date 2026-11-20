@@ -24,6 +24,12 @@ def environment(config,platform):
                   'mac-arm64': 'MACOS_AARCH64', 'mac-x86_64': 'MACOS_X86_64'}[platform]
         env['ML_PLASMA_BUNDLE_' + target] = bundle
     if platform.startswith('mac-'):
+        if 'mac_distribution' in config:
+            settings = config['mac_distribution']
+            if not settings.get('identity') or not settings.get('keychain_profile'):
+                raise ValueError('mac_distribution requires identity and keychain_profile')
+            env['ML_MAC_SIGNING_IDENTITY'] = settings['identity']
+            env['ML_MAC_NOTARY_PROFILE'] = settings['keychain_profile']
         env.update(LEMON_MAC_ARCH=platform[4:],LEMON_PIPELINE='1')
         env['PATH']=str(Path.home()/'.cargo/bin')+os.pathsep+str(Path.home()/'.lemon-studio-release/tools/bin')+os.pathsep+env.get('PATH','')
     else:env['LIBCLANG_PATH']=r.read_config()['llvm']
@@ -135,7 +141,7 @@ def verify_mac_package(dmg, update, arch, out, log):
                     raise RuntimeError('Installer and updater differ: '+entry['name'])
             profile=scratch/'profile'
             profile.mkdir()
-            env=dict(os.environ,OPENSTUDIO_USER_DIR=str(profile),OPENSTUDIO_NO_PLUGIN_BUILD='1')
+            env=dict(os.environ,OPENSTUDIO_USER_DIR=str(profile),GRIDLINE_CONFIG_HOME=str(profile),OPENSTUDIO_NO_PLUGIN_BUILD='1')
             binary=app/'Contents/MacOS/lemonstudio'
             report=out/'startup-report.txt'
             command(log,'arch','-'+arch,binary,'--startup-report',report,env=env)
@@ -151,7 +157,7 @@ def verify_mac_package(dmg, update, arch, out, log):
             command(log,'hdiutil','detach',mount)
 
 
-def mac(config,arch,out,log,verify_au=False):
+def mac(config,arch,out,log):
     storage.build_preflight(Path(config['cache'])/('mac-'+arch), out)
     env=environment(config,'mac-'+arch);out=Path(out);out.mkdir(parents=True);env['LEMON_PACKAGE_OUT']=str(out)
     command(log,'bash',r.ROOT/'packaging/mac/build-release.command',env=env)
@@ -160,8 +166,7 @@ def mac(config,arch,out,log,verify_au=False):
         dest=site/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(out/Path(rel).name,dest)
     shutil.copy2(out/f'mac-{arch}.json',site/'platforms'/f'mac-{arch}.json')
     command(log,r.sys.executable,r.ROOT/'packaging/prepare-unix-update.py','--platform','mac-'+arch,'--site',site,'--app',Path(env['CARGO_TARGET_DIR'])/'bundled/ML Studio.app',env=env)
-    if verify_au:
-        verify_mac_package(site/manifest['url'],site/'mac/updates'/arch/str(r.version()),arch,out,log)
+    verify_mac_package(site/manifest['url'],site/'mac/updates'/arch/str(r.version()),arch,out,log)
     return r.write_plan(site,out,'mac-'+arch)
 
 

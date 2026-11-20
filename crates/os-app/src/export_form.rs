@@ -322,7 +322,7 @@ impl App {
             song_ok,
             pat_ok,
             selection: false,
-            song_sel: sel(s.playlist.range),
+            song_sel: sel(s.project.playlist_loop),
             pat_sel: sel(s.piano.range),
             song_secs: f64::from(song_end) * secs_per_tick,
             pat_secs: f64::from(pat_len) * secs_per_tick,

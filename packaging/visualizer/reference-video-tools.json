@@ -1,0 +1,26 @@
+{
+  "macos-x86_64": {
+    "encoder_url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip",
+    "archive_size": 33816391,
+    "archive_sha256": "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4",
+    "encoder_member": "ffmpeg",
+    "encoder_size": 94769296,
+    "encoder_sha256": "b25689cf2211c0582d317e849912769a1f1c93904fe102c485b5364a425633d1"
+  },
+  "macos-aarch64": {
+    "encoder_url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+    "archive_size": 28395699,
+    "archive_sha256": "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924",
+    "encoder_member": "ffmpeg",
+    "encoder_size": 66332880,
+    "encoder_sha256": "2e11c6f90993cdb79fff84d3f90044d28316b310e75b3e030cfc9a54f2c9d384"
+  },
+  "linux-x86_64": {
+    "encoder_url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-lgpl-9.0.tar.xz",
+    "archive_size": 136027168,
+    "archive_sha256": "6046d6731b26f58887e953561551d254a6eec9fbca4100dfeab56e19af8328d5",
+    "encoder_member": "ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-lgpl-9.0/bin/ffmpeg",
+    "encoder_size": 140488520,
+    "encoder_sha256": "d372f20463a8ffb9eef1675242cdbf9aae19b647503b073fc9b5b1f42b91c94a"
+  }
+}

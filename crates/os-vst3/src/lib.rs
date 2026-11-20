@@ -610,6 +610,8 @@ pub struct Plugin {
     mpe_map:[u32;3],
     mpe_queue:Vec<Event>,
     mpe_voices:Vec<(i32,u8,u8)>,
+    draw_voices: Vec<(u32, i32, u8)>,
+    note_expression_tuning: bool,
     /// Glides as pitch bend (through `midi_map`) for a plug-in whose controller lists no tuning note expression (spec:
     /// audio/channel-voices.md); `None`: glides are tuning expressions. `bend_range` survives a new reading.
     bend: Option<os_engine::TuningBend>,
@@ -712,6 +714,8 @@ impl Plugin {
                 param_ids: Vec::new(),
                 midi_map: Vec::new(),
                 mpe:Default::default(),mpe_map:[u32::MAX;3],mpe_queue:Vec::with_capacity(256),mpe_voices:vec![],
+                draw_voices: Vec::new(),
+                note_expression_tuning: false,
                 bend: None,
                 bend_range: os_engine::instrument::DEFAULT_BEND_RANGE,
                 auto: Vec::with_capacity(MAX_AUTO),
@@ -898,6 +902,7 @@ impl Plugin {
                 x.get_note_expression_info(0, 0, i, &mut info) == kResultOk && info.type_id == TUNING_TYPE_ID
             })
         });
+        self.note_expression_tuning = tuning;
         self.bend = (!tuning && self.midi_map.get(129).is_some_and(|&id| id != u32::MAX)).then(|| {
             let mut b = os_engine::TuningBend::default();
             b.set_range(self.bend_range);
@@ -1364,6 +1369,12 @@ struct NoteIds {
 }
 
 impl NoteIds {
+    fn allocate(&mut self) -> i32 {
+        let id = self.next;
+        self.next = (id + 1) & 0x7fff_ffff;
+        id
+    }
+
     /// The VST 3 event of a queued note (spec §5). A note on gets a note id (so its tuning can address it); a note off
     /// names only its key (id -1), so it ends that key's note as before; a tuning goes to the key's latest note and is
     /// dropped when the key has none.
@@ -1371,8 +1382,7 @@ impl NoteIds {
         let key = usize::from(n.key.min(127));
         let (type_, event) = match n.kind {
             NoteKind::On => {
-                let id = self.next;
-                self.next = (id + 1) & 0x7fff_ffff;
+                let id = self.allocate();
                 self.ids[key] = id;
                 self.active.push((n.key,id));
                 let on = NoteOnEvent { channel: 0, pitch: i16::from(n.key), tuning: 0.0, velocity: n.velocity, length: 0, note_id: id };
@@ -1653,6 +1663,9 @@ impl os_engine::Instrument for Plugin {
     /// again before any block has run.
     fn reset(&mut self) {
         self.mpe_queue.retain_mut(|e|{e.sample_offset=0;e.type_==NOTE_OFF_EVENT});
+        while let Some((_, id, key)) = self.draw_voices.pop() {
+            self.mpe_event(0, os_engine::mpe::Event::Off { channel: 0, key, id, velocity: 0. });
+        }
         for (_,ch,key) in self.mpe_voices.clone(){os_engine::Instrument::midi(self,0,[0xb0|ch,120,0]);let _=key;}
         self.mpe.reset();
         if let Some(p)=&mut self.ara_playback {p.clear();}
@@ -1728,6 +1741,16 @@ impl os_engine::Instrument for Plugin {
         }
     }
 
+    fn draw_pitch(&mut self, offset: u32, key: u8, base: f32, semitones: f32, range: u8) {
+        if let Some(bend) = &mut self.bend {
+            if let Some(event) = bend.draw(key, base + semitones, range) {
+                os_engine::Instrument::midi(self, offset, event);
+            }
+        } else {
+            self.tune(offset, key, base + semitones);
+        }
+    }
+
     fn set_bend_range(&mut self, semitones: u32) {
         self.bend_range = semitones;
         if let Some(b) = &mut self.bend {
@@ -1747,15 +1770,57 @@ impl os_engine::Instrument for Plugin {
         self.voice_start(offset,key,velocity,start,os_engine::NoteLevels::default(),u32::MAX-u32::from(key));
     }
     fn voice_start(&mut self,offset:u32,key:u8,velocity:f32,start:f32,levels:os_engine::NoteLevels,voice:u32) {
-        if let Some(p)=&mut self.ara_playback {p.event(offset,ara_playback::Action::Start{key,id:voice,start,velocity,levels});}
-        else {self.note_on(offset,key,velocity);}
+        if let Some(p)=&mut self.ara_playback {
+            p.event(offset,ara_playback::Action::Start{key,id:voice,start,velocity,levels});
+        } else if self.voice_pitch_supported() {
+            let id = self.note_ids.allocate();
+            self.draw_voices.push((voice, id, key));
+            self.mpe_event(offset, os_engine::mpe::Event::On { channel: 0, key, id, velocity });
+        } else {
+            self.note_on(offset, key, velocity);
+        }
+    }
+    fn voice_pitch_supported(&self) -> bool {
+        self.ara.is_none() && self.note_expression_tuning
+    }
+    fn voice_pitch(&mut self, offset: u32, voice: u32, base: f32, semitones: f32) {
+        let Some(&(_, id, _)) = self.draw_voices.iter().find(|entry| entry.0 == voice) else {
+            return;
+        };
+        let value = (0.5 + f64::from(base + semitones) / 240.).clamp(0., 1.);
+        self.mpe_queue.push(Event {
+            bus_index: 0, sample_offset: offset as i32, ppq_position: 0., flags: 0,
+            type_: NOTE_EXPRESSION_VALUE_EVENT,
+            event: EventData { note_expression_value: NoteExpressionValueEvent {
+                type_id: TUNING_TYPE_ID, note_id: id, value,
+            } },
+        });
+    }
+    fn voice_tune(&mut self, offset: u32, key: u8, voice: u32, semitones: f32) {
+        if self.draw_voices.iter().any(|entry| entry.0 == voice) {
+            self.voice_pitch(offset, voice, semitones, 0.);
+        } else {
+            self.tune(offset, key, semitones);
+        }
+    }
+    fn voice_release(&mut self, offset: u32, key: u8, voice: u32) {
+        if let Some(at) = self.draw_voices.iter().position(|entry| entry.0 == voice) {
+            let (_, id, key) = self.draw_voices.swap_remove(at);
+            self.mpe_event(offset, os_engine::mpe::Event::Off { channel: 0, key, id, velocity: 0. });
+        } else {
+            self.note_off(offset, key);
+        }
     }
     fn voice_gains(&self)->bool {self.ara.is_some()}
     fn voice_gain(&mut self,offset:u32,voice:u32,gain:f32) {
         if let Some(p)=&mut self.ara_playback {p.event(offset,ara_playback::Action::Gain(voice,gain));}
     }
     fn voice_choke(&mut self,offset:u32,key:u8,voice:u32) {
-        if let Some(p)=&mut self.ara_playback {p.event(offset,ara_playback::Action::Stop(voice));}else{self.note_off(offset,key);}
+        if let Some(p)=&mut self.ara_playback {
+            p.event(offset,ara_playback::Action::Stop(voice));
+        } else {
+            self.voice_release(offset, key, voice);
+        }
     }
     fn process(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]) {
         left.fill(0.0);

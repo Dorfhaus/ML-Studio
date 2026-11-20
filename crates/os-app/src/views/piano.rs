@@ -61,22 +61,22 @@ pub struct Layout {
 /// The overview (the horizontal scroll bar) is 22 px tall and the vertical scroll bar's column 22 px wide; with
 /// "Small scrollbars in editors" 11 and 12 px (about half, as FL's playlist measured; spec: ui/settings-choices.md
 /// "Miscellaneous"), the room going to the ruler and the grid.
-pub fn layout(r: Rect, split: crate::piano_split::Split) -> Layout {
+pub fn layout(r: Rect, split: crate::piano_split::Split, pitch: f32) -> Layout {
     use crate::piano_split::BAND;
     let (hbar, vcol) = if super::small_scrollbars() { (11.0, 12.0) } else { (22.0, 22.0) };
     let bottom = r.bottom();
     let kw = f32::from(crate::piano_tools::keyboard_width()).min((r.w - 120.0).max(40.0));
     let gx = r.x + kw + 2.0;
     let gr = r.right() - vcol - 1.0;
-    let gy = r.y + 64.0;
+    let gy = r.y + 64.0 + pitch;
     let split = gy + split.grid_h(bottom - gy - BAND);
     Layout {
-        tab: Rect::new(r.x, r.y + 23.0, kw, 41.0),
-        overview: Rect::new(r.x + kw + 1.0, r.y + 23.0, gr - r.x - kw + 1.0, hbar),
-        ruler: Rect::new(r.x + kw + 1.0, r.y + 23.0 + hbar, gr - r.x - kw + 1.0, 41.0 - hbar),
+        tab: Rect::new(r.x, r.y + 23.0 + pitch, kw, 41.0),
+        overview: Rect::new(r.x + kw + 1.0, r.y + 23.0 + pitch, gr - r.x - kw + 1.0, hbar),
+        ruler: Rect::new(r.x + kw + 1.0, r.y + 23.0 + pitch + hbar, gr - r.x - kw + 1.0, 41.0 - hbar),
         keys: Rect::new(r.x, gy, kw, split - gy),
         grid: Rect::new(gx, gy, gr - gx, split - gy),
-        vscroll: Rect::new(gr + 1.0, r.y + 23.0, r.right() - gr - 1.0, split - r.y - 23.0),
+        vscroll: Rect::new(gr + 1.0, r.y + 23.0 + pitch, r.right() - gr - 1.0, split - r.y - 23.0 - pitch),
         splitter: Rect::new(r.x, split, r.w, BAND),
         label: Rect::new(r.x, split + BAND, kw, bottom - split - BAND),
         panel: Rect::new(gx, split + BAND, gr - gx, bottom - split - BAND),
@@ -86,7 +86,11 @@ pub fn layout(r: Rect, split: crate::piano_split::Split) -> Layout {
 /// The note grid the piano roll would paint now (where it opens, before it is painted).
 pub fn grid_rect(s: &State) -> Rect {
     let (r, _) = super::frame_rects(s, Win::PianoRoll, s.win_rect(Win::PianoRoll));
-    layout(r, s.piano.split).grid
+    layout(r, s.piano.split, pitch_row(s, r)).grid
+}
+
+fn pitch_row(s: &State, r: Rect) -> f32 {
+    if crate::piano_pitch::shown(s) && r.h >= 150. { 26. } else { 0. }
 }
 
 const TOOL_ROW_END: f32 = 432.0;
@@ -126,7 +130,11 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         return; // collapsed to the title bar
     }
     if s.piano.harmony.open {crate::harmony::paint(ui,s,r);return;}
-    let mut l = layout(r, s.piano.split);
+    let pitch_row = pitch_row(s, r);
+    if pitch_row > 0. {
+        crate::piano_pitch::paint_toolbar(ui, s, Rect::new(r.x, r.y + 23., r.w, pitch_row));
+    }
+    let mut l = layout(r, s.piano.split, pitch_row);
     if harmony_width(r)==0. && l.overview.w>=180. {
         let w=134.;
         harmony_boxes(ui,s,l.overview.x,l.overview.y,w,l.overview.h);
@@ -211,7 +219,9 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         }}
     }
     let label_font = Font::new(11);
+    let pitch_draw = crate::piano_pitch::shown(s);
     for (i, n) in notes.iter().enumerate().filter(|(_, n)| Some(n.channel) == ch) {
+        if pitch_draw && crate::piano_pitch::paint_note(ui, s, &g, i, n, sel.contains(&i)) { continue; }
         let Some(nr) = g.note_rect(n) else { continue };
         let vis = nr.intersect(&l.grid);
         if vis.w <= 0.0 || vis.h <= 0.0 {
@@ -485,7 +495,7 @@ fn toolbar(ui: &mut Ui, s: &State, r: Rect, shift: f32) {
             icons::draw(ui.c, icon, b, t.text_faint);
             continue;
         };
-        let on = action == Action::PianoTool(active) || (action==Action::PianoTool(Tool::Stretch) && s.piano.stretch) || (action==Action::Harmony(crate::harmony::HCmd::Menu(10)) && (s.piano.harmony.edit_snap||s.piano.harmony.midi_snap||s.piano.harmony.typing_snap));
+        let on = (!crate::piano_pitch::shown(s) && action == Action::PianoTool(active)) || (action==Action::PianoTool(Tool::Stretch) && s.piano.stretch) || (action==Action::Harmony(crate::harmony::HCmd::Menu(10)) && (s.piano.harmony.edit_snap||s.piano.harmony.midi_snap||s.piano.harmony.typing_snap));
         // The magnet's hint names the current snap (spec: ui/piano-snap.md §8).
         let hint: std::borrow::Cow<'static, str> = if action == Action::PianoSnapMenu { crate::piano_snap::hint(s).into() } else { hint.into() };
         let hov = ui.hit(b, action, hint);
@@ -510,8 +520,23 @@ fn toolbar(ui: &mut Ui, s: &State, r: Rect, shift: f32) {
         };
         icons::draw(ui.c, icon, b, c);
     }
-    let divider = center(348.0);
-    ui.c.line(divider, r.y + 4.0, divider, r.y + 18.0, 1.0, t.toolbar_edge);
+    if crate::workspace_visibility::shown(crate::piano_pitch::VISIBILITY) {
+        use crate::piano_pitch::{Command, Hit};
+        let b = Rect::new(center(344.5) - 8., r.y + 2., 16., 18.);
+        let hot = ui.hit(b, Action::PitchDraw(Hit::Command(Command::Toggle)), "Pitch Draw · edit pitch on individual notes");
+        let on = crate::piano_pitch::shown(s);
+        let ink = if on {
+            lk::lit_in(ui.c, t, b, lk::r_btn(t), hot);
+            lk::ink_on_lit(t)
+        } else {
+            if hot { ui.c.fill_rrect(b, 3., t.button_hi); }
+            t.glyph
+        };
+        icons::draw(ui.c, Icon::Envelope, b, ink);
+    } else {
+        let divider = center(348.);
+        ui.c.line(divider, r.y + 4., divider, r.y + 18., 1., t.toolbar_edge);
+    }
     let last = if crate::workspace_visibility::shown("visible_piano-place-pattern") { PLACE_X } else { 558.0 };
     target_controls(ui, s, r, center(last) + 19.0);
 }
@@ -984,7 +1009,7 @@ pub(super) fn paint_lane_menu(ui: &mut Ui, s: &State) {
     if !s.lane_menu || !s.z.contains(&Win::PianoRoll)
         || s.native_view.map_or(s.native_detached.contains(&Win::PianoRoll), |w| w!=Win::PianoRoll) {return;}
     let (r,_)=super::frame_rects(s,Win::PianoRoll,s.win_rect(Win::PianoRoll));
-    let l=layout(r,s.piano.split);
+    let l=layout(r,s.piano.split,pitch_row(s,r));
     let (w,h)=ui.c.size();
     // Preserve the chosen popup size where it fits; keep every row available on small surfaces.
     let scale=super::popup_scale(ui.c.scale)

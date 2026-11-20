@@ -139,7 +139,7 @@ pub fn used(s:&State,c:&Clip)->Vec<(u32,u32)> {
 }
 pub fn choose(s:&mut State,i:usize,selection:bool)->String {
     let Some(c)=pl::clips(s).get(i).cloned() else{return "Take no longer exists".into();};
-    let range=if selection {let Some(r)=s.playlist.range else{return "Select a time range in the Playlist ruler first".into();};r}else{(c.position,c.end())};
+    let range=if selection {let Some(r)=s.project.playlist_loop else{return "Select a time range in the Playlist ruler first".into();};r}else{(c.position,c.end())};
     choose_range(s,i,range)
 }
 pub fn choose_range(s:&mut State,i:usize,(a,b):(u32,u32))->String {
@@ -236,7 +236,7 @@ mod tests {
         let originals:Vec<_>=pl::clips(s).iter().filter(|c|c.track>0).cloned().collect();
         assert!(originals.iter().all(|c|c.muted&&c.length==384));
         let i=pl::clips(s).iter().position(|c|c.track==1).unwrap();
-        s.playlist.range=Some((96,192));
+        s.project.playlist_loop=Some((96,192));
         assert!(pl::clip_menu(s, i, 0., 0.).items.iter().filter(|p| p.label == "Comping")
             .flat_map(|p| &p.children).any(|p| p.cmd == pl::Cmd::CompUse(i, true) && p.enabled));
         assert!(choose(s,i,true).starts_with("Comp updated"));
@@ -339,7 +339,7 @@ mod tests {
         pl::arr_mut(s).tracks[499].name=Some("Keep me".into());pl::arr_mut(s).clips.push(clip(1,384));let old=pl::clips(s).to_vec();
         assert!(recorded(s,1,1,None).is_err());assert_eq!(pl::clips(s),old);
         pl::arr_mut(s).tracks[499].name=None;enable(s,0);let old=pl::clips(s).to_vec();
-        let i=pl::clips(s).iter().position(|c|c.track==1).unwrap();s.playlist.range=Some((400,500));
+        let i=pl::clips(s).iter().position(|c|c.track==1).unwrap();s.project.playlist_loop=Some((400,500));
         assert!(choose(s,i,true).contains("does not overlap"));assert_eq!(pl::clips(s),old);
     }
 }

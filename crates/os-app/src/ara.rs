@@ -434,7 +434,7 @@ pub fn playback_request(app:&mut App,row:usize,request:os_host::PlaybackRequest)
         R::Seek(_)=>if let Some(t)=seek {app.state.song_mode=true;app.set_song_pos(t,true);},
         R::Cycle(range)=>{
             if range.is_none()||cycle.is_some(){
-                app.state.song_mode=true;app.state.playlist.range=cycle;
+                app.state.song_mode=true;app.state.project.playlist_loop=cycle;
                 if app.transport.playing()&&!app.transport.paused(){app.play_song_from(cycle.map_or(at,|r|r.0));}
             }
         }

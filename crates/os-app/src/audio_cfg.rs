@@ -77,8 +77,20 @@ impl AudioCfg {
 
     /// Streams opened from now on use `self`; it is kept for the next start.
     pub fn apply(self) {
+        let mut current = CURRENT.lock().unwrap_or_else(|e| e.into_inner());
         save(&self);
-        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(self);
+        *current = Some(self);
+    }
+
+    /// The ASIO driver changed its buffer while this stream was open. Preserve any newer choice made in the app.
+    #[cfg(windows)]
+    pub(crate) fn adopt_driver_buffer(driver: &str, previous: Option<u32>, buffer: Option<u32>) {
+        let mut current = CURRENT.lock().unwrap_or_else(|e| e.into_inner());
+        let cfg = current.get_or_insert_with(load);
+        if cfg.asio_driver() == Some(driver) && cfg.buffer == previous && cfg.buffer != buffer {
+            cfg.buffer = buffer;
+            save(cfg);
+        }
     }
 
     pub fn with(mut self, s: Set) -> AudioCfg {
@@ -350,6 +362,30 @@ mod tests {
 
     /// Legacy WASAPI buffer values do not carry into ASIO. An explicit
     /// ASIO override is stored separately.
+    #[cfg(windows)]
+    #[test]
+    fn asio_panel_adopts_the_buffer_without_overriding_newer_audio_settings() {
+        let before = AudioCfg::current();
+        let cfg = AudioCfg::default().with(Set::Asio("Test ASIO".into()))
+            .with(Set::Rate(Some(48000))).with(Set::Buffer(Some(128)));
+        cfg.clone().apply();
+
+        AudioCfg::adopt_driver_buffer("Test ASIO", Some(128), None);
+        let driver = AudioCfg::current();
+        assert_eq!(driver, cfg.clone().with(Set::Buffer(None)));
+        assert_eq!(AudioCfg::parse(&driver.text()), driver);
+
+        AudioCfg::adopt_driver_buffer("Test ASIO", None, Some(48));
+        let reported = AudioCfg::current();
+        assert_eq!(reported, cfg.with(Set::Buffer(Some(48))));
+        assert_eq!(AudioCfg::parse(&reported.text()), reported);
+
+        AudioCfg::adopt_driver_buffer("Test ASIO", Some(128), Some(64));
+        AudioCfg::adopt_driver_buffer("Other ASIO", Some(48), Some(64));
+        assert_eq!(AudioCfg::current(), reported);
+        before.apply();
+    }
+
     #[test]
     fn asio_ignores_legacy_buffers_and_persists_explicit_override() {
         let c = AudioCfg::parse("host=asio\ndevice=AudioBox ASIO\nbuffer=64\nrate=48000\n");

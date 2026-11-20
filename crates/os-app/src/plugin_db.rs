@@ -500,7 +500,7 @@ fn walk(dir: &Path, depth: u32, formats: Formats, walked: &mut HashSet<(PathBuf,
 /// A file named like a built-in Lemon plugin, or like one by an earlier name (same plugin id): the built-in copy
 /// is used (a second copy in the process would share the built-in one's editor window class).
 fn builtin_file(p: &Path) -> bool {
-    let builtin = ["ML Plasma", "ML Wave", "ML Chop", crate::plugins::LEMON_SAMPLER, crate::plugins::LEMON_EQ, crate::plugins::PULP_FILTER, crate::plugins::PRESS, crate::osc3::LEMON_TRIO, crate::citrus::CITRUS];
+    let builtin = [ml_drums::NAME, "ML Plasma", "ML Wave", "ML Chop", crate::plugins::LEMON_SAMPLER, crate::plugins::LEMON_EQ, crate::plugins::PULP_FILTER, crate::plugins::PRESS, crate::osc3::LEMON_TRIO, crate::citrus::CITRUS];
     let old = crate::plugins::OLD_NAMES.map(|(old, _)| old);
     p.file_stem().is_some_and(|s| builtin.iter().chain(&crate::plugins::LINKED_EFFECTS).chain(&old).any(|b| s.eq_ignore_ascii_case(b)))
 }
@@ -795,7 +795,7 @@ pub fn lists(available: &[Available], effects: &[Available], prefs: &Prefs, miss
 
 fn entries(list: &[Available], prefs: &Prefs, missing: &HashSet<String>) -> Vec<Entry> {
     let into = combined_into(list, prefs, missing);
-    let shown: Vec<usize> = (0..list.len()).filter(|&i| into[i].is_none()).filter(|&i| { let u = list[i].desc.uid(); !prefs.is_hidden(&u) && !missing.contains(&u) && (list[i].desc.id != crate::ml_patch::core::ID || crate::workspace_visibility::shown(crate::ml_patch::VISIBILITY)) && (list[i].desc.name!="ML Tape" || crate::workspace_visibility::shown("visible_plugin-tape")) && (list[i].desc.name!="ML Hall" || crate::workspace_visibility::shown("visible_plugin-hall")) && (list[i].desc.name != ml_plasma::NAME || crate::workspace_visibility::shown(ml_plasma::VISIBILITY)) }).collect();
+    let shown: Vec<usize> = (0..list.len()).filter(|&i| into[i].is_none()).filter(|&i| { let u = list[i].desc.uid(); !prefs.is_hidden(&u) && !missing.contains(&u) && (list[i].desc.id != crate::ml_patch::core::ID || crate::workspace_visibility::shown(crate::ml_patch::VISIBILITY)) && (list[i].desc.name!="ML Tape" || crate::workspace_visibility::shown("visible_plugin-tape")) && (list[i].desc.name!="ML Hall" || crate::workspace_visibility::shown("visible_plugin-hall")) && (list[i].desc.id != ml_drums::ID || crate::workspace_visibility::shown(ml_drums::VISIBILITY)) && (list[i].desc.name != ml_plasma::NAME || crate::workspace_visibility::shown(ml_plasma::VISIBILITY)) }).collect();
     let mut v: Vec<Entry> = shown
         .iter()
         .map(|&i| {
@@ -1163,6 +1163,28 @@ mod tests {
             assert_eq!(plugins.available[chop[0].index].desc.kind, Kind::Instrument);
             assert!(!listed.fx.iter().any(|e| e.name == "ML Chop"));
         }
+    }
+
+    #[test]
+    fn ml_drums_stock_visibility_and_upgrade_without_scan() {
+        let mut plugins = crate::plugins::Plugins::builtins();
+        crate::settings_file::set_flag(ml_drums::VISIBILITY, true);
+        for _ in 0..2 {
+            plugins.merge(&Cache::default());
+            let listed = lists(&plugins.available, &plugins.effects, &Prefs::default(), &plugins.missing);
+            let found: Vec<_> = listed.gens.iter().filter(|e| e.name == ml_drums::NAME).collect();
+            assert_eq!(found.len(), 1, "the stock drum machine appears once after an update/rescan");
+            assert!(found[0].builtin);
+            assert_eq!(found[0].category, "Drum");
+            assert_eq!(found[0].vendor, BUILTIN_VENDOR);
+            assert!(!listed.fx.iter().any(|e| e.name == ml_drums::NAME));
+        }
+        crate::settings_file::set_flag(ml_drums::VISIBILITY, false);
+        let listed = lists(&plugins.available, &plugins.effects, &Prefs::default(), &plugins.missing);
+        assert!(!listed.gens.iter().any(|e| e.name == ml_drums::NAME));
+        assert!(plugins.available.iter().any(|a| a.desc.id == ml_drums::ID),
+            "hiding menus must preserve the library used by existing projects");
+        crate::settings_file::set_flag(ml_drums::VISIBILITY, true);
     }
 
     #[test]

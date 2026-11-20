@@ -302,6 +302,7 @@ pub enum Cmd {
     MarkerProfile(u8),
     ClipEffects(usize),
     Mpe(crate::mpe::Command),
+    PitchDraw(crate::piano_pitch::Command),
     ResetPatternStretch(usize),
     MarkerEvery(u32),
     AddSignature,
@@ -734,8 +735,6 @@ pub struct PlaylistState {
     pub automation_owners: HashMap<u16, u16>,
     /// Song position (ticks): song playback starts here.
     pub pos: u32,
-    /// Time selection (ticks).
-    pub range: Option<(u32, u32)>,
     pub clipboard: Vec<Clip>,
     pub overlay: Option<Overlay>,
     pub popup: Option<Popup>,
@@ -808,7 +807,6 @@ impl Default for PlaylistState {
             automation_views: HashMap::new(),
             automation_owners: HashMap::new(),
             pos: 0,
-            range: None,
             clipboard: Vec::new(),
             overlay: None,
             popup: None,
@@ -1189,7 +1187,7 @@ fn place_loop(s: &mut State, tick: u32) {
 /// end, over the whole song without one (OS).
 fn add_every(s: &mut State, n: u32, base: &str) {
     let end = clips(s).iter().map(|c| c.end()).max().unwrap_or(0);
-    let (a, b) = s.playlist.range.unwrap_or((0, end));
+    let (a, b) = s.project.playlist_loop.unwrap_or((0, end));
     let step = (bar(s) * n).max(1);
     for (k, t) in (a..b).step_by(step as usize).enumerate() {
         add_marker(s, TimeMarker::new(t, &format!("{base} #{}", k + 1)));
@@ -2071,6 +2069,16 @@ pub fn load_view(s: &mut State) {
     s.playlist_scroll.1 = v.scroll_y() as f32;
 }
 
+/// Keep the saved loop in view when it starts past the first screen of the Playlist.
+pub(crate) fn reveal_saved_loop(s: &mut State) {
+    let Some((start, _)) = s.project.playlist_loop else { return };
+    let Some(grid) = crate::views::playlist::grid_of(s).filter(|grid| grid.w > 0.0) else { return };
+    let left = PGeom::new(s, grid).x_of(start as f32) - grid.x;
+    if left >= grid.w {
+        s.playlist_scroll.0 = (left - grid.w * 0.1).max(0.0);
+    }
+}
+
 /// Write the playlist's track height, time zoom and scroll into the project for saving (event 242).
 pub fn store_view(s: &mut State) {
     let mut v = s.project.playlist_view.unwrap_or_else(|| os_model::PlaylistView::new(s.project.ppq));
@@ -2230,7 +2238,7 @@ pub fn duplicate(s: &mut State) {
     let idx = copy_indices(s, targets(s));
     let cs: Vec<Clip> = idx.iter().filter_map(|&i| clips(s).get(i).cloned()).collect();
     let (Some(a), Some(b)) = (cs.iter().map(|c| c.position).min(), cs.iter().map(Clip::end).max()) else { return };
-    let span = match s.playlist.range {
+    let span = match s.project.playlist_loop {
         Some((r0, r1)) if r1 > r0 => r1 - r0,
         _ => {
             // Whole bars, as FL duplicates sections.
@@ -2250,8 +2258,8 @@ pub fn duplicate(s: &mut State) {
     regroup_copies(s, first);
     s.playlist.sel = (first..n).collect();
     extend_linked_automation(s, first..n);
-    if let Some((r0, r1)) = s.playlist.range {
-        s.playlist.range = Some((r0 + span, r1 + span));
+    if let Some((r0, r1)) = s.project.playlist_loop {
+        s.project.playlist_loop = Some((r0 + span, r1 + span));
     }
     s.piano.dirty = true;
 }
@@ -2297,7 +2305,7 @@ pub fn paste(s: &mut State) {
 /// Ctrl+Insert: insert the time selection's length of empty space at its start (all tracks); without a time
 /// selection, one bar at the song position (§5, OS).
 pub fn insert_space(s: &mut State) -> (u32, u32) {
-    let (r0, r1) = s.playlist.range.filter(|r| r.1 > r.0).unwrap_or_else(|| (s.playlist.pos, s.playlist.pos + bar(s)));
+    let (r0, r1) = s.project.playlist_loop.filter(|r| r.1 > r.0).unwrap_or_else(|| (s.playlist.pos, s.playlist.pos + bar(s)));
     let len = r1 - r0;
     let ids: Vec<usize> = clips(s).iter().enumerate().filter(|(_, c)| c.position < r0 && c.end() > r0).map(|(i, _)| i).collect();
     for i in ids {
@@ -2320,7 +2328,7 @@ pub fn insert_space(s: &mut State) -> (u32, u32) {
 
 /// Ctrl+Delete: remove the time selection and pull later clips left.
 pub fn delete_space(s: &mut State) -> bool {
-    let Some((r0, r1)) = s.playlist.range.filter(|r| r.1 > r.0) else { return false };
+    let Some((r0, r1)) = s.project.playlist_loop.filter(|r| r.1 > r.0) else { return false };
     let len = r1 - r0;
     // Cut clips at both edges, drop what lies inside, move the rest.
     for t in [r0, r1] {
@@ -2616,13 +2624,16 @@ pub fn make_unique(s: &mut State, i: usize) -> Option<u16> {
     }
     let ClipSource::Pattern(n) = c.source else { return None };
     let mut p = s.project.pattern(n).cloned().unwrap_or(os_model::Pattern { number: n, ..Default::default() });
-    let next = s.project.patterns.iter().map(|p| p.number).max().unwrap_or(0).max(n) + 1;
-    let base = p.name.clone().unwrap_or_else(|| format!("Pattern {n}"));
+    let next = s.project.patterns.iter().map(|p| p.number).max().unwrap_or(0).max(n).checked_add(1)?;
+    let default = format!("Pattern {n}");
+    let base = c.name.as_deref().or(p.name.as_deref()).unwrap_or(&default);
+    let base = base.strip_prefix(&format!("{n} · ")).unwrap_or(&base);
     p.number = next;
-    p.name = Some(format!("{base} #2"));
+    p.name = Some(format!("{next} · {base}"));
     s.project.patterns.push(p);
     if let Some(cl) = arr_mut(s).clips.get_mut(i) {
         cl.source = ClipSource::Pattern(next);
+        cl.name = None;
     }
     s.playlist.source = Some(ClipSource::Pattern(next));
     s.pattern = next;
@@ -2732,7 +2743,7 @@ fn create_automation_with_history(s:&mut State,tgt:u32,name:&str,value:f64,free:
         .filter(|clip| clip.track == row && clip_matches_target(s, clip, tgt))
         .map(|clip| (clip.position, clip.end()))
         .reduce(|(start, end), (a, b)| (start.min(a), end.max(b))));
-    let (a,b) = span.or(coverage).unwrap_or_else(|| match s.playlist.range {
+    let (a,b) = span.or(coverage).unwrap_or_else(|| match s.project.playlist_loop {
         Some((r0,r1)) if r1>r0 => (r0,r1), _=>automation_span(s),
     });
     let beats = f64::from(b - a) / f64::from(ppq(s));
@@ -3312,7 +3323,7 @@ pub fn clip_menu(s: &State, i: usize, x: f32, y: f32) -> Popup {
         && crate::workspace_visibility::shown("visible_playlist-vocal-align")
         && crate::vocal_align::available(s, i);
     let comp = kind == PickKind::Audio && crate::comping::parent(s, c.track).is_some();
-    let mut items = clip_menu_items(kind, i, c.muted, align, comp, s.playlist.range.is_some(), s.playlist.stretch);
+    let mut items = clip_menu_items(kind, i, c.muted, align, comp, s.project.playlist_loop.is_some(), s.playlist.stretch);
     if crate::attached_mixer::active(s)&&kind==PickKind::Pattern{items.push(PItem::new("Use this track's instrument",Cmd::TrackLink(crate::playlist_links::Command::Retarget(i))).dim(crate::playlist_links::mode(s,c.track)!=os_model::PlaylistTrackMode::Instrument));}
     menu.popup(Popup { x, y, items, sub: None, scroll: [0; 2], cascade: Vec::new() })
 }
@@ -3953,7 +3964,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
     if right && hit.is_none() && matches!(tool,PlTool::Draw|PlTool::Paint) {
         s.playlist.sel.clear();s.playlist.header_selection.clear();s.playlist.header_anchor=None;
         if !range_contains_x(s, grid, x) {
-            s.playlist.range = None;
+            s.project.playlist_loop = None;
         }
         s.playlist.overlay=None;s.playlist.last_header=None;
         s.playlist.last_clip=None;
@@ -4631,7 +4642,7 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
         }
         PlDrag::TimeSel { t0, original, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
-            s.playlist.range = if t == t0 { original } else { Some((t0.min(t), t0.max(t))) };
+            s.project.playlist_loop = if t == t0 { original } else { Some((t0.min(t), t0.max(t))) };
         }
         PlDrag::Marker { i, t0, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
@@ -5038,7 +5049,7 @@ fn range_screen_bounds(s: &State, grid: Rect, start: u32, end: u32) -> (f32, f32
 }
 
 fn range_contains_x(s: &State, grid: Rect, x: f32) -> bool {
-    s.playlist.range.is_some_and(|(start, end)| {
+    s.project.playlist_loop.is_some_and(|(start, end)| {
         let (left, right) = range_screen_bounds(s, grid, start, end);
         (left..=right).contains(&x)
     })
@@ -5046,7 +5057,7 @@ fn range_contains_x(s: &State, grid: Rect, x: f32) -> bool {
 
 /// Returns the boundary that stays fixed when the pointer is over a ruler resize handle.
 pub(crate) fn ruler_resize_anchor(s: &State, grid: Rect, x: f32) -> Option<u32> {
-    let (start, end) = s.playlist.range?;
+    let (start, end) = s.project.playlist_loop?;
     let (left, right) = range_screen_bounds(s, grid, start, end);
     let distance = |edge: f32| {
         if (grid.x..=grid.right()).contains(&edge) { (x - edge).abs() } else { f32::INFINITY }
@@ -5071,18 +5082,18 @@ pub fn press_ruler(app: &mut App, grid: Rect, right: bool) {
     let g = PGeom::new(s, grid);
     if right {
         if !range_contains_x(s, grid, x) {
-            s.playlist.range = None;
+            s.project.playlist_loop = None;
         }
         s.playlist.last_ruler = None;
         let t0 = snap_round(s, &g, g.tick_at(x), alt);
-        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0, original: s.playlist.range, resizing: false }));
+        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0, original: s.project.playlist_loop, resizing: false }));
     } else {
         // A double click clears the time selection (a Lemon Studio choice, besides FL's right click).
         let now = std::time::Instant::now();
         let double = s.playlist.last_ruler.is_some_and(|t| now.duration_since(t).as_millis() < 450);
         s.playlist.last_ruler = (!double).then_some(now);
         if double {
-            s.playlist.range = None;
+            s.project.playlist_loop = None;
         }
         s.playlist.pos = snap_down(s, &g, g.tick_at(x), alt);
         // Moving the song position switches to SONG mode; a time selection does not (§7). The initial values follow
@@ -5532,6 +5543,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             app.invalidate();return None;
         },
         Cmd::Mpe(c)=>{crate::mpe::command(app,c);return None;},
+        Cmd::PitchDraw(c) => {crate::piano_pitch::command_run(app,c);return None;},
         Cmd::ClipEffects(i)=>{let result=crate::clip_effects::open(app,i).err();app.invalidate();return result;},
         Cmd::MarkerProfile(mode)=>{crate::marker_profiles::open(app,mode);return None;},
         Cmd::TypeTempo => {
@@ -5915,7 +5927,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             (!delete_space(s)).then(|| "Delete space: make a time selection first (right-drag the ruler)".into())
         }
         Cmd::ImportReport | Cmd::ExportImportReport | Cmd::ImportOptions | Cmd::FindMissingSamples | Cmd::ApproveSubstitutes | Cmd::LocateMissingSample(_) | Cmd::BrowseMissingSample(_) | Cmd::UseMissingSample(..) |
-        Cmd::WarpSensitivity(_) | Cmd::StripSilence(_) | Cmd::Normalize(..) | Cmd::Warp(_) | Cmd::VocalAlign(_) | Cmd::FreezeTrack(_) | Cmd::UnfreezeTrack(_) | Cmd::BounceTrack(_) | Cmd::BounceReplaceTrack(_) | Cmd::Consolidate | Cmd::ExportTracks | Cmd::QuantizeStarts | Cmd::PointValue(..) | Cmd::ClipRoute(_) | Cmd::ClipPreview(_) | Cmd::SeparateStems(_) | Cmd::AraMenu(_) | Cmd::AraChoose(..) | Cmd::AraRemove(_) | Cmd::AraScan | Cmd::FitLoop(..) | Cmd::TypeIn(_) | Cmd::TypeTempo | Cmd::Mpe(_) | Cmd::ClipEffects(_) | Cmd::MarkerProfile(_) | Cmd::ResetPatternStretch(_) | Cmd::Reset(_) | Cmd::Remote(_) | Cmd::PeakLink(_) | Cmd::MidiExt(_) | Cmd::Controller(..) => None,
+        Cmd::WarpSensitivity(_) | Cmd::StripSilence(_) | Cmd::Normalize(..) | Cmd::Warp(_) | Cmd::VocalAlign(_) | Cmd::FreezeTrack(_) | Cmd::UnfreezeTrack(_) | Cmd::BounceTrack(_) | Cmd::BounceReplaceTrack(_) | Cmd::Consolidate | Cmd::ExportTracks | Cmd::QuantizeStarts | Cmd::PointValue(..) | Cmd::ClipRoute(_) | Cmd::ClipPreview(_) | Cmd::SeparateStems(_) | Cmd::AraMenu(_) | Cmd::AraChoose(..) | Cmd::AraRemove(_) | Cmd::AraScan | Cmd::FitLoop(..) | Cmd::TypeIn(_) | Cmd::TypeTempo | Cmd::Mpe(_) | Cmd::PitchDraw(_) | Cmd::ClipEffects(_) | Cmd::MarkerProfile(_) | Cmd::ResetPatternStretch(_) | Cmd::Reset(_) | Cmd::Remote(_) | Cmd::PeakLink(_) | Cmd::MidiExt(_) | Cmd::Controller(..) => None,
         Cmd::StretchMode => {
             s.playlist.stretch = !s.playlist.stretch;
             if s.playlist.stretch { crate::playlist_tools::select(s, PlTool::Paint); }
@@ -5928,7 +5940,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
         }
         Cmd::Deselect => {
             s.playlist.sel.clear();
-            s.playlist.range = None;
+            s.project.playlist_loop = None;
             None
         }
         Cmd::InvertSelection => {
@@ -5949,7 +5961,7 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             let idx = targets(s);
             let a = idx.iter().filter_map(|&i| clips(s).get(i)).map(|c| c.position).min();
             let b = idx.iter().filter_map(|&i| clips(s).get(i)).map(Clip::end).max();
-            s.playlist.range = a.zip(b);
+            s.project.playlist_loop = a.zip(b);
             None
         }
         Cmd::WaveDetail(level) => {
@@ -6002,14 +6014,14 @@ pub fn run(app: &mut App, cmd: Cmd) -> Option<String> {
             None
         }
         Cmd::PlaceLoop | Cmd::PlaceLoopAt(_) => {
-            let pos = if let Cmd::PlaceLoopAt(t) = cmd { t } else { s.playlist.range.map_or(0, |(a, _)| a) };
+            let pos = if let Cmd::PlaceLoopAt(t) = cmd { t } else { s.project.playlist_loop.map_or(0, |(a, _)| a) };
             snapshot(s);
             place_loop(s, pos);
             None
         }
         Cmd::DeleteMarkers | Cmd::ToMarkerLoop => {
             // The markers in the time selection (its start included, its end not); all of them without one.
-            let range = s.playlist.range;
+            let range = s.project.playlist_loop;
             let inside = |m: &TimeMarker| range.is_none_or(|(a, b)| m.position >= a && m.position < b);
             if !markers(s).iter().any(inside) {
                 return None;
@@ -6593,10 +6605,10 @@ pub(crate) fn export_tracks_replacing(app: &mut App, approved: &[std::path::Path
 }
 
 pub fn consolidate(app: &mut App) -> String {
-    if crate::audio_edits::pending(&app.state.project){app.state.playlist.vocal.pending_output=Some(crate::audio_edits::Output::Consolidate(app.state.project.clone(),app.state.playlist.sel.clone(),app.state.playlist.range));return "Preparing current audio edits before consolidation...".into();}
+    if crate::audio_edits::pending(&app.state.project){app.state.playlist.vocal.pending_output=Some(crate::audio_edits::Output::Consolidate(app.state.project.clone(),app.state.playlist.sel.clone(),app.state.project.playlist_loop));return "Preparing current audio edits before consolidation...".into();}
     let s = &mut app.state;
     let sel = s.playlist.sel.clone();
-    let (a, b) = match (s.playlist.range, sel.is_empty()) {
+    let (a, b) = match (s.project.playlist_loop, sel.is_empty()) {
         (Some((r0, r1)), _) if r1 > r0 => (r0, r1),
         (_, false) => {
             let cs: Vec<&Clip> = sel.iter().filter_map(|&i| clips(s).get(i)).collect();
@@ -6811,13 +6823,12 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> 
 }
 
 /// The timebase changed from `from` to `to` ticks per quarter (`Project::set_ppq` rescaled the project): the song
-/// position, time selection, clipboard, locked clip length and undo steps follow, so nothing of the old timebase comes
+/// position, clipboard, locked clip length and undo steps follow, so nothing of the old timebase comes
 /// back (automation data stays, as in the project).
 pub fn rescale(s: &mut State, from: u16, to: u16) {
     use os_model::{rescale_length, rescale_tick};
     let pl = &mut s.playlist;
     pl.pos = rescale_tick(pl.pos, from, to);
-    pl.range = pl.range.map(|(a, b)| (rescale_tick(a, from, to), rescale_tick(b, from, to)));
     pl.clipboard.iter_mut().for_each(|c| c.rescale(from, to));
     if let Some(clip) = &mut pl.audio_template {
         clip.rescale(from, to);
@@ -7032,14 +7043,26 @@ mod unique_audio_tests {
     #[test]
     fn make_unique_pattern_still_clones_and_undo_removes_clone() {
         let mut app=App::new(None);app.state.project=crate::app::test_project();
-        arr_mut(&mut app.state).clips=vec![Clip::new(0,384,0,ClipSource::Pattern(1))];
+        let original = ClipSource::Pattern(1);
+        let new = ClipSource::Pattern(2);
+        app.state.project.patterns[0].notes = vec![os_model::Note::step(0, 24)];
+        let sibling = Clip::new(384,384,0,original);
+        let mut clip = Clip::new(0,48,0,original);
+        clip.name = Some("Long drum sequence name".into());
+        arr_mut(&mut app.state).clips=vec![clip.clone(),sibling.clone()];
         let patterns=app.state.project.patterns.clone();
         run(&mut app,Cmd::ClipUnique(0));
-        assert_ne!(clips(&app.state)[0].source,ClipSource::Pattern(1));
-        assert_eq!(app.state.project.patterns.len(),patterns.len()+1);
+        assert_eq!(clips(&app.state)[0].source,new);
+        assert_eq!(clip_name(&app.state,&clips(&app.state)[0]),"2 · Long drum sequence name");
+        assert_eq!(&clips(&app.state)[1],&sibling);
+        assert_eq!(app.state.project.pattern(2).unwrap().notes,patterns[0].notes);
         crate::history::undo(&mut app.state);
         assert_eq!(app.state.project.patterns,patterns);
-        assert_eq!(clips(&app.state)[0].source,ClipSource::Pattern(1));
+        assert_eq!(clips(&app.state)[0],clip);
+        crate::history::redo(&mut app.state);
+        assert_eq!(clip_name(&app.state,&clips(&app.state)[0]),"2 · Long drum sequence name");
+        run(&mut app,Cmd::ClipUnique(0));
+        assert_eq!(clip_name(&app.state,&clips(&app.state)[0]),"3 · Long drum sequence name");
     }
 }
 

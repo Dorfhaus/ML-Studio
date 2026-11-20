@@ -16,6 +16,7 @@ pub struct Voice {
     heard: f64,
     speed: f64,
     pitch: f64,
+    draw_pitch: f64,
     reverse: bool,
     rate: f64,
     velocity: f32,
@@ -66,6 +67,7 @@ impl Voice {
             heard: 0.,
             speed: 1.,
             pitch: 1.,
+            draw_pitch: 1.,
             reverse: false,
             rate: rate as f64,
             velocity: 1.,
@@ -133,6 +135,7 @@ impl Voice {
         self.preview = preview.is_some() && note == 127;
         self.note = note;
         self.channel = channel;
+        self.draw_pitch = 1.;
         self.audio = Some(audio);
         self.age = 0;
         self.released = None;
@@ -191,7 +194,7 @@ impl Voice {
         if !self.direct {
             let gains = std::array::from_fn(|i| values[12 + i]);
             self.feed(self.stream.lead(), gains);
-            self.stream.set_transpose(self.pitch);
+            self.stream.set_transpose(self.pitch * self.draw_pitch);
             self.stream.start(&self.input, self.speed);
             let mut delay = self.stream.delay();
             while delay > 0 {
@@ -229,7 +232,7 @@ impl Voice {
         if self.direct {
             self.direct = false;
             self.feed(self.stream.lead(), gains);
-            self.stream.set_transpose(self.pitch);
+            self.stream.set_transpose(self.pitch * self.draw_pitch);
             self.stream.start(&self.input, self.speed);
             let mut left = self.stream.delay();
             while left > 0 {
@@ -240,12 +243,33 @@ impl Voice {
             self.read = BLOCK;
         }
     }
+    pub fn tune(&mut self, semitones: f32, gains: [f32; 4]) {
+        self.draw_pitch = 2f64.powf(f64::from(semitones.clamp(-48., 48.)) / 12.);
+        self.stream.set_transpose(self.pitch * self.draw_pitch);
+        if self.direct && self.draw_pitch != 1. {
+            self.start_stretch(gains);
+        }
+    }
+
+    fn start_stretch(&mut self, gains: [f32; 4]) {
+        self.direct = false;
+        self.feed(self.stream.lead(), gains);
+        self.stream.start(&self.input, self.speed);
+        let mut delay = self.stream.delay();
+        while delay > 0 {
+            let count = delay.min(BLOCK);
+            self.chunk(count, gains);
+            delay -= count;
+        }
+        self.read = BLOCK;
+    }
+
     fn chunk(&mut self, count: usize, gains: [f32; 4]) {
         if self.glide_left > 0 {
             let n = count.min(self.glide_left);
             self.pitch += (self.glide_target - self.pitch) * n as f64 / self.glide_left as f64;
             self.glide_left -= n;
-            self.stream.set_transpose(self.pitch);
+            self.stream.set_transpose(self.pitch * self.draw_pitch);
         }
         if self.grid.len() > 1 {
             let seconds = self.heard / self.audio.as_ref().unwrap().source.rate as f64;
@@ -260,7 +284,7 @@ impl Voice {
             if self.linked {
                 self.speed = (self.speed * self.link_pitch).clamp(0.025, 32.);
                 self.pitch = self.speed;
-                self.stream.set_transpose(self.pitch);
+                self.stream.set_transpose(self.pitch * self.draw_pitch);
             }
         }
         let desired = count as f64 * self.speed + self.frac;
@@ -314,7 +338,7 @@ impl Voice {
         }
         if self.glide_left == 0 {
             self.pitch = pitch;
-            self.stream.set_transpose(pitch);
+            self.stream.set_transpose(pitch * self.draw_pitch);
         }
         let reverse = values[pad(n, REVERSE)] > 0.5;
         if reverse != self.reverse {
@@ -322,17 +346,7 @@ impl Voice {
             self.pos = self.heard;
         }
         if self.direct && ((speed - 1.).abs() > 1e-7 || (pitch - 1.).abs() > 1e-7) {
-            self.direct = false;
-            let gains = std::array::from_fn(|i| values[12 + i]);
-            self.feed(self.stream.lead(), gains);
-            self.stream.start(&self.input, self.speed);
-            let mut delay = self.stream.delay();
-            while delay > 0 {
-                let count = delay.min(BLOCK);
-                self.chunk(count, gains);
-                delay -= count;
-            }
-            self.read = BLOCK;
+            self.start_stretch(std::array::from_fn(|i| values[12 + i]));
         }
     }
     pub fn off(&mut self, note: u8, channel: u8) {

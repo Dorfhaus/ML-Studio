@@ -782,7 +782,7 @@ impl Engine {
 
     pub fn echo_pitch(&mut self, id: i32, semitones: f32) {
         for v in self.of_note(Some(id), 0) {
-            v.echo_pitch = f64::from(semitones.clamp(-48.0, 48.0));
+            v.echo_pitch = f64::from(semitones.clamp(-96.0, 96.0));
         }
     }
 

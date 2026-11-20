@@ -32,12 +32,18 @@ const WORKER: &str = "MLVisualizerRender.exe";
 struct Catalog {
     renderer_sha256: String,
     renderer_size: u64,
+    #[serde(flatten)]
+    encoder: EncoderPackage,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct EncoderPackage {
     encoder_url: String,
     archive_sha256: String,
-    archive_size: u64,
+    pub(crate) archive_size: u64,
     encoder_member: String,
     encoder_sha256: String,
-    encoder_size: u64,
+    pub(crate) encoder_size: u64,
 }
 
 fn catalog() -> &'static Catalog {
@@ -107,7 +113,7 @@ pub fn options(app: &mut App, slot: u8) {
     }
     let (x, y) = app.mouse;
     use crate::playlist::{Cmd, PItem, Popup};
-    let range = app.state.playlist.range.is_some_and(|(a, b)| a != b);
+    let range = app.state.project.playlist_loop.is_some_and(|(a, b)| a != b);
     let mut items = Vec::new();
     for (vertical, label) in [(false, "Landscape"), (true, "Vertical")] {
         let choice = |selection| {
@@ -195,7 +201,7 @@ pub fn workspace_options(app: &mut App) {
     }
     use crate::playlist::{Cmd, PItem, Popup};
     let (x, y) = app.mouse;
-    let has_range = app.state.playlist.range.is_some_and(|(a, b)| a != b);
+    let has_range = app.state.project.playlist_loop.is_some_and(|(a, b)| a != b);
     let items = [(false, "Landscape 1080p"), (true, "Vertical 1080p")]
         .into_iter()
         .map(|(vertical, label)| {
@@ -230,15 +236,26 @@ fn mp4_path(path: &Path) -> bool {
             .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
 }
 
+pub(crate) fn installed_encoder() -> Option<PathBuf> {
+    let path = tools_dir().ok()?.join("ffmpeg.exe");
+    fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == catalog().encoder.encoder_size)
+        .then_some(path)
+}
+
 fn encoder_present() -> bool {
-    tools_dir().is_ok_and(|root| {
-        fs::symlink_metadata(root.join("ffmpeg.exe"))
-            .is_ok_and(|m| m.is_file() && m.len() == catalog().encoder_size)
-    })
+    installed_encoder().is_some()
+}
+
+pub(crate) fn encoder_download_size() -> u64 {
+    catalog().encoder.archive_size
+}
+
+pub(crate) fn setup_reference_video(cancel: &AtomicBool, report: impl Fn(u64, u64)) -> Result<(), String> {
+    ensure_tools(&tools_dir()?, false, true, cancel, report)
 }
 
 pub(crate) fn setup_download_size() -> u64 {
-    if hosted_supported() && !encoder_present() { catalog().archive_size } else { 0 }
+    if hosted_supported() && !encoder_present() { encoder_download_size() } else { 0 }
 }
 
 pub(crate) fn setup_hosted_export(
@@ -248,7 +265,7 @@ pub(crate) fn setup_hosted_export(
 }
 
 fn download_prompt() -> String {
-    let size = catalog().archive_size as f64 / 1_000_000.0;
+    let size = encoder_download_size() as f64 / 1_000_000.0;
     format!(
         "Download the optional FFmpeg video encoder from GitHub? The download is {size:.1} MB. Future exports can run offline."
     )
@@ -278,7 +295,7 @@ pub fn accept_file(app: &mut App, mut request: Request, file: PathBuf) {
 
 const SCRATCH_FILES: &[&str] = &[
     "scene.json", "master.wav", "render.mp4", "progress.txt", "renderer.log",
-    "encoder.log", "encoder.zip", "ffmpeg.exe", WORKER,
+    "encoder.log", "encoder.zip", "ffmpeg.exe", "ffmpeg", WORKER,
 ];
 const EXPORT_FOLDERS: &str = "visualizer_export_folders";
 
@@ -481,16 +498,27 @@ fn ensure_tools(
             fs::rename(staged, worker).map_err(io_error)?;
         }
     }
-    if check_file(&encoder, c.encoder_size, &c.encoder_sha256).is_ok() {
+    if check_file(&encoder, c.encoder.encoder_size, &c.encoder.encoder_sha256).is_ok() {
         return Ok(());
     }
     if !download {
         return Err("Open Export visualizer video to download the encoder".into());
     }
+    download_encoder(root, "ffmpeg.exe", &c.encoder, cancel, report)
+}
+
+pub(crate) fn download_encoder(
+    root: &Path,
+    name: &str,
+    c: &EncoderPackage,
+    cancel: &AtomicBool,
+    report: impl Fn(u64, u64),
+) -> Result<(), String> {
+    check_cancel(cancel)?;
     let dir = WorkDir::create(root)?;
     let zip = dir.path().join("encoder.zip");
     let request = Download {
-        platform: "windows-x86_64".into(),
+        platform: String::new(),
         url: c.encoder_url.clone(),
         filename: "encoder.zip".into(),
         version: "9.0.2".into(),
@@ -504,7 +532,7 @@ fn ensure_tools(
         .timeout_read(Duration::from_secs(20))
         .build()
         .get(&request.url)
-        .set("User-Agent", "MLStudio-Visualizer/1.0")
+        .set("User-Agent", "MLStudio-Video/1.0")
         .call()
         .map_err(|e| e.to_string())?;
     let mut last = u64::MAX;
@@ -522,21 +550,55 @@ fn ensure_tools(
             Ok(())
         },
     )?;
-    let mut zip =
-        zip::ZipArchive::new(File::open(zip).map_err(io_error)?).map_err(|e| e.to_string())?;
-    let mut member = zip.by_name(&c.encoder_member).map_err(|e| e.to_string())?;
+    let stage = dir.path().join(name);
+    let archive = File::open(zip).map_err(io_error)?;
+    #[cfg(target_os = "linux")]
+    if c.encoder_url.ends_with(".tar.xz") {
+        extract_xz_encoder(archive, c, &stage)?;
+    } else {
+        extract_zip_encoder(archive, c, &stage)?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    extract_zip_encoder(archive, c, &stage)?;
+
+    check_file(&stage, c.encoder_size, &c.encoder_sha256)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&stage, fs::Permissions::from_mode(0o755)).map_err(io_error)?;
+    }
+    check_cancel(cancel)?;
+    fs::rename(stage, root.join(name)).map_err(io_error)
+}
+
+fn extract_zip_encoder(archive: File, c: &EncoderPackage, stage: &Path) -> Result<(), String> {
+    let mut zip = zip::ZipArchive::new(archive).map_err(|e| e.to_string())?;
+    let member = zip.by_name(&c.encoder_member).map_err(|e| e.to_string())?;
     if member.size() != c.encoder_size || member.is_dir() {
         return Err("Invalid encoder archive member".into());
     }
-    let stage = dir.path().join("ffmpeg.exe");
-    io::copy(
-        &mut (&mut member).take(c.encoder_size + 1),
-        &mut File::create(&stage).map_err(io_error)?,
-    )
-    .map_err(io_error)?;
-    check_file(&stage, c.encoder_size, &c.encoder_sha256)?;
-    check_cancel(cancel)?;
-    fs::rename(stage, encoder).map_err(io_error)
+    io::copy(&mut member.take(c.encoder_size + 1), &mut File::create(stage).map_err(io_error)?)
+        .map_err(io_error)?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn extract_xz_encoder(archive: File, c: &EncoderPackage, stage: &Path) -> Result<(), String> {
+    let decoder = lzma_rust2::XzReader::new_mem_limit(io::BufReader::new(archive), false, 128 * 1024);
+    let mut tar = tar::Archive::new(decoder);
+    for entry in tar.entries().map_err(io_error)? {
+        let entry = entry.map_err(io_error)?;
+        if entry.path_bytes().as_ref() != c.encoder_member.as_bytes() {
+            continue;
+        }
+        if !entry.header().entry_type().is_file() || entry.size() != c.encoder_size {
+            return Err("Invalid encoder archive member".into());
+        }
+        io::copy(&mut entry.take(c.encoder_size + 1), &mut File::create(stage).map_err(io_error)?)
+            .map_err(io_error)?;
+        return Ok(());
+    }
+    Err("The encoder archive has no FFmpeg binary".into())
 }
 
 fn progress(app: &mut App, text: &str, amount: (u64, u64)) {
@@ -1104,7 +1166,7 @@ mod tests {
                 0,
                 os_model::ClipSource::Channel(0),
             ));
-        app.state.playlist.range = Some((96, 288));
+        app.state.project.playlist_loop = Some((96, 288));
         use crate::settings_file::set_flag;
         set_flag(VISIBILITY, false);
         assert!(
@@ -1445,9 +1507,9 @@ mod workspace_tests {
                 ramp_end: None,
             },
         ];
-        app.state.playlist.range = Some((0, 192));
+        app.state.project.playlist_loop = Some((0, 192));
         crate::visual_scenes::run(&mut app, Command::Add(0));
-        app.state.playlist.range = Some((192, 384));
+        app.state.project.playlist_loop = Some((192, 384));
         crate::visual_scenes::run(&mut app, Command::Add(192));
         crate::visual_scenes::run(&mut app, Command::Template(VisualTemplate::Pulse));
         crate::visual_scenes::run(&mut app, Command::Text(false));
@@ -1832,8 +1894,8 @@ pub fn from_plugin_window(app: &mut App, key: usize, x: i32, y: i32) {
 
 fn selection_span(app: &App) -> Option<(u64, u64)> {
     app.state
-        .playlist
-        .range
+        .project
+        .playlist_loop
         .filter(|(a, b)| a != b)
         .map(|(a, b)| (u64::from(a.min(b)), u64::from(a.max(b))))
 }

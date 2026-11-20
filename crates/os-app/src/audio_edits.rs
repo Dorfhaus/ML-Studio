@@ -450,7 +450,7 @@ pub fn poll_requests(app: &mut App) {
         Output::Consolidate(p, sel, range) => {
             if same_request(&p, &app.state.project)
                 && sel == app.state.playlist.sel
-                && range == app.state.playlist.range
+                && range == app.state.project.playlist_loop
             {
                 app.state.message = Some(pl::consolidate(app));
             } else {
