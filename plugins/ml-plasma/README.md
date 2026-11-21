@@ -35,8 +35,10 @@ on native Linux and supply its ZIP through `ML_PLASMA_BUNDLE_LINUX_X86_64` to th
 coordinator's environment. Other native payload overrides follow the same
 `ML_PLASMA_BUNDLE_<OS>_<ARCH>` convention (MACOS/AARCH64, MACOS/X86_64,
 WINDOWS/X86_64). The build validates the archive's checksums, pinned source,
-platform label and actual PE/ELF/Mach-O architecture. Native Windows and Mac
-builds compile their payload automatically. Mac/Linux runtime and packaging
+platform label and actual PE/ELF/Mach-O architecture. Mac payloads target macOS
+12.0, like the DAW. The build rejects a higher minimum macOS version or
+read-only Objective-C protocol references, which can crash the Ventura loader.
+Native Windows and Mac builds compile their payload automatically. Mac/Linux runtime and packaging
 validation are required before publishing; no platform is claimed tested here.
 
 The native adapter also clears voices/tails/buffered audio on host reset and
@@ -45,3 +47,12 @@ built Windows `ml_plasma_editor_fixture` target is for device-free regression
 checks only; it is never included in the embedded shipping payload. Run the
 ignored ML host editor test explicitly with `ML_PLASMA_EDITOR_TEST_LIBRARY`
 pointing at its `ML Plasma Editor Test.clap` output.
+
+ML Studio host undo uses the versioned `org.ml-studio.state-undo/1` CLAP
+extension for this adapter. Completed native editor gestures return the prior
+plugin keys, including asset data and bulk parameter edits. Host automation and
+state restoration do not create editor transactions. Other hosts continue to
+receive the normal CLAP parameter and dirty-state notifications. The event
+queue and ML host history have a 128 MiB state-edit budget; no idle asset polling
+is introduced. Host Ctrl+Z and Ctrl+Shift+Z are verified separately from the
+native editor's own undo controls.

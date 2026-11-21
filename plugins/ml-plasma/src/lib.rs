@@ -14,6 +14,7 @@ pub const ID: &str = "de.michaellane.ml-plasma";
 pub const VISIBILITY: &str = "visible_plugin-plasma";
 const FILE: &str = "ML Plasma.clap";
 const BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plasma.zip"));
+mod cache;
 
 #[derive(Deserialize)]
 struct Manifest {
@@ -89,6 +90,8 @@ fn unpack(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
     let stage = root.join(format!("{hash}-{}-{serial}.tmp", std::process::id()));
     fs::create_dir(&stage).map_err(|e| err(&e))?;
     let result = (|| {
+        let names:Vec<_>=manifest.files.iter().map(|e|e.path.clone()).collect();
+        fs::write(stage.join("cache-files.json"),serde_json::to_vec(&names).map_err(|e|err(&e))?).map_err(|e|err(&e))?;
         for entry in &manifest.files {
             let mut file = archive.by_name(&entry.path).map_err(|e| err(&e))?;
             if file.size() != entry.size
@@ -138,15 +141,16 @@ fn unpack(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
 }
 
 pub fn bundle_path() -> Result<PathBuf, String> {
-    static PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    static PATH: OnceLock<Result<(PathBuf,fs::File), String>> = OnceLock::new();
     PATH.get_or_init(|| {
         let root = os_paths::user_dir()
             .ok_or("ML Studio user directory is unavailable")?
             .join("Builtin Plugins")
             .join("ML Plasma");
-        unpack(BYTES, &root)
+        let hash=format!("{:x}",Sha256::digest(BYTES));let lease=cache::lease(&root,&hash)?;
+        let path=unpack(BYTES, &root)?;cache::prune(&root,&hash);Ok((path,lease))
     })
-    .clone()
+    .as_ref().map(|(path,_)|path.clone()).map_err(Clone::clone)
 }
 
 pub fn library() -> Result<std::sync::Arc<os_clap::Library>, String> {
@@ -192,6 +196,57 @@ mod tests {
                 "reset left audio at block {block}: {energy}"
             );
         }
+    }
+    #[test]
+    fn stock_engine_follows_host_note_tuning() {
+        use os_host::Library as _;
+        let library = library().unwrap();
+        let plugin = library.create(ID).unwrap();
+        let mut plugin = plugin.lock().unwrap();
+        assert!(plugin.activate(48000));
+        plugin.note_on(0, 60, 0.8);
+        let mut left = [0.; 4096];
+        let mut right = [0.; 4096];
+        for _ in 0..8 { plugin.process(48000, &mut left, &mut right); }
+        let crossings = |samples: &[f32]| samples.windows(2).filter(|p| p[0] <= 0. && p[1] > 0.).count();
+        let base = crossings(&left);
+        plugin.tune(0, 60, 12.);
+        for _ in 0..3 { plugin.process(48000, &mut left, &mut right); }
+        let raised = crossings(&left);
+        assert!(base > 10 && raised > base * 3 / 2 && raised < base * 5 / 2, "one-octave host tuning: {base} -> {raised}");
+        plugin.tune(0, 60, 0.);
+        for _ in 0..3 { plugin.process(48000, &mut left, &mut right); }
+        assert!(crossings(&left).abs_diff(base) <= 3, "tuning returns to the original key");
+        assert_reset_silence(&mut *plugin, 48000);
+    }
+
+    #[test]
+    fn stock_engine_slide_volume_and_pan_reach_the_native_voice() {
+        use os_host::Library as _;
+        let library=library().unwrap();let plugin=library.create(ID).unwrap();let mut plugin=plugin.lock().unwrap();
+        assert!(plugin.activate(48000));assert!(plugin.use_note_levels());
+        plugin.note_start(0,60,0.8,0.,os_engine::NoteLevels { color:2, ..Default::default() });
+        let (mut l,mut r)=([0.;4096],[0.;4096]);
+        for _ in 0..8 {plugin.process(48000,&mut l,&mut r);}
+        let energy=|x:&[f32]|x.iter().map(|x|f64::from(x*x)).sum::<f64>();
+        let before=energy(&l)+energy(&r);assert!(before>0.001);
+        plugin.slide(0,60,2,0.,0.,0.);
+        for _ in 0..12 {plugin.process(48000,&mut l,&mut r);}
+        assert!(energy(&l)+energy(&r)<before*1e-5,"slide to zero is silent");
+        plugin.slide(0,60,2,0.,0.8,-1.);
+        for _ in 0..12 {plugin.process(48000,&mut l,&mut r);}
+        assert!(energy(&l)>before*0.05,"same voice becomes audible again");
+        assert!(energy(&r)<energy(&l)*0.01,"per-note pan reaches the native output");
+    }
+
+    #[test]
+    fn bundled_native_undo_extension_available() {
+        use os_host::Library as _;
+        let library = library().unwrap();
+        let plugin = library.create(ID).unwrap();
+        let mut plugin = plugin.lock().unwrap();
+        assert!(plugin.state_undo_supported(), "the shipped engine exposes native history through the normal guarded host");
+        assert!(plugin.take_state_edits().is_empty(), "opening an instrument is not an edit");
     }
     #[test]
     fn payload_paths_and_integrity() {

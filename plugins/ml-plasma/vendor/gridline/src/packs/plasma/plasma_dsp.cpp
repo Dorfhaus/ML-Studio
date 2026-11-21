@@ -461,6 +461,7 @@ struct Note {
   double pitch = 60, glideFrom = 60, glideTarget = 60, glideLeft = 0, glideTotal = 0;
   bool glideLinear = false;  // K-144: a host glide (slide note, bend line): straight, not on the porta curve
   float vel = 0.8f, relVel = 0.5f;
+  float hostGain = 1.f, hostPan = 0.f;
   NoteProps props;
   uint64_t age = 0;
   int index = 0;
@@ -609,6 +610,12 @@ class PlasmaGen final : public Generator {
   void onNoteOn(uint32_t id, double pitch, float velocity) override { noteIn(id, pitch, velocity, NoteProps{}, true); }
   void onNoteOnEx(uint32_t id, double pitch, float velocity, const NoteProps& props) override { noteIn(id, pitch, velocity, props, true); }
   void onNoteOff(uint32_t id) override { noteOutId(id); }
+  void onExpression(uint32_t id, int kind, float value) override {
+    for (auto& n : notes_) if (n.active && n.id == id) {
+      if (kind == 0) n.hostGain = std::clamp(value, 0.f, 4.f);
+      else n.hostPan = std::clamp(value, -1.f, 1.f);
+    }
+  }
   void onGlide(uint32_t id, double pitch, double seconds) override {
     for (auto& n : notes_)
       if (n.active && n.id == id) startGlide(n, pitch, seconds), n.glideLinear = true;
@@ -1122,6 +1129,7 @@ class PlasmaGen final : public Generator {
         n->id = id;
         n->key = key;
         n->vel = vel;
+        n->hostGain = 1.f; n->hostPan = 0.f;
         startGlide(*n, target, legato || G(G_PortaAlways) >= 0.5f ? portaSecs(from, target) : 0.0);
         if (!legato) {
           retrigger(*n, false);
@@ -1148,6 +1156,7 @@ class PlasmaGen final : public Generator {
     n->key = key;
     n->chan = props.color;
     n->vel = vel;
+    n->hostGain = 1.f; n->hostPan = 0.f;
     n->relVel = props.release;
     n->props = props;
     n->age = ++ageCounter_;
@@ -2249,7 +2258,7 @@ class PlasmaGen final : public Generator {
         g0 *= std::max(0.f, n.fade);
       }
       const float g = static_cast<float>(n.env[0].level) * g0;
-      for (int k = 0; k < 8; ++k) outs[k][i] += acc[0][k] * g + acc[1][k] * g0;
+      for (int k = 0; k < 8; ++k) outs[k][i] += (acc[0][k] * g + acc[1][k] * g0) * n.hostGain * std::min(1.f, 1.f + (k % 2 ? n.hostPan : -n.hostPan));
     }
     // a non-finite value (extreme settings) must not stay in the note's state
     float chk = 0;
@@ -2545,17 +2554,18 @@ class PlasmaGen final : public Generator {
   bool stepGains(int m, bool ramp) {
     const float tgt[4] = {static_cast<float>(busGain(GV(G_Bus1Vol))), static_cast<float>(busGain(GV(G_Bus2Vol))),
                           static_cast<float>(busGain(GV(G_DirectVol))), static_cast<float>(masterGain(GV(G_MasterVol)))};
-    const bool glide = modLaw_ && gainsSet_;
+    const bool glide = gainsSet_;
     if (!glide)
       for (int k = 0; k < 4; ++k) gainNow_[k] = tgt[k];
     gainsSet_ = true;
     const bool gliding = glide && (gainNow_[0] != tgt[0] || gainNow_[1] != tgt[1] || gainNow_[2] != tgt[2] || gainNow_[3] != tgt[3]);
     if (!gliding) return false;
-    const float gk = static_cast<float>(1.0 - std::exp(-1.0 / (0.1134 * sr_)));
+    const double seconds = modLaw_ ? 0.1134 : 0.003;
+    const float gk = static_cast<float>(1.0 - std::exp(-1.0 / (seconds * sr_)));
     for (int i = 0; i < m; ++i)
       for (int k = 0; k < 4; ++k) {
         gainNow_[k] += (tgt[k] - gainNow_[k]) * gk;
-        if (std::fabs(tgt[k] - gainNow_[k]) < 0.01f) gainNow_[k] = tgt[k];
+        if (std::fabs(tgt[k] - gainNow_[k]) < (modLaw_ ? 0.01f : 1e-6f)) gainNow_[k] = tgt[k];
         if (ramp) gainRamp_[static_cast<size_t>(k)][static_cast<size_t>(i)] = gainNow_[k];
       }
     return true;

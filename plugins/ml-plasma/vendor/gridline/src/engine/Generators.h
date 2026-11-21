@@ -226,6 +226,8 @@ class Generator {
     e.hasProps = !props.neutral();
     push(e);
   }
+  void expression(uint32_t id, int kind, float value, int offset) { push(Ev::make(Ev::Expression, id, kind, value, offset)); }
+  virtual void onExpression(uint32_t, int, float) {}
   void noteOff(uint32_t id, int offset) { push(Ev::make(Ev::Off, id, 0, 0, offset)); }
   void allNotesOff(int offset) { push(Ev::make(Ev::AllOff, 0, 0, 0, offset)); }
   // Glides the sounding note `id` to `pitch` over `seconds` (slide notes,
@@ -407,7 +409,7 @@ class Generator {
  private:
   int evOffset_ = 0;
   struct Ev {
-    enum Kind { On, Off, AllOff, Glide, Cut, Midi };
+    enum Kind { On, Off, AllOff, Glide, Cut, Midi, Expression };
     Kind kind = On;
     uint32_t id = 0;
     double pitch = 0;

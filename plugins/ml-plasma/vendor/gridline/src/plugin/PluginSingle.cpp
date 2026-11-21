@@ -180,6 +180,8 @@ void Instance::resetHostValues() {
   if (variant_ == Variant::Effect)
     for (int m = 0; m < 2; ++m) a.engine.setHostMacro(m, -1.f);
   syncedRevision_ = a.doc.revision();
+  undoBefore_.reset();
+  if (const auto* state = singleState()) undoSynced_ = std::make_unique<PluginState>(*state);
 }
 
 // ---------------------------------------------------------------- host parameters
@@ -355,6 +357,8 @@ void Instance::syncParams(bool notifyState) {
   // Capture this before applying host automation: that housekeeping changes the
   // document revision too, and must neither echo dirty nor hide a pending asset edit.
   const bool editorChanged = a.doc.revision() != syncedRevision_;
+  if (editorChanged && onStateUndo && !undoBefore_ && undoSynced_)
+    undoBefore_ = std::make_unique<PluginState>(*undoSynced_);
   // Host -> project: values the host set since the last call.
   std::vector<std::pair<int, double>> fromHost;
   for (int w = 0; w * 64 < total; ++w) {
@@ -443,6 +447,17 @@ void Instance::syncParams(bool notifyState) {
         gesture_[static_cast<size_t>(k)] = 0;
         if (onParamGesture) onParamGesture(k, false);
       }
+  if (editorChanged || !fromHost.empty())
+    if (const auto* state = singleState()) undoSynced_ = std::make_unique<PluginState>(*state);
+  if (!pointer && undoBefore_) {
+    const auto* state = singleState();
+    if (state && !(*state == *undoBefore_) && onStateUndo) {
+      Json patch = Json::makeObject();
+      patch.object["plugin"] = pluginStateToJson(*undoBefore_);
+      onStateUndo(jsonStringify(patch, 0));
+    }
+    undoBefore_.reset();
+  }
   if (notifyState && editorChanged && onStateEdited) onStateEdited();
 }
 
@@ -456,9 +471,12 @@ void Instance::preferredViewSize(int& w, int& h) const {
   }
   int cw = editorW_, ch = editorH_;
   if (cw <= 0 || ch <= 0) {  // not drawn yet: the editor's width and a typical height
+    if (viewW_ > 0 && viewH_ > 0) { w = viewW_; h = viewH_; return; }
     cw = static_cast<int>(editorWidthOf(*info_)) + 16;
     ch = variant_ == Variant::Instrument ? 520 : 420;
   }
+  // A saved viewport can have the old page's proportions (including the
+  // provisional opening height). Preserve the zoom against the measured UI.
   w = static_cast<int>(std::lround(cw * zoom_));
   h = static_cast<int>(std::lround(ch * zoom_));
 }
@@ -489,6 +507,14 @@ void Instance::editorContent(int& w, int& h) const {
 
 void Instance::setEditorZoom(float z) { zoom_ = std::clamp(std::isfinite(z) ? z : 1.0f, kMinZoom, kMaxZoom); }
 
+void Instance::rememberViewSize(int w, int h) {
+  if (w <= 0 || h <= 0 || editorW_ <= 0 || editorH_ <= 0) return;
+  viewW_ = std::clamp(w, 160, 8192);
+  viewH_ = std::clamp(h, 120, 8192);
+  if (editorW_ > 0 && editorH_ > 0)
+    setEditorZoom(std::min(static_cast<float>(viewW_) / editorW_, static_cast<float>(viewH_) / editorH_));
+}
+
 // ---------------------------------------------------------------- state
 
 std::string Instance::saveSingle() {
@@ -507,6 +533,10 @@ std::string Instance::saveSingle() {
     }
   Json ed = Json::makeObject();
   ed.object["zoom"] = Json::makeNumber(zoom_);
+  ed.object["width"] = Json::makeNumber(viewW_);
+  ed.object["height"] = Json::makeNumber(viewH_);
+  ed.object["contentWidth"] = Json::makeNumber(editorW_);
+  ed.object["contentHeight"] = Json::makeNumber(editorH_);
   ed.object["tab"] = Json::makeNumber(editorTab_);
   j.object["editor"] = std::move(ed);
   // K-110: a state that came with its files (an exported project) keeps them for the next computer.
@@ -578,6 +608,10 @@ bool Instance::loadSingle(const std::string& data, std::string* err) {
     }
   });
   if (const Json* ed = j.find("editor"); ed && ed->is(Json::Type::Object)) {
+    const int cw = std::clamp(jsonInt<int>(ed->num("contentWidth")), 0, 8192);
+    const int ch = std::clamp(jsonInt<int>(ed->num("contentHeight")), 0, 8192);
+    setEditorContent(cw, ch);
+    rememberViewSize(jsonInt<int>(ed->num("width")), jsonInt<int>(ed->num("height")));
     if (const Json* z = ed->find("zoom"); z && z->is(Json::Type::Number)) setEditorZoom(static_cast<float>(z->number));
     editorTab_ = std::clamp(jsonInt<int>(ed->num("tab")), 0, 2);
   }

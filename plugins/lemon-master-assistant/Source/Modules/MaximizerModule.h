@@ -58,13 +58,16 @@ namespace oxygen
         juce::LinearSmoothedValue<float> inputDriveSmoothed;
         juce::LinearSmoothedValue<float> ceilingGainSmoothed;
         juce::AudioBuffer<float> delayBuffer;
-        juce::AudioBuffer<float> bypassDelayBuffer;
+        juce::AudioBuffer<float> bypassDelayBuffer, bypassScratch;
+        juce::LinearSmoothedValue<float> bypassMix;
+        int warmupSamples = 0;
+        bool wetSleeping = false;
         dsp::SlidingMinimum gainReductionMinimum;
         std::vector<float> previousDrivenSamples;
 
         void updateParameters();
         void resetLimiterState();
-        void processBypassDelay(juce::AudioBuffer<float>& buffer, bool writeToOutput);
+        void processBypassDelay(const juce::AudioBuffer<float>& input, juce::AudioBuffer<float>* output);
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MaximizerModule)
     };

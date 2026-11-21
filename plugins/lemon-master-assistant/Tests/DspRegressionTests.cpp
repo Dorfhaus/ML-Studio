@@ -182,6 +182,33 @@ void testBlockSizes()
     }
     std::cout << "PASS variable blocks and float/double paths\n";
 }
+void testLiveMaximizerBypass()
+{
+    oxygen::MaximizerModule module;
+    set(module.apvts, "Threshold", -18.f);
+    prepare(module, 48000, 2);
+    juce::AudioBuffer<float> audio(2, 64);
+    juce::MidiBuffer midi;
+    float last = 0.f, worst = 0.f, wet = 0.f, dry = 0.f;
+    for (int block = 0; block < 240; ++block)
+    {
+        if (block == 96 || block == 160) set(module.apvts, "Bypass", block == 96 ? 1.f : 0.f);
+        for (int ch = 0; ch < 2; ++ch) std::fill_n(audio.getWritePointer(ch), 64, 0.12f);
+        module.processBlock(audio, midi);
+        for (int i = 0; i < 64; ++i)
+        {
+            const float value = audio.getSample(0, i);
+            if (block >= 95) worst = std::max(worst, std::abs(value - last));
+            last = value;
+        }
+        if (block == 95) wet = last;
+        if (block == 159) dry = last;
+    }
+    require(std::abs(wet-dry) > 0.05f && std::abs(dry-0.12f) < 1e-5f,
+            "Bypass must reach the delayed dry signal");
+    require(worst < 0.025f, "Bypassing or restoring the maximizer stepped the output");
+}
+
 void testLimiterSafety()
 {
     for (double rate : { 44100.0, 48000.0, 96000.0 })
@@ -409,7 +436,7 @@ int main(int argc, char** argv)
             view.setLookAndFeel(nullptr);
             std::cout<<"PASS overview tone mapping, state restoration and offscreen rendering\n";return 0;
         }
-        if (workflow) { runAssistantWorkflowTests(); return 0; } if (argc > 1 && std::string(argv[1]) == "--benchmark") { benchmarkMinimum(); return 0; } testMinimum(); testCrossovers(); testBlockSizes(); testLimiterSafety(); testAssistant(); runAssistantCancellationTests(); }
+        if (workflow) { runAssistantWorkflowTests(); return 0; } if (argc > 1 && std::string(argv[1]) == "--benchmark") { benchmarkMinimum(); return 0; } testMinimum(); testCrossovers(); testBlockSizes(); testLimiterSafety(); testLiveMaximizerBypass(); testAssistant(); runAssistantCancellationTests(); }
     catch (const std::exception& error) { std::cerr << "FAIL: " << error.what() << '\n'; return 1; }
     return 0;
 }

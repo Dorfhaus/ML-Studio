@@ -218,6 +218,9 @@ class AudioEngine {
   void setMetronome(bool on) { metronome_.store(on); }
   // MIDI input (called from the MIDI driver thread; single producer).
   void midiEvent(uint8_t status, uint8_t d1, uint8_t d2);
+  // Plugin-host per-key tuning shares the ordered MIDI queue, without changing the pitch wheel.
+  void midiTuning(uint8_t key, float semitones);
+  void midiExpression(uint8_t key, uint8_t kind, float value);
   // Channel that MIDI input plays (UI thread).
   void setMidiTarget(ObjectId channel) { midiTarget_.store(channel); }
   // Notes on MIDI channel `midiCh` (0..15) play `channel`; kNoId = the
@@ -573,6 +576,7 @@ class AudioEngine {
   // MIDI queue (single producer: MIDI thread, single consumer: audio).
   struct MidiMsg {
     uint8_t s, a, b;
+    float tuning = 0;
   };
   static constexpr size_t kMidiQueue = 1024;
   std::vector<MidiMsg> mqueue_ = std::vector<MidiMsg>(kMidiQueue);

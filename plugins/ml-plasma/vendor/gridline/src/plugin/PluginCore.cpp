@@ -417,6 +417,10 @@ void Instance::process(const ProcessArgs& a) {
       const Event& ev = a.events[e++];
       if (ev.kind == Event::Midi)
         eng.midiEvent(ev.midi[0], ev.midi[1], ev.midi[2]);
+      else if (ev.kind == Event::Tuning)
+        eng.midiTuning(ev.midi[1], ev.value);
+      else if (ev.kind == Event::Volume || ev.kind == Event::Pan)
+        eng.midiExpression(ev.midi[1], ev.kind == Event::Volume ? 0 : 1, ev.value);
       else if (info_)
         setParamValue(ev.macro, ev.value);  // J-131: the plugin's own parameters
       else if (ev.macro >= 0 && ev.macro < kMacros) {

@@ -238,7 +238,8 @@ void Frame::drawSingle(int winW, int winH, int fbW, int fbH) {
   ImVec2 size(0, 0);
   if (ImGui::Begin("##suite", nullptr,
                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                       ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+                       ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
     const float width = info.editorWidth > 0 ? info.editorWidth : (info.type == "gl.eq" ? 780.0f : 600.0f);
     int tab = inst_.editorTab();
     const bool envPage = target.isChannel() && insSupported(info.type);
@@ -263,7 +264,10 @@ void Frame::drawSingle(int winW, int winH, int fbW, int fbH) {
     // which is the view at the current zoom, so a larger editor would never be
     // measured (and would be cut off instead of zoomed to fit).
     const ImGuiWindow* win = ImGui::GetCurrentWindow();
-    size = ImVec2(win->ContentSizeIdeal.x + win->WindowPadding.x * 2, win->ContentSizeIdeal.y + win->WindowPadding.y * 2);
+    // ImGui measures the previous frame at Begin. A new window has only
+    // padding on its first frame, which must never become a saved zoom/size.
+    if (win->ContentSizeIdeal.x > 0 && win->ContentSizeIdeal.y > 0)
+      size = ImVec2(win->ContentSizeIdeal.x + win->WindowPadding.x * 2, win->ContentSizeIdeal.y + win->WindowPadding.y * 2);
   }
   ImGui::End();
   drawDialogs(app);
