@@ -181,10 +181,16 @@ pub fn recorded(s:&mut State,i:usize,mixer:u16,loop_span:Option<(u32,u32)>)->Res
         pl::arr_mut(s).clips.push(first);
     }
     let mut number=(p+1..p+1+count as u16).filter_map(|r|pl::track_info(s,r)?.name.as_deref()?.strip_prefix("Take ")?.parse::<u32>().ok()).max().unwrap_or(1)+1;
+    let latest_take = takes.last().cloned();
     for mut take in takes {
         take.track=child(s,p);take.muted=true;take.set_id(0);
         pl::arr_mut(s).tracks[take.track as usize].name=Some(format!("Take {number}"));number+=1;
         pl::arr_mut(s).clips.push(take);
+    }
+    if overlaps {
+        if let Some(latest) = latest_take {
+            replace(s, p, latest.clone(), latest.position, latest.end());
+        }
     }
     s.piano.dirty=true;
     s.playlist.sel.clear();Ok(())

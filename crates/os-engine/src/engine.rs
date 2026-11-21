@@ -4555,7 +4555,14 @@ impl Engine {
                 input.render(self.rate, &mut self.input_bus);
                 for (t,((signal, bus), track)) in self.input_bus.iter_mut().zip(&mut self.bus).zip(&mut self.tracks).enumerate() {
                     record_stage(track,os_model::RecordingPoint::External,signal,0);
-                    if !input.monitor_external(t) {signal.fill(0.);}
+                    if !input.monitor_external(t) {
+                        track.vu.process(signal, self.rate);
+                        for f in signal.chunks_exact(2) {
+                            track.peak[0] = track.peak[0].max(f[0].abs());
+                            track.peak[1] = track.peak[1].max(f[1].abs());
+                        }
+                        signal.fill(0.);
+                    }
                     track.input_pad.run(signal);
                     for (dst, sample) in bus.iter_mut().zip(signal) { *dst += *sample; }
                 }
