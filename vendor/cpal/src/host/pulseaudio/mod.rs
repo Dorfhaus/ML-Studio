@@ -175,10 +175,15 @@ impl HostTrait for Host {
                 client: self.client.clone(),
                 info: sink_info,
             })
-            .chain(sources.into_iter().map(|source_info| Device::Source {
-                client: self.client.clone(),
-                info: source_info,
-            }))
+            .chain(
+                sources
+                    .into_iter()
+                    .filter(|s| s.monitor_of_sink_name.is_none() && !s.name.to_bytes().ends_with(b".monitor"))
+                    .map(|source_info| Device::Source {
+                        client: self.client.clone(),
+                        info: source_info,
+                    }),
+            )
             .collect::<Vec<_>>()
             .into_iter())
     }

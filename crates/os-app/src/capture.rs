@@ -352,7 +352,10 @@ pub fn open_input(name: &str) -> Result<InputStream, String> {
     let device = crate::audio_cfg::find(host.input_devices().map_err(|e| e.to_string())?, name).ok_or_else(|| format!("{name} is not there"))?;
     let supported = device.default_input_config().map_err(|e| e.to_string())?;
     let format = supported.sample_format();
-    let config: cpal::StreamConfig = supported.into();
+    let mut config: cpal::StreamConfig = supported.into();
+    let cfg = crate::audio_cfg::AudioCfg::current();
+    let wanted = cfg.buffer.filter(|&b| b > 0 && b != u32::MAX).unwrap_or(128);
+    config.buffer_size = cpal::BufferSize::Fixed(wanted);
     let stream = match format {
         SampleFormat::F32 => build::<f32>(&device, &config),
         SampleFormat::F64 => build::<f64>(&device, &config),
