@@ -248,6 +248,9 @@ impl Logic {
     }
 
     pub fn down(&mut self, x: f32, y: f32, btn: Btn, m: Mods, _dbl: bool) -> Vec<Act> {
+        if btn==Btn::Left && view::MODE_TAB.contains(x,y){
+            self.view.advanced=x>=view::MODE_TAB.cx();return vec![Act::Repaint]
+        }
         self.view.mouse = Some((x, y));
         let Some((t, _)) = self.hit(x, y) else { return vec![] };
         let id = t.id().to_string();
@@ -908,6 +911,12 @@ mod tests {
 
     fn logic() -> Logic {
         let mut l = Logic::new(Arc::new(DelayParams::default()), Arc::new(Shared::default()), None);
+        assert!(!l.view.advanced);
+        if let Some(tab) = Some(view::MODE_TAB) {
+            paint(&mut l);
+            l.down(tab.cx()+10., tab.cy(), Btn::Left, Mods::default(), false);
+            assert!(l.view.advanced);
+        }
         paint(&mut l);
         l
     }

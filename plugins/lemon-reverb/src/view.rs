@@ -20,7 +20,7 @@ use crate::room;
 
 /// Editor size in logical pixels.
 pub const W: u32 = 664;
-pub const H: u32 = 248;
+pub const H: u32 = 320;
 
 /// The room visual's bezel and its picture (the original's 160 px panel shown at 224 px).
 pub const BEZEL: Rect = Rect::span(8.0, 240.0, 8.0, 240.0);
@@ -83,6 +83,7 @@ pub enum Target {
     /// A switch (click toggles; menu on right click).
     Switch(String),
     /// The room visual (its hint names the setting it shows).
+    Mode(u8),
     Room,
     /// The wordmark (the About menu).
     Logo,
@@ -102,7 +103,8 @@ pub struct ViewState {
 }
 
 /// What a paint shows besides the parameters: the room visual's look and turn.
-pub struct Look {
+pub struct Look<'a> {
+    pub field: &'a room::ReturnField,
     pub room: room::Look,
     pub angle: f32,
 }
@@ -159,6 +161,9 @@ pub fn paint(c: &mut Canvas, t: &Palette, m: &dyn Model, st: &ViewState, look: &
     knob(&mut ui, "cross", l(2), ROWS[1], "CROSS");
     knob(&mut ui, "damp", r(2), ROWS[1], "DAMP");
     logo(&mut ui);
+    if os_plugkit::visibility::stock_dsp_controls() {
+        ducking(&mut ui, look.field.level[2]);
+    }
     // MIX
     for (id, x, cap) in [("dry", FADER_X[0], "DRY"), ("er", FADER_X[1], "ER"), ("wet", FADER_X[2], "WET")] {
         fader(&mut ui, id, x, cap);
@@ -176,6 +181,37 @@ fn headings(ui: &mut Ui) {
         lemon::spaced(ui.c, HEADING, tx, (HEAD_Y - lh / 2.0).round(), plug::DIM, s, 2.0);
         ui.c.fill_rect(Rect::span(x0 + 4.0, tx - 7.0, HEAD_Y, HEAD_Y), RULE);
         ui.c.fill_rect(Rect::span((tx + w + 6.0).round(), x1 - 4.0, HEAD_Y, HEAD_Y), RULE);
+    }
+}
+
+/// Ducking has its own row below the room and mixer controls.
+fn ducking(ui: &mut Ui, reduction: f32) {
+    lemon::plug_panel(ui.c, Rect::new(8.,248.,648.,64.));
+    ui.c.text(HEADING,20.,255.,plug::DIM,"DUCKING");
+    for (i, label) in ["Off","Gentle","Hard"].iter().enumerate() {
+        let r=Rect::new(20.+60.*i as f32,275.,56.,24.);
+        let target=Target::Mode(i as u8);
+        let mut state=ui.state(r,&target);
+        state.on=ui.m.plain("duck").round() as usize == i;
+        let ink=lemon::plug_button(ui.c,r,4.,state);
+        ui.c.text_center(SMALL.bold(),r,ink,label);
+        ui.hit(r,target);
+    }
+    let r=Rect::new(224.,257.,46.,46.);
+    let target=Target::Knob("duck_amount".into());
+    let state=ui.state(r,&target);
+    lemon::dial(ui.c,r.cx(),r.cy(),18.,2.8,ui.m.norm("duck_amount"),false,brand::MAIN,state);
+    ui.hit(r,target);
+    ui.c.text(HEADING,277.,261.,plug::DIM,"AMOUNT");
+    ui.c.text(Font::new(15).bold(),277.,279.,brand::TEXT,&ui.m.text("duck_amount"));
+    ui.c.text(HEADING,385.,261.,plug::DIM,"GAIN REDUCTION");
+    let db=-20.*(1.-reduction).max(0.00001).log10();
+    ui.c.text_center(SMALL,Rect::new(565.,256.,76.,21.),brand::TEXT,&if reduction >= 1.0 { "Full duck".into() } else { format!("{db:.1} dB") });
+    let bar=Rect::new(385.,283.,251.,9.);
+    ui.c.fill_rrect(bar,4.,plug::WELL);
+    let width=(db/24.).clamp(0.,1.)*bar.w;
+    if width>=1. {
+        ui.c.fill_rect_gradient(Rect::new(bar.x,bar.y,width,bar.h),Color::rgb(0xffcf83),Color::rgb(0xdc8648),3.);
     }
 }
 
@@ -239,7 +275,11 @@ fn picture(ui: &mut Ui, look: &Look, hint: &str) {
     lemon::plug_well(ui.c, BEZEL, 8.0);
     let (_, _, w, h) = ui.c.device_rect(PICTURE);
     let side = w.min(h).max(1);
-    let px = room::render(&look.room, look.angle, side);
+    let px = if os_plugkit::visibility::stock_dsp_controls() {
+        room::render_field(&look.room, look.angle, side, Some(look.field))
+    } else {
+        room::render(&look.room, look.angle, side)
+    };
     ui.c.image(PICTURE, side, side, &px);
     if !hint.is_empty() {
         let (left, right) = hint.split_once('\t').unwrap_or((hint, ""));
@@ -263,6 +303,7 @@ pub fn hint(t: &Target, m: &dyn Model, names: &dyn Fn(&str) -> String) -> String
             let on = if m.norm(id) > 0.5 { "on" } else { "off" };
             format!("{}\t{on}", names(id))
         }
+        Target::Mode(i) => format!("Ducking\t{}", ["Off","Gentle","Hard"][*i as usize]),
         Target::Room => "Room".into(),
         Target::Logo => "ML Reverb".into(),
     }

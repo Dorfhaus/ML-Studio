@@ -3,6 +3,22 @@
   "intro": "The recorded history of the Michael Lane edition, from 28 October 2026. Related iterations are grouped into user-facing changes. Dates describe development; public build numbers identify published milestones. Upstream development predates this edition.",
   "sections": [
     {
+      "date": "2026-11-21",
+      "title": "Workflow, stock plugin and editing updates \u00b7 public build 2026112101",
+      "changes": [
+        "Use Ctrl or Command letter shortcuts on non-Latin keyboard layouts without switching languages.",
+        "Multi-output instruments now play all available outputs by default. You can split individual outputs to separate mixer tracks when needed.",
+        "Updated ML Drums, ML Trio and the stock delays, chorus, pitch, space and time tools. The included TIME-12 joins the stock effects.",
+        "ML Reverb has independent ducking controls and a live stereo display. Hard ducking at 100% mutes the wet signal while audio comes in. Stock plugin parameter changes respond more smoothly.",
+        "Mix Assistant uses revised processing decisions and level checks. Master Assistant and ML Plasma include updates to their native audio processing.",
+        "Select and delete multiple channels in the Channel Rack. The selector shows channel activity, and new instruments, samples and automation sort into their matching groups.",
+        "Playlist copies preserve the source on the same lane. Fast right-drag erase checks the full path, and the Playlist and Piano Roll support Ctrl-drag, right-drag and double-click-and-drag to draw loops. Shift-drag moves a loop.",
+        "Double-click or middle-click to reset mixer controls immediately after a drag. Refined mixer view icons, meter alignment, knob highlights and hover redraws.",
+        "Tap tempo from the toolbar, move the docked hint bar through its context menu, and change cursor size under Settings > General > Display. The Legacy cursor pack keeps its original artwork size.",
+        "Fixed Channel Rack step colors, a crash when applying area color adjustments, and duplicate menu row highlights."
+      ]
+    },
+    {
       "date": "2026-11-20",
       "title": "ML Drums, Piano Roll Pitch Draw, and plugin fixes \u00b7 public build 2026112001",
       "changes": [

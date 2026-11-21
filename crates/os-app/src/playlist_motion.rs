@@ -239,6 +239,7 @@ mod tests {
             track0: 1,
             orig: orig.clone(),
             fresh: false,
+            copy_on_move: false,
         };
         // Keep the custom scroll anchor while using upstream's nearest edge catch.
         app.state.playlist_scroll.0 = 40.;

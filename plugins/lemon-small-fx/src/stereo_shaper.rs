@@ -178,6 +178,11 @@ fn settings(v: &[i32]) -> Settings {
 
 struct Shaper(StereoShaper);
 
+impl Clone for Shaper {
+    fn clone(&self) -> Self { Self(self.0.clone()) }
+    fn clone_from(&mut self, source: &Self) { self.0.copy_state_from(&source.0); }
+}
+
 impl Sound for Shaper {
     fn set(&mut self, v: &[i32]) {
         self.0.set(&settings(v));
@@ -200,7 +205,7 @@ impl Sound for Shaper {
 fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
     let mut e = StereoShaper::with_settings(rate, &settings(v));
     e.flush();
-    Box::new(Shaper(e))
+    super::quality::ControlTransition::<_, { SETTINGS.len() }>::boxed(Shaper(e), v, rate)
 }
 
 pub struct StereoShaperKind;

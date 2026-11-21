@@ -94,6 +94,7 @@ mod missing;
 mod import_report;
 mod drop_preview;
 mod playlist_motion;
+mod timeline_range;
 mod zipped;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -281,10 +282,7 @@ struct Shell {
     /// The held cursor is locked by the window system (Wayland's pointer lock): it stays put by itself and cannot be
     /// warped. Otherwise (Windows, X11) it is warped back to the anchor after each move.
     pointer_locked: bool,
-    cursor: app::Cursor,
-    cursor_scale: u16,
-    cursor_pack: u8,
-    cursor_color: Option<os_theme::Color>,
+    cursor: Option<CursorStyle>,
     tool_cursors: CursorCache,
     /// Main-window border in device pixels (left, top, right, bottom); zero when maximized.
     inset: (u32, u32, u32, u32),
@@ -383,18 +381,63 @@ fn ctrl(m: ModifiersState) -> bool {
     m.control_key() || (cfg!(target_os = "macos") && m.super_key())
 }
 
-/// Route native keystrokes the same way in the main window and detached workspaces.
-fn keyboard_input(app: &mut app::App, event: winit::event::KeyEvent, mods: ModifiersState) {
-    use winit::keyboard::{Key, KeyCode, PhysicalKey};
-    let pressed = event.state == ElementState::Pressed;
-    let (command, alt) = (ctrl(mods), mods.alt_key());
-    app.shift = mods.shift_key();
-    if let PhysicalKey::Code(code) = event.physical_key {
-        if code == KeyCode::ShiftRight { app.rshift = pressed; }
-        if app.typing_key(code, pressed, command, alt) { return; }
+/// Keep supported letter shortcuts available when the current layout produces another alphabet.
+fn shortcut_letter(key: &winit::keyboard::Key, physical: winit::keyboard::PhysicalKey, command: bool, alt: bool) -> Option<winit::keyboard::Key> {
+    use winit::keyboard::{Key, KeyCode::*, PhysicalKey};
+    if !command || alt {
+        return None;
     }
-    if !pressed { return; }
+    match key {
+        Key::Character(text) if !text.is_ascii() || text.chars().any(char::is_control) => {}
+        Key::Unidentified(_) => {}
+        _ => return None,
+    }
+    let PhysicalKey::Code(code) = physical else { return None };
+    let letter = match code {
+        KeyA => "a",
+        KeyB => "b",
+        KeyC => "c",
+        KeyD => "d",
+        KeyE => "e",
+        KeyF => "f",
+        KeyG => "g",
+        KeyH => "h",
+        KeyI => "i",
+        KeyJ => "j",
+        KeyK => "k",
+        KeyL => "l",
+        KeyM => "m",
+        KeyN => "n",
+        KeyO => "o",
+        KeyP => "p",
+        KeyQ => "q",
+        KeyR => "r",
+        KeyS => "s",
+        KeyT => "t",
+        KeyU => "u",
+        KeyV => "v",
+        KeyW => "w",
+        KeyX => "x",
+        KeyY => "y",
+        KeyZ => "z",
+        _ => return None,
+    };
+    Some(Key::Character(letter.into()))
+}
 
+fn normalize_shortcut_key(app: &app::App, key: winit::keyboard::Key, physical: winit::keyboard::PhysicalKey, mods: ModifiersState) -> winit::keyboard::Key {
+    let (command, alt) = (ctrl(mods), mods.alt_key());
+    match shortcut_letter(&key, physical, command, alt) {
+        Some(letter) if !crate::input_bindings::has_keyboard_binding(app, &key, command, alt, mods.shift_key()) => letter,
+        _ => key,
+    }
+}
+
+fn native_keyboard_key(app: &app::App, event: &winit::event::KeyEvent, mods: ModifiersState) -> winit::keyboard::Key {
+    #[cfg(any(windows, target_os = "macos"))]
+    use winit::keyboard::Key;
+    #[cfg(any(windows, target_os = "macos"))]
+    let (command, alt) = (ctrl(mods), mods.alt_key());
     #[cfg(any(windows, target_os = "macos"))]
     let key = {
         use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
@@ -411,11 +454,41 @@ fn keyboard_input(app: &mut app::App, event: winit::event::KeyEvent, mods: Modif
                 _ => unmodified(),
             }
         } else {
-            event.logical_key
+            event.logical_key.clone()
         }
     };
     #[cfg(not(any(windows, target_os = "macos")))]
-    let key = event.logical_key;
+    let key = event.logical_key.clone();
+    normalize_shortcut_key(app, key, event.physical_key, mods)
+}
+
+#[cfg(test)]
+#[test]
+fn layout_shortcuts_preserve_latin_layouts_and_text() {
+    use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+    let key = PhysicalKey::Code(KeyCode::KeyZ);
+    let z = Key::Character("я".into());
+    assert_eq!(shortcut_letter(&z, key, true, false), Some(Key::Character("z".into())));
+    // QWERTZ already produces a Latin shortcut key. AltGr and ordinary typing keep the text.
+    assert_eq!(shortcut_letter(&Key::Character("y".into()), key, true, false), None);
+    assert_eq!(shortcut_letter(&z, key, false, false), None);
+    assert_eq!(shortcut_letter(&z, key, true, true), None);
+    assert_eq!(shortcut_letter(&Key::Character("لا".into()), PhysicalKey::Code(KeyCode::KeyB), true, false), Some(Key::Character("b".into())));
+    assert_eq!(shortcut_letter(&Key::Named(NamedKey::ArrowUp), key, true, false), None);
+}
+
+/// Route native keystrokes the same way in the main window and detached workspaces.
+fn keyboard_input(app: &mut app::App, event: winit::event::KeyEvent, mods: ModifiersState) {
+    use winit::keyboard::{KeyCode, PhysicalKey};
+    let pressed = event.state == ElementState::Pressed;
+    let (command, alt) = (ctrl(mods), mods.alt_key());
+    app.shift = mods.shift_key();
+    if let PhysicalKey::Code(code) = event.physical_key {
+        if code == KeyCode::ShiftRight { app.rshift = pressed; }
+        if app.typing_key(code, pressed, command, alt) { return; }
+    }
+    if !pressed { return; }
+    let key = native_keyboard_key(app, &event, mods);
     app.repeat = event.repeat;
     app.key(&key, command, alt);
     app.repeat = false;
@@ -644,14 +717,15 @@ impl Shell {
     }
 
     /// Ends a held drag: the cursor shows again where the drag started, as if it never moved.
-    fn unlock_cursor(&mut self, window: &Window) {
-        let Some((anchor, _)) = self.lock.take() else { return };
+    fn unlock_cursor(&mut self, window: &Window) -> Option<(f32, f32)> {
+        let (anchor, _) = self.lock.take()?;
         // Under a pointer lock this is where the cursor reappears once unlocked.
         let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(anchor.0, anchor.1));
         if std::mem::take(&mut self.pointer_locked) {
             let _ = window.set_cursor_grab(CursorGrabMode::None);
         }
         window.set_cursor_visible(true);
+        Some(self.to_app(window, anchor.0, anchor.1))
     }
 
     /// Show the cursor the app wants (resize arrows over edges and note ends).
@@ -663,24 +737,10 @@ impl Shell {
             Some(_) => app::Cursor::NeswResize,
             None => self.app.cursor(),
         };
-        let appearance = if self.app.state.vintage_2005 {
-            os_theme::design::vintage_2005().appearance
-        } else {
-            self.app.theme.colors.appearance
-        };
-        let pack = playlist_tools::resolved_cursor_pack(appearance, c);
-        let size = if pack == 0 { 100.0 } else { appearance.cursor_size.unwrap_or(100.0) };
-        let scale = (ui_scale(window)*f64::from(size)).round().clamp(50.0,400.0) as u16;
-        let color = if pack == 0 { None } else { appearance.cursor_color };
-        if self.cursor_color != color {
-            self.tool_cursors.clear();
-        }
-        if c != self.cursor || self.cursor_scale != scale || self.cursor_pack != pack || self.cursor_color != color {
-            self.cursor_color = color;
-            self.cursor = c;
-            self.cursor_scale = scale;
-            self.cursor_pack = pack;
-            apply_window_cursor(window, el, c, scale, pack, &mut self.tool_cursors);
+        let style = cursor_style(&self.app, window, c);
+        if self.cursor != Some(style) {
+            apply_window_cursor(window, el, style, &mut self.tool_cursors);
+            self.cursor = Some(style);
         }
     }
 
@@ -1268,8 +1328,8 @@ impl ApplicationHandler for Shell {
                     self.grab = None;
                     self.unmax = None;
                     if crate::input_bindings::accepts_release(&self.app,0) {
-                        self.unlock_cursor(&window);
-                        self.app.mouse_up();
+                        let anchor = self.unlock_cursor(&window);
+                        self.app.mouse_up_at(anchor);
                     }
                     if self.app.resize_cursor && self.app.drag.is_none() {
                         self.app.resize_cursor = false;
@@ -1293,8 +1353,8 @@ impl ApplicationHandler for Shell {
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: button @ (MouseButton::Right | MouseButton::Middle), .. } => {
                 if crate::input_bindings::accepts_release(&self.app,if button==MouseButton::Right {1}else{2}) {
-                    self.unlock_cursor(&window);
-                    self.app.mouse_up();
+                    let anchor = self.unlock_cursor(&window);
+                    self.app.mouse_up_at(anchor);
                 }
                 self.pending = true;
             }
@@ -2027,23 +2087,64 @@ fn wake_ui() {
     }
 }
 
-type CursorCache = Vec<((app::Cursor, u16, u8), winit::window::CustomCursor)>;
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CursorStyle {
+    cursor: app::Cursor,
+    scale: u16,
+    pack: u8,
+    force_size: bool,
+    color: Option<os_theme::Color>,
+}
 
-fn apply_window_cursor(window: &Window, el: &ActiveEventLoop, c: app::Cursor, scale: u16, pack: u8, cache: &mut CursorCache) {
-    let key = (c, scale, pack);
-    if let Some((_, cursor)) = cache.iter().find(|(k, _)| *k == key) {
+type CursorCache = Vec<(CursorStyle, winit::window::CustomCursor)>;
+
+fn cursor_size(appearance: os_theme::appearance::Appearance, pack: u8, interface: f64, display: f64) -> (u16, bool) {
+    let explicit = prefs::choice(&prefs::CURSORS_SCALING).strip_suffix('%').and_then(|v| v.parse::<f64>().ok());
+    let base = if pack == vintage_cursors::PACK && cfg!(target_os = "macos") { 1.0 }
+        else if pack == vintage_cursors::PACK { display }
+        else { interface };
+    let percent = explicit.unwrap_or_else(|| base * f64::from(appearance.cursor_size.unwrap_or(100.0)));
+    (percent.round().clamp(50.0, 400.0) as u16, explicit.is_some() || appearance.cursor_size.is_some())
+}
+
+#[test]
+fn cursor_size_uses_the_legacy_display_scale_or_user_override() {
+    let appearance = os_theme::appearance::Appearance::default();
+    let legacy = vintage_cursors::PACK;
+    let legacy_default = if cfg!(target_os = "macos") { 100 } else { 125 };
+    assert_eq!(cursor_size(appearance, legacy, 2.0, 1.25), (legacy_default, false));
+    assert_eq!(cursor_size(appearance, 0, 2.0, 1.25), (200, false));
+    prefs::set_choice(&prefs::CURSORS_SCALING, 2);
+    assert_eq!(cursor_size(appearance, legacy, 2.0, 1.25), (75, true));
+    assert_eq!(cursor_size(appearance, 0, 2.0, 1.25), (75, true));
+    assert!(playlist_tools::window_cursor_source(app::Cursor::Default, 0.75, 0, true).is_some());
+}
+
+fn cursor_style(app: &app::App, window: &Window, cursor: app::Cursor) -> CursorStyle {
+    let appearance = if app.state.vintage_2005 { os_theme::design::vintage_2005().appearance } else { app.theme.colors.appearance };
+    let pack = playlist_tools::resolved_cursor_pack(appearance, cursor);
+    let (scale, force_size) = cursor_size(appearance, pack, ui_scale(window), window.scale_factor());
+    CursorStyle {
+        cursor, scale, pack, force_size,
+        color: appearance.cursor_color,
+    }
+}
+
+fn apply_window_cursor(window: &Window, el: &ActiveEventLoop, style: CursorStyle, cache: &mut CursorCache) {
+    let CursorStyle { cursor: c, scale, pack, force_size, .. } = style;
+    if let Some((_, cursor)) = cache.iter().find(|(key, _)| *key == style) {
         window.set_cursor(cursor.clone());
         return;
     }
     let size = f32::from(scale) / 100.0;
     let source = match c {
         app::Cursor::Playlist(tool, phase) => playlist_tools::packed_cursor_source(tool, phase, size, pack),
-        _ => playlist_tools::window_cursor_source(c, size, pack),
+        _ => playlist_tools::window_cursor_source(c, size, pack, force_size),
     };
     if let Some(source) = source {
         let cursor = el.create_custom_cursor(source);
         if cache.len() >= 96 { cache.remove(0); }
-        cache.push((key, cursor.clone()));
+        cache.push((style, cursor.clone()));
         window.set_cursor(cursor);
         return;
     }
@@ -2224,10 +2325,7 @@ fn main() {
         last_click: Instant::now() - Duration::from_secs(10),
         lock: None,
         pointer_locked: false,
-        cursor: app::Cursor::Default,
-        cursor_scale: 0,
-        cursor_pack: 0,
-        cursor_color: None,
+        cursor: None,
         tool_cursors: Vec::new(),
         inset: (0, 0, 0, 0),
         edge: None,

@@ -326,23 +326,24 @@ impl Coefs {
 struct Line {
     buf: Vec<f32>,
     pos: usize,
+    length: usize,
+    previous: usize,
 }
 
 impl Line {
-    fn new(capacity: usize, len: usize) -> Line {
-        let mut line = Line { buf: Vec::with_capacity(capacity), pos: 0 };
-        line.resize_empty(len);
-        line
-    }
-
-    fn resize_empty(&mut self, len: usize) {
-        self.buf.clear();
-        self.buf.resize(len.max(1), 0.0);
-        self.pos = 0;
+    fn new(capacity: usize, len: usize) -> Self {
+        let length = len.max(1);
+        Self { buf: vec![0.; capacity.max(length)], pos: 0, length, previous: length }
     }
     #[inline]
-    fn out(&self) -> f32 {
-        self.buf[self.pos]
+    fn read(&self, age: usize) -> f32 {
+        let i = if self.pos >= age { self.pos - age } else { self.buf.len() - (age - self.pos) };
+        self.buf[i]
+    }
+    #[inline]
+    fn out(&self, blend: f32) -> f32 {
+        let current = self.read(self.length);
+        if blend == 0. { current } else { current + blend * (self.read(self.previous) - current) }
     }
     #[inline]
     fn push(&mut self, v: f32) {
@@ -354,23 +355,23 @@ impl Line {
     }
     /// A delay: the input `len` samples ago.
     #[inline]
-    fn delay(&mut self, x: f32) -> f32 {
-        let y = self.out();
+    fn delay(&mut self, x: f32, blend: f32) -> f32 {
+        let y = self.out(blend);
         self.push(x);
         y
     }
     /// An all-pass with forward `f` and feedback `b`.
     #[inline]
-    fn allpass(&mut self, x: f32, f: f32, b: f32) -> f32 {
-        let y = self.out() - f * x;
+    fn allpass(&mut self, x: f32, f: f32, b: f32, blend: f32) -> f32 {
+        let y = self.out(blend) - f * x;
         self.push(b * y + x);
         y
     }
     /// The value stored `k` writes ago, this sample's write counting as 1 (`k = 0`: the oldest).
     #[inline]
-    fn tap(&self, k: usize) -> f32 {
-        let n = self.buf.len();
-        self.buf[(self.pos + n - k % n) % n]
+    fn tap(&self, k: usize, length: usize) -> f32 {
+        let age = if k > length { k % length } else { k };
+        self.read(if age == 0 { length } else { age })
     }
     fn clear(&mut self) {
         self.buf.iter_mut().for_each(|v| *v = 0.0);
@@ -390,11 +391,6 @@ impl History {
         History { buf: vec![0.0; len.max(2)], w: 0 }
     }
 
-    fn resize_empty(&mut self, len: usize) {
-        self.buf.clear();
-        self.buf.resize(len.max(2), 0.0);
-        self.w = 0;
-    }
     #[inline]
     fn ago(&self, k: usize) -> f32 {
         let n = self.buf.len();
@@ -454,6 +450,10 @@ pub struct Reverb {
     settings: Settings,
     geom: Geometry,
     c: Coefs,
+    previous_room: Geometry,
+    room_fade: u32,
+    room_fade_length: u32,
+    room_playing: bool,
     room: Option<i32>,
     lines: Vec<Line>,
     early: History,
@@ -470,6 +470,15 @@ pub struct Reverb {
     ramp: Option<Ramp>,
     /// Peak of the reverb output since the editor last asked (for its display).
     pub peak: f32,
+    pub duck_mode: u8,
+    pub duck_amount: f32,
+    reduction: f32,
+    duck_env: f32,
+    hard_hold_left: u32,
+    hard_hold_samples: u32,
+    hard_attack_step: f32,
+    hard_release: f32,
+    duck_slew: [f32;2],
 }
 
 impl Reverb {
@@ -480,13 +489,14 @@ impl Reverb {
         let mod_len = (0.004_535_147_5 * f64::from(irate)).ceil() as usize + 4;
         let settings_room = settings.knobs[ROOM];
         let largest = Geometry::new(RANGES[ROOM].1, irate);
-        let mut early = History { buf: Vec::with_capacity(largest.early.0.max(largest.early.1) + 2), w: 0 };
-        early.resize_empty(geom.early.0.max(geom.early.1) + 2);
+        let early = History::new(largest.early.0.max(largest.early.1).max(geom.early.0).max(geom.early.1) + 2);
         let lines = geom.lengths.iter().zip(largest.lengths).map(|(&n, max)| Line::new(max, n)).collect();
         Reverb {
             irate,
             bpm,
             settings,
+            previous_room: geom.clone(), room_fade: 0,
+            room_fade_length: (sample_rate / 200).max(1), room_playing: false,
             geom: geom.clone(),
             c,
             room: Some(settings_room),
@@ -504,11 +514,28 @@ impl Reverb {
             depth: 0.0,
             ramp: None,
             peak: 0.0,
+            hard_hold_left: 0,
+            hard_hold_samples: (sample_rate as f32 * 0.035).ceil() as u32,
+            hard_attack_step: 1.0 / (sample_rate.max(1) as f32 * 0.002),
+            hard_release: 1.0 - (-1.0 / (sample_rate.max(1) as f32 * 0.085)).exp(),
+            duck_mode: 0, duck_amount: 1., reduction: 0., duck_env:0., duck_slew:[0.008,0.24].map(|s|1.-(-1./(sample_rate.max(1) as f32*s)).exp()),
         }
     }
 
+    pub fn duck_settings(state: &[u8]) -> (u8,u8) {
+        let tail = state.get(STATE_LEN..).and_then(|t| t.strip_prefix(b"DUCK")).unwrap_or_default();
+        let mode = tail.first().copied().unwrap_or(0).min(2);
+        let amount = tail.get(1..).and_then(|t|t.strip_prefix(b"AMT"))
+            .and_then(|t| t.first()).copied().unwrap_or(100).min(100);
+        (mode,amount)
+    }
+
     pub fn from_state(state: &[u8], sample_rate: u32) -> Option<Reverb> {
-        Some(Reverb::new(sample_rate, Settings::from_state(state)?, 120.0))
+        let mut reverb = Reverb::new(sample_rate, Settings::from_state(state)?, 120.0);
+        let (mode,amount) = Self::duck_settings(state);
+        reverb.duck_mode=mode;
+        reverb.duck_amount=f32::from(amount)/100.;
+        Some(reverb)
     }
 
     pub fn settings(&self) -> &Settings {
@@ -519,19 +546,23 @@ impl Reverb {
         &self.c
     }
 
-    /// Lines for the current room size: cleared whenever the size differs from the one last used.
+    /// Keep the tank history and crossfade the old and new read positions when the room changes.
     fn size_lines(&mut self) {
         let room = self.settings.knobs[ROOM];
-        if self.room == Some(room) {
+        if self.room == Some(room) || self.room_fade > 0 {
             return;
         }
         self.room = Some(room);
+        self.previous_room = self.geom.clone();
+        self.room_fade = if self.room_playing { self.room_fade_length } else { 0 };
         self.geom = Geometry::new(room, self.irate);
         for (line, length) in self.lines.iter_mut().zip(self.geom.lengths) {
-            line.resize_empty(length);
+            line.previous = line.length;
+            line.length = length.max(1);
+            if line.length > line.buf.len() { line.buf.resize(line.length, 0.); }
         }
         let (ol, or, _, _) = self.geom.early;
-        self.early.resize_empty(ol.max(or) + 2);
+        if ol.max(or) + 2 > self.early.buf.len() { self.early.grow(ol.max(or) + 2); }
     }
 
     /// New settings (from the editor or the host). Levels glide when they change.
@@ -576,6 +607,13 @@ impl Reverb {
 
     /// Empties every line and filter (the modulation's phase runs on).
     pub fn clear(&mut self) {
+        self.room_playing = false;
+        self.room_fade = 0;
+        self.size_lines();
+        self.c = Coefs::new(&self.settings, &self.geom, self.irate, self.bpm);
+        self.duck_env=0.;
+        self.hard_hold_left = 0;
+        self.reduction=0.;
         self.lines.iter_mut().for_each(Line::clear);
         self.early.clear();
         self.pre.clear();
@@ -593,6 +631,13 @@ impl Reverb {
     /// then the input `m` is fed in.
     #[inline]
     fn tick(&mut self, m: f32) -> (f32, f32, f32, f32) {
+        self.room_playing = true;
+        if self.room_fade == 0 && self.room != Some(self.settings.knobs[ROOM]) {
+            self.size_lines();
+            self.c = Coefs::new(&self.settings, &self.geom, self.irate, self.bpm);
+        }
+        let blend = self.room_fade as f32 / self.room_fade_length as f32;
+        self.room_fade = self.room_fade.saturating_sub(1);
         let c = &self.c;
         // 1. Modulation.
         let sine = (f64::from(self.ph) * 2.0 * PI).sin() as f32;
@@ -610,23 +655,28 @@ impl Reverb {
 
         // 2. Early reflections.
         let (ol, or, gl, gr) = self.geom.early;
-        let er_l = self.early.before(ol) * gl;
-        let er_r = self.early.before(or) * gr;
+        let mut er_l = self.early.before(ol) * gl;
+        let mut er_r = self.early.before(or) * gr;
+        if blend > 0. {
+            let (pl, pr, gain_l, gain_r) = self.previous_room.early;
+            er_l += blend * (self.early.before(pl) * gain_l - er_l);
+            er_r += blend * (self.early.before(pr) * gain_r - er_r);
+        }
 
         // 3. Tank.
         let pre = self.pre.before(c.predelay) + 1e-20;
         let l = &mut self.lines;
-        let x = l[11].out() * c.decay;
+        let x = l[11].out(blend) * c.decay;
         let y = half(&mut self.half_a, x, pre, c, &mut self.mod_a, n, f);
-        let y = l[4].allpass(y, c.t0, c.t0);
-        let y = l[5].delay(y) * c.decay;
-        let y = l[6].allpass(y, c.t1, c.t1);
+        let y = l[4].allpass(y, c.t0, c.t0, blend);
+        let y = l[5].delay(y, blend) * c.decay;
+        let y = l[6].allpass(y, c.t1, c.t1, blend);
         l[7].push(y);
-        let x = l[7].tap(0) * c.decay;
+        let x = l[7].out(blend) * c.decay;
         let y = half(&mut self.half_b, x, pre, c, &mut self.mod_b, n, f);
-        let y = l[8].allpass(y, c.t0, c.t0);
-        let y = l[9].delay(y) * c.decay;
-        let y = l[10].allpass(y, c.t1, c.t1);
+        let y = l[8].allpass(y, c.t0, c.t0, blend);
+        let y = l[9].delay(y, blend) * c.decay;
+        let y = l[10].allpass(y, c.t1, c.t1, blend);
         l[11].push(y);
 
         let k = 1.0 - c.decay;
@@ -635,8 +685,15 @@ impl Reverb {
         let c07 = k * 0.7 + c.decay;
         let c02 = k * 0.2 + c.decay;
         let c05 = k * 0.5 + c.decay;
-        let tl = |i: usize| l[self.geom.taps_l[i].0].tap(self.geom.taps_l[i].1);
-        let tr = |i: usize| l[self.geom.taps_r[i].0].tap(self.geom.taps_r[i].1);
+        let tap = |(idx,k): (usize,usize), old: (usize,usize)| {
+            let line = &l[idx];
+            let current = line.tap(k, line.length);
+            if blend == 0. { current } else {
+                current + blend * (l[old.0].tap(old.1, l[old.0].previous) - current)
+            }
+        };
+        let tl = |i: usize| tap(self.geom.taps_l[i], self.previous_room.taps_l[i]);
+        let tr = |i: usize| tap(self.geom.taps_r[i], self.previous_room.taps_r[i]);
         let left = (((tl(0) - c025 * tl(1)) - c07 * tl(2)) - c02 * tl(3)) + c06 * tl(4) + tl(5) + c05 * tl(6);
         let right = ((((c025 * tr(0) + tr(1)) - c07 * tr(2)) - c02 * tr(3)) - c06 * tr(4)) + tr(5) + c05 * tr(6);
 
@@ -647,11 +704,11 @@ impl Reverb {
         self.lc_x = x;
         self.lc_a = a;
         let mut x = if c.low_cut != 0.0 { (x - a) * 0.5 + 1e-30 } else { x };
-        x = l[0].allpass(x, c.diffuser, c.diffuser);
+        x = l[0].allpass(x, c.diffuser, c.diffuser, blend);
         self.early.push(x);
-        x = l[1].allpass(x, c.diffuser, c.diffuser);
-        x = l[2].allpass(x, c.diffuser, c.diffuser);
-        x = l[3].allpass(x, c.diffuser, c.diffuser);
+        x = l[1].allpass(x, c.diffuser, c.diffuser, blend);
+        x = l[2].allpass(x, c.diffuser, c.diffuser, blend);
+        x = l[3].allpass(x, c.diffuser, c.diffuser, blend);
         self.pre.push(x);
 
         (er_l, er_r, left, right)
@@ -660,6 +717,11 @@ impl Reverb {
     /// One stereo frame through the reverb.
     #[inline]
     pub fn frame(&mut self, il: f32, ir: f32) -> (f32, f32) {
+        self.frame_observed(il, ir, |_, _, _| {})
+    }
+
+    #[inline]
+    fn frame_observed(&mut self, il: f32, ir: f32, observe: impl FnOnce(f32, f32, f32)) -> (f32, f32) {
         let m = if self.c.mid_side { il - ir } else { il + ir };
         let (el, er, wl, wr) = self.tick(m);
         let (dry, e, w) = match &mut self.ramp {
@@ -683,9 +745,34 @@ impl Reverb {
         } else {
             (il * dry, ir * dry)
         };
-        mix(&mut ol, &mut or, el, er, &e);
-        mix(&mut ol, &mut or, wl, wr, &w);
+        let (dry_left, dry_right) = (ol, or);
+        let peak = il.abs().max(ir.abs());
+        if self.duck_mode == 2 {
+            // -72 dBFS wakes the gate. Hold through zero crossings and short waveform gaps.
+            if peak >= 0.000_251_189 {
+                self.hard_hold_left = self.hard_hold_samples;
+            }
+            let active = self.hard_hold_left > 0;
+            self.hard_hold_left = self.hard_hold_left.saturating_sub(1);
+            let target = if active { self.duck_amount } else { 0.0 };
+            if target > self.reduction {
+                self.reduction = (self.reduction + self.hard_attack_step * target).min(target);
+            } else {
+                self.reduction += (target - self.reduction) * self.hard_release;
+            }
+        } else {
+            self.hard_hold_left = 0;
+            self.duck_env += (peak - self.duck_env) * self.duck_slew[usize::from(peak < self.duck_env)];
+            let target = if self.duck_mode == 1 {
+                self.duck_amount * (1.0 - 1.0 / (1.0 + self.duck_env * 3.0))
+            } else { 0.0 };
+            self.reduction += (target - self.reduction) * self.duck_slew[0];
+        }
+        let gain = 1. - self.reduction;
+        mix(&mut ol, &mut or, el*gain, er*gain, &e);
+        mix(&mut ol, &mut or, wl*gain, wr*gain, &w);
         self.peak = self.peak.max(wl.abs()).max(wr.abs()).max(el.abs()).max(er.abs());
+        observe(ol - dry_left, or - dry_right, self.reduction);
         (ol, or)
     }
 
@@ -702,6 +789,21 @@ impl Reverb {
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             (*l, *r) = self.frame(*l, *r);
         }
+    }
+
+    /// Peak wet returns (after mixing and ducking), and maximum applied gain reduction.
+    /// Used only while an editor is listening. All three values are linear.
+    pub fn process_metered(&mut self, left: &mut [f32], right: &mut [f32]) -> [f32; 3] {
+        self.fit_predelay();
+        let mut levels = [0.0_f32; 3];
+        for (l, r) in left.iter_mut().zip(right) {
+            (*l, *r) = self.frame_observed(*l, *r, |wl, wr, reduction| {
+                levels[0] = levels[0].max(wl.abs());
+                levels[1] = levels[1].max(wr.abs());
+                levels[2] = levels[2].max(reduction);
+            });
+        }
+        levels
     }
 
     /// Runs `frames` samples of silence through the reverb (what FL processes after loading, before the song).

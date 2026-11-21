@@ -179,6 +179,13 @@ pub fn defs() -> Vec<Def> {
     v.push(Def { hidden: true, ..d("x112".into(), "Spare 3".into(), 0, 65536, 0, Text::Raw) });
     v.push(d("filter".into(), "Filter type".into(), 0, 7, 0, Text::Filter));
     debug_assert_eq!(v.len(), COUNT);
+    v.push(d("o1_mix".into(),"Osc 1 volume".into(),0,128,128,Text::Mix));
+    for n in 1..=3 {
+        for (id,label,max,start,text) in [("a","Attack (ms)",6000,0,Text::Raw),("d","Decay (ms)",6000,0,Text::Raw),
+            ("s","Sustain",128,128,Text::Mix),("r","Release (ms)",6000,0,Text::Raw)] {
+            v.push(d(format!("o{n}_{id}"),format!("Osc {n} {label}"),0,max,start,text));
+        }
+    }
     v
 }
 
@@ -394,7 +401,7 @@ pub fn encode(k: usize, v: i32) -> i32 {
 pub fn default_state() -> Vec<u8> {
     let mut b = vec![0u8; STATE_LEN];
     set_field(&mut b, 0, STATE_VERSION);
-    for (k, d) in defs().iter().enumerate() {
+    for (k, d) in defs().iter().take(COUNT).enumerate() {
         set_field(&mut b, k + 1, encode(k, d.default));
     }
     b
@@ -431,7 +438,13 @@ pub fn values_of(fl: &[u8]) -> Vec<i32> {
 pub fn plugin_state_from_fl(fl: &[u8]) -> Vec<u8> {
     let b = normalized(fl.to_vec());
     let defs = defs();
-    let params: Vec<String> = values_of(&b).iter().zip(&defs).map(|(v, d)| format!("\"{}\":{{\"i32\":{v}}}", d.id)).collect();
+    let mut values = values_of(&b);
+    let extra=fl.get(STATE_LEN..).and_then(|bytes|bytes.strip_prefix(b"OENV"));
+    for (i,d) in defs[COUNT..].iter().enumerate() {
+        let value=extra.and_then(|b|b.get(i*4..i*4+4)).map(|v|i32::from_le_bytes(v.try_into().unwrap()));
+        values.push(value.unwrap_or(d.default).clamp(d.min,d.max));
+    }
+    let params: Vec<String> = values.iter().zip(&defs).map(|(v, d)| format!("\"{}\":{{\"i32\":{v}}}", d.id)).collect();
     let state = format!(
         "{{\"version\":\"{}\",\"params\":{{{}}},\"fields\":{{\"{STATE_FIELD}\":\"\\\"{}\\\"\"}}}}",
         env!("CARGO_PKG_VERSION"),
@@ -451,12 +464,22 @@ pub fn fl_from_plugin_state(blob: &[u8]) -> Option<Vec<u8>> {
     let params = v.get("params")?;
     let defs = defs();
     let mut vals = values_of(&raw);
-    for (k, d) in defs.iter().enumerate() {
+    for (k, d) in defs.iter().take(COUNT).enumerate() {
         if let Some(x) = params.get(&d.id).and_then(|p| p.get("i32")).and_then(|x| x.as_i64()) {
             vals[k] = x as i32;
         }
     }
-    Some(to_fl(&vals, &raw))
+    let mut out=to_fl(&vals,&raw);
+    let extra:Vec<_>=defs[COUNT..].iter().map(|d|params[&d.id]["i32"].as_i64().unwrap_or(i64::from(d.default)).clamp(i64::from(d.min),i64::from(d.max)) as i32).collect();
+    let saved = &out[STATE_LEN..];
+    let old_len = if saved.starts_with(b"OENV") { saved.len().min(4+4*extra.len()) } else { 0 };
+    let mut extension = Vec::new();
+    if extra.iter().zip(&defs[COUNT..]).any(|(v,d)|*v!=d.default) {
+        extension.extend(b"OENV");
+        for value in extra { extension.extend(value.to_le_bytes()); }
+    }
+    out.splice(STATE_LEN..STATE_LEN+old_len,extension);
+    Some(out)
 }
 
 #[cfg(test)]
@@ -479,7 +502,7 @@ mod tests {
     #[test]
     fn parameter_order_follows_the_original() {
         let d = defs();
-        assert_eq!(d.len(), COUNT);
+        assert_eq!(d.len(), COUNT+13);
         assert_eq!(d[0].name, "Osc 1 panning");
         assert_eq!(d[6].name, "Osc 2 mix level");
         assert_eq!(d[13].name, "Osc 3 mix level");
@@ -498,7 +521,7 @@ mod tests {
         let mut ids: Vec<&str> = d.iter().map(|x| x.id.as_str()).collect();
         ids.sort();
         ids.dedup();
-        assert_eq!(ids.len(), COUNT);
+        assert_eq!(ids.len(), COUNT+13);
     }
 
     #[test]

@@ -123,6 +123,8 @@ impl Target {
 pub struct Block {
     pub osc: [Osc; 3],
     /// Osc 2 / osc 3 mix level, 0..1.
+    pub m1: f64,
+    pub adsr: [[f64;4];3],
     pub m2: f64,
     pub m3: f64,
     /// Osc 3 = amplitude modulation.
@@ -144,6 +146,7 @@ impl Default for Block {
         let osc = |semis: f64| Osc { semis, ..Osc::default() };
         Block {
             osc: [osc(0.0), osc(-12.0), osc(-24.0)],
+            m1:1., adsr:[[0.,0.,1.,0.];3],
             m2: 0.5,
             m3: 0.25,
             am: false,
@@ -533,6 +536,9 @@ fn fade(s: f64) -> f64 {
 }
 
 pub struct Engine {
+    mix: Option<[f64; 3]>,
+    mix_target: [f64; 3],
+    mix_left: usize,
     rate: f64,
     voices: Vec<Voice>,
     rng: u64,
@@ -546,6 +552,7 @@ impl Engine {
     pub fn new(rate: f32) -> Self {
         Engine {
             rate: f64::from(rate),
+            mix: None, mix_target: [0.; 3], mix_left: 0,
             voices: Vec::with_capacity(MAX_VOICES),
             rng: 0x9e37_79b9_7f4a_7c15,
             ended: Vec::with_capacity(MAX_VOICES * 2),
@@ -555,12 +562,14 @@ impl Engine {
 
     pub fn set_rate(&mut self, rate: f32) {
         self.rate = f64::from(rate);
+        self.mix = None;
         self.voices.clear();
         self.ended.clear();
     }
 
     /// Drops every voice. Not reported: a host resetting the instrument forgets its voices itself.
     pub fn reset(&mut self) {
+        self.mix = None;
         self.voices.clear();
         self.ended.clear();
     }
@@ -689,13 +698,17 @@ impl Engine {
         match vol.env {
             Some(e) => g *= e.level(t, off)?,
             None => {
-                if let Some(o) = off {
+                if let Some(o) = off.filter(|_|b.adsr.iter().all(|env|env[3]==0.)) {
                     if t - o >= FADE_SECONDS {
                         return None;
                     }
                     g *= fade(t - o);
                 }
             }
+        }
+        if let Some(o)=off {
+            let tail=b.adsr.iter().map(|env|env[3]).fold(FADE_SECONDS,f64::max);
+            if vol.env.is_none() && t-o>=tail {return None}
         }
         if let Some(c) = v.cut {
             let s = (n.saturating_sub(c)) as f64 / sr;
@@ -736,9 +749,20 @@ impl Engine {
             [a.cos(), a.sin()]
         });
         // Mix weights: osc 1, osc 2, osc 3 (AM: osc 3 modulates instead).
-        let w = [1.0 - b.m2, b.m2];
-        let (use1, use2) = (w[0] != 0.0, w[1] != 0.0);
-        let use3 = b.m3 != 0.0;
+        let target = [(1. - b.m2) * b.m1, b.m2, b.m3];
+        let mut current = self.mix.unwrap_or(target);
+        if self.mix_target != target {
+            self.mix_target = target;
+            self.mix_left = (sr * 0.004).round().max(1.) as usize;
+        }
+        let [use1, use2, use3] = std::array::from_fn(|i| target[i] != 0. || current[i] != 0.);
+        let mut weights = [target; CTL];
+        for frame in &mut weights[..len.min(self.mix_left)] {
+            *frame = current;
+            for n in 0..3 { current[n] += (target[n] - current[n]) / self.mix_left as f64; }
+            self.mix_left -= 1;
+        }
+        self.mix = Some(if self.mix_left == 0 { target } else { current });
         let filter_off = b.filter_off();
         let custom = self.custom.take();
         let mut voices = std::mem::take(&mut self.voices);
@@ -768,6 +792,18 @@ impl Engine {
                 let q = b.resonance + b.targets[T_RES].mod_at(t0, off) / 128.0 * 256.0;
                 coefs(b.filter, c, q, sr)
             };
+            let osc_env = |n:usize, t:f64| {
+                let [attack,decay,sustain,release]=b.adsr[n];
+                let key_time=off.map_or(t,|o|t.min(o));
+                let held=if key_time<attack {key_time/attack}
+                    else if key_time<attack+decay {1.+(sustain-1.)*(key_time-attack)/decay} else {sustain};
+                if let Some(o)=off.filter(|_|release>0. || b.adsr.iter().any(|e|e[3]>0.)) {
+                    held*(1.-(t-o)/release.max(FADE_SECONDS)).clamp(0.,1.)
+                } else {held}
+            };
+            let env:[(f64,f64);3]=std::array::from_fn(|n| {
+                let start=osc_env(n,t0);(start,(osc_env(n,t0+len as f64/sr)-start)/len as f64)
+            });
             let dg = (g1 - g0) / len as f64;
             for i in 0..len {
                 let g = g0 + dg * i as f64;
@@ -790,13 +826,14 @@ impl Engine {
                                 sh if b.hq => hq(sh, u, dt),
                                 sh => boxed(sh, u, dt),
                             };
-                            osc[n] = if os.invert { -x } else { x } * pan[n][s];
+                            osc[n] = if os.invert { -x } else { x } * pan[n][s] * (env[n].0+env[n].1*i as f64);
                         }
                         let p = u + dt;
                         v.ph[n][s] = p - p.floor();
                     }
+                    let w = weights[i];
                     let mix12 = w[0] * osc[0] + w[1] * osc[1];
-                    let y = if b.am { mix12 * (1.0 - b.m3 * osc[2]) } else { (1.0 - b.m3) * mix12 + b.m3 * osc[2] };
+                    let y = if b.am { mix12 * (1.0 - w[2] * osc[2]) } else { (1.0 - w[2]) * mix12 + w[2] * osc[2] };
                     *o = v.filt[s].tick(&co, y) * g;
                 }
                 l[i] += out[0] as f32;

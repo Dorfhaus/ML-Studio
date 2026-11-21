@@ -75,6 +75,7 @@ pub enum Snap {
     WithMixerInsert { insert:Box<Snap>, edit:Box<Snap> },
     MixerMoves { moves:Vec<(u16,u16)>,arrangements:Vec<os_model::Arrangement>,lanes:Vec<(u16,u16,u16,u16)> },
     MixerMove { from:u16,to:u16,arrangements:Vec<os_model::Arrangement>,lanes:Vec<(u16,u16,u16,u16)> },
+    SplitOutputs(usize,bool),
     ChannelRoute(usize,u16),
     SampleRoute { sample: Box<Snap>, route: u16, name: Option<String>, insert: Option<bool> },
     InstrumentLanes(Vec<(u16,u16,u16,u16)>),
@@ -509,6 +510,7 @@ impl Snap {
                 name: crate::mixer::track(s, *route).and_then(|m| m.name.clone()),
                 insert: insert.map(|remove| !remove),
             },
+            Snap::SplitOutputs(row,_) => Snap::SplitOutputs(*row,s.project.channels.get(*row).is_some_and(|c|c.misc.split_outputs)),
             Snap::ChannelRoute(row,_) => Snap::ChannelRoute(*row,s.project.channels.get(*row).map_or(0,|c|c.mixer_track)),
             Snap::Several(v) => Snap::Several(v.iter().map(|x| x.now(s)).collect()),
         }
@@ -585,6 +587,7 @@ impl Snap {
             | Snap::MixerMoves{..}
             | Snap::MixerMove{..}
             | Snap::InstrumentLanes(..)
+            | Snap::SplitOutputs(..)
             | Snap::ChannelRoute(..)
             | Snap::CutGroups(..)
             | Snap::TrackColor(..)
@@ -850,6 +853,7 @@ impl Snap {
                 else if let Some(track) = crate::mixer::track_mut(s, route) { track.name = name; }
                 (s.selected_mixer,s.mixer.sel) = selection;
             }
+            Snap::SplitOutputs(row,split) => {if let Some(c)=s.project.channels.get_mut(row){c.misc.split_outputs=split;}},
             Snap::ChannelRoute(row,t) => {if let Some(c)=s.project.channels.get_mut(row){c.mixer_track=t;}},
             Snap::Several(v) => v.into_iter().rev().for_each(|x| x.put(s)),
         }

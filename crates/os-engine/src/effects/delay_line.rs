@@ -2,6 +2,7 @@
 
 /// A resizable delay with an immediate logical reset. Samples from an earlier
 /// length are never read after reset, so changes need no buffer-sized clear.
+#[derive(Clone)]
 pub(super) struct DelayLine<T> {
     buffer: Vec<T>,
     length: usize,
@@ -12,6 +13,13 @@ pub(super) struct DelayLine<T> {
 impl<T: Copy + Default> DelayLine<T> {
     pub fn new(capacity: usize) -> Self {
         Self { buffer: vec![T::default(); capacity], length: 0, cursor: 0, filled: 0 }
+    }
+
+    pub fn copy_state_from(&mut self, source: &Self) {
+        self.buffer.clone_from(&source.buffer);
+        self.length = source.length;
+        self.cursor = source.cursor;
+        self.filled = source.filled;
     }
 
     pub fn prepare(&mut self, capacity: usize) {

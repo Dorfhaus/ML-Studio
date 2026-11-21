@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Keyboard-first playlist tools, native cursor feedback, and the compact source menu.
+#[cfg(windows)]
+mod windows_cursor;
+
 use crate::app::{Action, App, Cursor, State};
 use crate::icons::{self, Icon};
 use crate::playlist::{self as pl, Cmd, Mark, PItem, PickKind, PlTool, Popup};
@@ -70,7 +73,7 @@ pub fn resolved_cursor_pack(appearance: os_theme::appearance::Appearance, cursor
 pub const CURSOR_PACK_COUNT: u8 = crate::vintage_cursors::PACK + 1;
 
 pub fn cursor_pack_name(pack: u8) -> &'static str {
-    if pack == crate::vintage_cursors::PACK { "FL Studio 2005" } else { os_ui::icon_packs::get(pack).name }
+    if pack == crate::vintage_cursors::PACK { "Legacy" } else { os_ui::icon_packs::get(pack).name }
 }
 
 fn cursor_art_pack(pack: u8) -> u8 {
@@ -173,7 +176,7 @@ pub(crate) fn range_cursor(app: &App) -> Option<Cursor> {
 pub fn cursor(app: &App) -> Option<Cursor> {
     if app.modal_open() || app.state.settings.open || app.state.playlist.popup.is_some() || app.state.menu_open.is_some() { return None; }
     if matches!(app.drag, Some(crate::app::Drag::Pl(pl::PlDrag::TimeSel { resizing: true, .. })))
-        || (app.drag.is_none() && app.hover == Some(Action::PlRuler)
+        || (app.drag.is_none() && !app.shift && !app.ctrl && app.hover == Some(Action::PlRuler)
             && app.pl_grid().is_some_and(|grid| pl::ruler_resize_anchor(&app.state, grid, app.mouse.0).is_some()))
     {
         return Some(Cursor::EwResize);
@@ -490,10 +493,10 @@ pub fn cursor_source(tool: PlTool, phase: u8, scale: f32) -> Option<winit::windo
 }
 
 pub fn packed_cursor_source(tool: PlTool, phase: u8, scale: f32, pack: u8) -> Option<winit::window::CustomCursorSource> {
-    let scale = native_cursor_scale(scale);
     if pack == crate::vintage_cursors::PACK {
         if let Some(source) = crate::vintage_cursors::source(Cursor::Playlist(tool, phase), scale) { return Some(source); }
     }
+    let scale = native_cursor_scale(scale);
     let c=packed_cursor_canvas(tool,phase,scale,pack)?;
     let bytes: Vec<u8> = c.pixmap.pixels().iter().flat_map(|p| { let p=p.demultiply(); [p.red(),p.green(),p.blue(),p.alpha()] }).collect();
     let (hx, hy) = if phase == GAIN {
@@ -507,12 +510,18 @@ pub fn packed_cursor_source(tool: PlTool, phase: u8, scale: f32, pack: u8) -> Op
     winit::window::CustomCursor::from_rgba(bytes,c.pixmap.width() as u16,c.pixmap.height() as u16,hx,hy).ok()
 }
 
-pub fn window_cursor_source(cursor: Cursor, scale: f32, pack: u8) -> Option<winit::window::CustomCursorSource> {
-    if pack == 0 || cursor == Cursor::Text { return None; }
-    use icons::Gesture;
-    let scale = native_cursor_scale(scale);
+pub fn window_cursor_source(cursor: Cursor, scale: f32, mut pack: u8, force_size: bool) -> Option<winit::window::CustomCursorSource> {
     if pack == crate::vintage_cursors::PACK {
         if let Some(source) = crate::vintage_cursors::source(cursor, scale) { return Some(source); }
+        pack = 0;
+    }
+    if (pack == 0 || cursor == Cursor::Text) && !force_size { return None; }
+    use icons::Gesture;
+    let scale = native_cursor_scale(scale);
+    #[cfg(windows)]
+    if pack == 0 {
+        let (mask, hx, hy) = windows_cursor::mask(cursor, scale)?;
+        return window_cursor_bitmap(mask, pack, hx, hy);
     }
     let cursor_pack = pack;
     let pack = cursor_art_pack(pack);
@@ -520,23 +529,35 @@ pub fn window_cursor_source(cursor: Cursor, scale: f32, pack: u8) -> Option<wini
     let mut mask = Canvas::new(px, px, scale).ok()?;
     mask.set_icon_pack(pack, true);
     mask.clear(Color::rgb(0));
-    let art = match cursor {
-        Cursor::Default => icons::gesture(Gesture::Pointer, pack),
-        Cursor::EwResize => icons::artwork(Icon::Slip, pack),
-        Cursor::NsResize => icons::gesture(Gesture::ResizeVertical, pack),
-        Cursor::NwseResize => icons::gesture(Gesture::ResizeDiagonal, pack),
-        Cursor::NeswResize => icons::gesture(Gesture::ResizeBackDiagonal, pack),
-        Cursor::Playlist(..) | Cursor::Text => return None,
+    let hot = if cursor == Cursor::Text {
+        let ink = Color::rgb(0xffffff);
+        mask.line(16.,6.,16.,26.,1.5,ink);
+        mask.line(12.,6.,20.,6.,1.5,ink);
+        mask.line(12.,26.,20.,26.,1.5,ink);
+        (16.,16.)
+    } else {
+        let art = match cursor {
+            Cursor::Default => icons::gesture(Gesture::Pointer, pack),
+            Cursor::EwResize => icons::artwork(Icon::Slip, pack),
+            Cursor::NsResize => icons::gesture(Gesture::ResizeVertical, pack),
+            Cursor::NwseResize => icons::gesture(Gesture::ResizeDiagonal, pack),
+            Cursor::NeswResize => icons::gesture(Gesture::ResizeBackDiagonal, pack),
+            Cursor::Playlist(..) | Cursor::Text => return None,
+        };
+        let hot = art.hotspot.map_or((16.0, 16.0), |(x, y)| (x + 4.0, y + 4.0));
+        mask.art_icon(&art.shape, Rect::new(4.0, 4.0, 24.0, 24.0), Color::rgb(0xffffff));
+        hot
     };
-    let hot = art.hotspot.map_or((16.0, 16.0), |(x, y)| (x + 4.0, y + 4.0));
-    mask.art_icon(&art.shape, Rect::new(4.0, 4.0, 24.0, 24.0), Color::rgb(0xffffff));
-    let image = cursor_rgba(mask, cursor_pack)?;
+    window_cursor_bitmap(mask, cursor_pack, (hot.0 * scale).round() as u16, (hot.1 * scale).round() as u16)
+}
+
+fn window_cursor_bitmap(mask: Canvas, pack: u8, hx: u16, hy: u16) -> Option<winit::window::CustomCursorSource> {
+    let image = cursor_rgba(mask, pack)?;
     let bytes: Vec<u8> = image.pixmap.pixels().iter().flat_map(|p| {
         let p = p.demultiply();
         [p.red(), p.green(), p.blue(), p.alpha()]
     }).collect();
-    winit::window::CustomCursor::from_rgba(bytes, px as u16, px as u16,
-        (hot.0 * scale).round() as u16, (hot.1 * scale).round() as u16).ok()
+    winit::window::CustomCursor::from_rgba(bytes, image.pixmap.width() as u16, image.pixmap.height() as u16, hx, hy).ok()
 }
 
 pub fn sources(s: &State, kind: PickKind) -> Vec<ClipSource> {

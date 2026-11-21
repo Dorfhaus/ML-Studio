@@ -24,6 +24,8 @@ pub struct Processor {
     previous: Option<Settings>,
     time: usize,
     engaged: bool,
+    played_dry: bool,
+    live_start: bool,
     pub response: [f32; 256],
     pub meters: [f32; 8],
     pub trigger: [f32; 7],
@@ -63,7 +65,7 @@ impl Processor {
             global_gain: vec![0.; bins],
             previous: None,
             time: 0,
-            engaged: false,
+            engaged: false, played_dry: false, live_start: false,
             response: [0.; 256],
             meters: [0.; 8],
             trigger: [-120.; 7],
@@ -94,11 +96,14 @@ impl Processor {
         self.global_gain.fill(0.);
         self.time = 0;
         self.engaged = engaged;
+        self.played_dry = false;
+        self.live_start = false;
         self.response = [0.; 256];
         self.meters = [0.; 8];
         self.trigger = [-120.; 7];
     }
     pub fn engage(&mut self) {
+        if !self.engaged { self.live_start = self.played_dry; }
         self.engaged = true;
     }
     pub fn latency(&self) -> usize {
@@ -133,6 +138,7 @@ impl Processor {
         c: Config,
     ) {
         if !self.engaged {
+            self.played_dry |= !l.is_empty();
             return;
         }
         self.prepare(s);
@@ -145,6 +151,13 @@ impl Processor {
             }
             *l = self.output[0][out_at] as f32;
             *r = self.output[1][out_at] as f32;
+            if self.live_start {
+                // Pass the live signal while the initially empty FFT assembles a full window.
+                let mix = (self.time.saturating_sub(self.n) as f32 / self.hop as f32).min(1.);
+                *l = input[0] as f32 + mix * (*l - input[0] as f32);
+                *r = input[1] as f32 + mix * (*r - input[1] as f32);
+                self.live_start = mix < 1.;
+            }
             self.output[0][out_at] = 0.;
             self.output[1][out_at] = 0.;
             self.time = self.time.wrapping_add(1);

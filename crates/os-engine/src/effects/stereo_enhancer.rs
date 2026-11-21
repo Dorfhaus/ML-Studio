@@ -115,6 +115,7 @@ pub fn rate_factor(sample_rate: u32) -> f32 {
     (f64::from(sample_rate) / 100000.0) as f32
 }
 
+#[derive(Clone)]
 pub struct StereoEnhancer {
     applied: [i32; PARAMS],
     target: [f32; 4],
@@ -134,6 +135,23 @@ pub struct StereoEnhancer {
 }
 
 impl StereoEnhancer {
+    /// Snapshot into an already prepared bank for a live control crossfade.
+    pub fn copy_state_from(&mut self, source: &Self) {
+        self.applied = source.applied;
+        self.target = source.target;
+        self.gains = source.gains;
+        self.limit = source.limit;
+        self.c = source.c;
+        self.line.copy_state_from(&source.line);
+        self.side = source.side;
+        self.started = source.started;
+        self.bass_mono_hz = source.bass_mono_hz;
+        self.bass_alpha = source.bass_alpha;
+        self.bass_low = source.bass_low;
+        self.bass_mix = source.bass_mix;
+        self.bass_step = source.bass_step;
+    }
+
     /// A new instance: the gains of the editor defaults (`LL = RR = 1`), no delay, the rate already known.
     pub fn new(sample_rate: u32) -> StereoEnhancer {
         let start = gains(&DEFAULTS);

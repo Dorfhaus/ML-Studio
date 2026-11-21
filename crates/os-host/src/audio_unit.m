@@ -19,6 +19,8 @@ typedef struct {
     BOOL instrument;
     BOOL initialized;
     UInt32 channels;
+    UInt32 buses;
+    UInt32 busChannels[64];
     UInt32 frames;
     Float64 sampleTime;
     Transport transport;
@@ -183,6 +185,26 @@ static OSStatus configure(Host *host, double rate, UInt32 channels) {
                                       kAudioUnitScope_Input, 0, &callback, sizeof(callback));
         if (status) return status;
     }
+    host->buses=1;
+    host->busChannels[0]=channels;
+    if (host->instrument) {
+        UInt32 count=1, length=sizeof(count);
+        if (AudioUnitGetProperty(host->unit,kAudioUnitProperty_ElementCount,kAudioUnitScope_Output,0,&count,&length)==noErr) {
+            host->buses=MIN(64,MAX(1,count));
+            for (UInt32 bus=1;bus<host->buses;bus++) {
+                host->busChannels[bus]=0;
+                AudioStreamBasicDescription current={0}; length=sizeof(current);
+                AudioUnitGetProperty(host->unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,bus,&current,&length);
+                UInt32 first=current.mChannelsPerFrame==1?1:2;
+                for (UInt32 i=0;i<2;i++) {
+                    format.mChannelsPerFrame=i?3-first:first;
+                    if (AudioUnitSetProperty(host->unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,bus,&format,sizeof(format))==noErr){
+                        host->busChannels[bus]=format.mChannelsPerFrame;break;
+                    }
+                }
+            }
+        }
+    }
     UInt32 limit = BlockFrames;
     status = AudioUnitSetProperty(host->unit, kAudioUnitProperty_MaximumFramesPerSlice,
                                   kAudioUnitScope_Global, 0, &limit, sizeof(limit));
@@ -223,8 +245,9 @@ void lm_au_transport(Host *host, const Transport *time) {
     host->transport = *time;
 }
 
-int32_t lm_au_render(Host *host, uint32_t frames, float *left, float *right) {
-    if (!host->initialized || frames > BlockFrames) return kAudio_ParamError;
+uint32_t lm_au_bus_count(Host *host) {return host->buses;}
+int32_t lm_au_render(Host *host, uint32_t bus,uint32_t frames, float *left, float *right) {
+    if (!host->initialized || frames > BlockFrames || bus>=host->buses || !host->busChannels[bus]) return kAudio_ParamError;
     UInt32 bytes = frames * sizeof(float);
     host->frames = frames;
     if (!host->instrument) {
@@ -235,22 +258,22 @@ int32_t lm_au_render(Host *host, uint32_t frames, float *left, float *right) {
             for (UInt32 i = 0; i < frames; ++i) host->input[0][i] = (left[i] + right[i]) * 0.5f;
         }
     }
-    struct { UInt32 count; AudioBuffer buffers[2]; } buffers = { .count = host->channels };
-    for (UInt32 channel = 0; channel < host->channels; ++channel) {
+    struct { UInt32 count; AudioBuffer buffers[2]; } buffers = { .count = host->busChannels[bus] };
+    for (UInt32 channel = 0; channel < host->busChannels[bus]; ++channel) {
         memset(host->output[channel], 0, bytes);
         buffers.buffers[channel] = (AudioBuffer){1, bytes, host->output[channel]};
     }
-    AudioTimeStamp time = { .mSampleTime = host->sampleTime, .mFlags = kAudioTimeStampSampleTimeValid };
+    AudioTimeStamp time = { .mSampleTime = bus ? host->sampleTime-frames : host->sampleTime, .mFlags = kAudioTimeStampSampleTimeValid };
     AudioUnitRenderActionFlags flags = 0;
-    OSStatus status = AudioUnitRender(host->unit, &flags, &time, 0, frames, (AudioBufferList *)&buffers);
-    host->sampleTime += frames;
+    OSStatus status = AudioUnitRender(host->unit, &flags, &time, bus, frames, (AudioBufferList *)&buffers);
+    if (bus==0) host->sampleTime += frames;
     host->expectedFrame = host->transport.frame + (host->transport.playing ? frames : 0);
     if (status) return status;
-    if (buffers.count != host->channels ||
+    if (buffers.count != host->busChannels[bus] ||
         buffers.buffers[0].mDataByteSize < bytes ||
-        buffers.buffers[host->channels - 1].mDataByteSize < bytes) return kAudio_ParamError;
+        buffers.buffers[host->busChannels[bus] - 1].mDataByteSize < bytes) return kAudio_ParamError;
     float *outLeft = buffers.buffers[0].mData;
-    float *outRight = buffers.buffers[host->channels - 1].mData;
+    float *outRight = buffers.buffers[host->busChannels[bus] - 1].mData;
     if (outLeft) memcpy(left, outLeft, bytes); else memset(left, 0, bytes);
     if (outRight) memcpy(right, outRight, bytes); else memset(right, 0, bytes);
     return noErr;

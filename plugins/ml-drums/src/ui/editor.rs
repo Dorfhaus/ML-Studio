@@ -131,6 +131,7 @@ const PAD_KEYS: [egui::Key; NUM_PADS] = [
 #[derive(Clone, Copy, PartialEq)]
 pub enum ViewMode {
     PadStrip,
+    PadGrid,
     SampleMap,
     Sequencer,
 }
@@ -475,7 +476,8 @@ pub fn create(
                         }
                         ToolbarAction::ToggleView => {
                             state.view_mode = match state.view_mode {
-                                ViewMode::PadStrip => ViewMode::SampleMap,
+                                ViewMode::PadStrip => ViewMode::PadGrid,
+                                ViewMode::PadGrid => ViewMode::SampleMap,
                                 ViewMode::SampleMap => ViewMode::Sequencer,
                                 ViewMode::Sequencer => ViewMode::PadStrip,
                             };
@@ -522,6 +524,22 @@ pub fn create(
                     };
 
                     match state.view_mode {
+                        ViewMode::PadGrid => {
+                            let side = ((ui.available_width()-32.)/4.).min((ui.available_height()-12.)/2.).clamp(28.,148.);
+                            egui::Grid::new("performance-pads").num_columns(4).spacing([6.,6.]).show(ui, |ui| {
+                                for (i,pad) in snap.pads.iter().enumerate() {
+                                    let fill = if state.brightness[i]>0.15 {theme::ACCENT} else {egui::Color32::from_rgb(40,49,58)};
+                                    let label = format!("{}\n{}",i+1,pad.name.chars().take(18).collect::<String>());
+                                    let response = ui.add_sized([side,side],egui::Button::new(label).fill(fill));
+                                    state.pad_rects[i] = Some(response.rect);
+                                    if response.is_pointer_button_down_on() && ui.input(|i|i.pointer.primary_pressed()) {
+                                        gui_triggers[i].store(1,Ordering::Relaxed);
+                                    }
+                                    response.context_menu(|ui| {if ui.button("Load sample…").clicked(){spawn_file_dialog(state,i);ui.close_menu();}});
+                                    if i%4==3 {ui.end_row();}
+                                }
+                            });
+                        }
                         ViewMode::PadStrip => {
                             // Step number header — matches sequencer grid layout exactly
                             {
@@ -899,7 +917,7 @@ pub fn create(
             }
 
             // --- OS drag-and-drop: files from file manager onto pads ---
-            if state.view_mode == ViewMode::PadStrip {
+            if matches!(state.view_mode, ViewMode::PadStrip | ViewMode::PadGrid) {
                 let (hovered, dropped) = ctx.input(|i| {
                     (
                         i.raw.hovered_files.clone(),

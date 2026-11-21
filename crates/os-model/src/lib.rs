@@ -938,6 +938,8 @@ impl Default for ChannelSound {
 /// = centre.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChannelMisc {
+    #[serde(default)]
+    pub split_outputs: bool,
     /// Levels adjustment: panning, volume, Mod X, Mod Y (bipolar).
     pub levels: [f32; 4],
     /// Maximum polyphony; 0 = unlimited.
@@ -1018,6 +1020,7 @@ impl Default for ChannelMisc {
             echo: Echo::default(),
             root: 60,
             main_pitch: true,
+            split_outputs: false,
             pitch_follow_offset: 0,
             add_key: false,
             fine: 0,

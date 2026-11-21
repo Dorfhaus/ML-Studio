@@ -752,6 +752,10 @@ fn paint(c: &mut Canvas, st: &State) {
 /// Title bar, left to right: menu arrow, gear (boxed while the strip is shown), channel name, "(mixer target)", the
 /// plugin's hint; right side: Presets box with previous / next arrows, minimize, close.
 fn title_bar(c: &mut Canvas, st: &State, w: f32) {
+    if st.info.name.starts_with("ML ") || st.info.name == "TIME-12" {
+        c.fill_rect_gradient(Rect::new(2.,2.,w-4.,TITLE_H-3.),
+            c_frame().mix(c_gear_on(),0.12),c_frame(),2.);
+    }
     if st.info.target != "ML Patch" {icon_at(c, crate::icons::Icon::ArrowRight, 14.4, 15.5, 15.4, c_arrow());}
     let g = GEAR_RECT;
     let lemon = os_ui::kit::lemon::on(&os_theme::current());
@@ -768,7 +772,13 @@ fn title_bar(c: &mut Canvas, st: &State, w: f32) {
     let ty = (19.0 - c.ascent(f)).round();
     let nx = if let Some(r)=wave_size_handle(st){
         c.fill_rrect(r,4.,c_body());
-        c.text_center(Font::new(12),r,c_text(),"Drag to size");
+        if let Some(s) = st.sizing {
+            let rx=s.asked.0 as f32/s.editor.0.max(1.);
+            let ry=s.asked.1 as f32/s.editor.1.max(1.);
+            let ratio=if (rx-1.).abs()>(ry-1.).abs(){rx}else{ry};
+            c.stroke_rrect(r,4.,1.,c_gear_on());
+            c.text_center(Font::new(12).bold(),r,c_text(),&format!("{:.0}%",ratio*100.));
+        } else {c.text_center(Font::new(12),r,c_text(),"Drag to size");}
         r.right()+6.
     }else{48.};
     let text_end = export_rect(st).map_or(p.x, |r| r.x) - 8.;
@@ -1220,6 +1230,7 @@ impl State {
                 self.sizing = Some(s);
                 self.events.push(FrameEvent::Resize(want.0, want.1));
                 os_clap::wake();
+                if self.wave_zoom {return Reply::Repaint}
             }
             return Reply::None;
         }

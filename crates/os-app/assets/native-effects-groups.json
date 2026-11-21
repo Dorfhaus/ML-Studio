@@ -15,12 +15,13 @@
     "ML Reverb",
     "ML Delay",
     "ML Hall",
-    "ML Convolver",
+    "ML Space",
     "ML Multiband Delay"
   ],
   "Modulation": [
     "ML Riser",
     "ML Chorus",
+    "TIME-12",
     "ML Time Shaper",
     "ML Vocoder"
   ],

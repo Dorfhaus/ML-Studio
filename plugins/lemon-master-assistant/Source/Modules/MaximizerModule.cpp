@@ -155,11 +155,27 @@ namespace oxygen
         bypassDelayBuffer.setSize(getTotalNumOutputChannels(), totalLatencySamples + 1);
         bypassDelayBuffer.clear();
         bypassDelayWritePosition = 0;
+        bypassScratch.setSize(getTotalNumOutputChannels(), juce::jmax(1, samplesPerBlock));
+        bypassMix.reset(sampleRate, 0.005);
+        wetSleeping = apvts.getRawParameterValue("Bypass")->load() > 0.5f;
+        bypassMix.setCurrentAndTargetValue(wetSleeping ? 1.f : 0.f);
+        warmupSamples = 0;
         setLatencySamples(totalLatencySamples);
     }
 
-    void MaximizerModule::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+    void MaximizerModule::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
     {
+        const int capacity = bypassScratch.getNumSamples();
+        if (capacity > 0 && buffer.getNumSamples() > capacity)
+        {
+            for (int at = 0; at < buffer.getNumSamples(); at += capacity)
+            {
+                juce::AudioBuffer<float> chunk(buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
+                                               at, juce::jmin(capacity, buffer.getNumSamples() - at));
+                processBlock(chunk, midi);
+            }
+            return;
+        }
         updateParameters();
 
         const int numChannels = buffer.getNumChannels();
@@ -184,10 +200,21 @@ namespace oxygen
             bypassDelayWritePosition = 0;
         }
 
-        processBypassDelay(buffer, bypassed);
-
-        if (bypassed)
+        bypassMix.setTargetValue(bypassed ? 1.f : 0.f);
+        if (bypassed && !bypassMix.isSmoothing())
+        {
+            processBypassDelay(buffer, &buffer);
+            wetSleeping = true;
+            warmupSamples = 0;
             return;
+        }
+        if (wetSleeping)
+        {
+            warmupSamples = totalLatencySamples;
+            wetSleeping = false;
+        }
+        const bool transitioning = bypassMix.isSmoothing() || warmupSamples > 0;
+        processBypassDelay(buffer, transitioning ? &bypassScratch : nullptr);
 
         juce::dsp::AudioBlock<float> outputBlock(buffer);
         auto oversampledBlock = oversampling.processSamplesUp(outputBlock);
@@ -268,6 +295,20 @@ namespace oxygen
         }
 
         oversampling.processSamplesDown(outputBlock);
+        if (transitioning)
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                float dry = 1.f;
+                if (warmupSamples > 0) --warmupSamples;
+                else dry = bypassMix.getNextValue();
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    auto& wet = buffer.getWritePointer(ch)[i];
+                    wet += dry * (bypassScratch.getSample(ch, i) - wet);
+                }
+            }
+        }
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
@@ -316,7 +357,7 @@ namespace oxygen
         delayWritePosition = 0;
     }
 
-    void MaximizerModule::processBypassDelay(juce::AudioBuffer<float>& buffer, bool writeToOutput)
+    void MaximizerModule::processBypassDelay(const juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>* output)
     {
         const int numChannels = juce::jmin(buffer.getNumChannels(), bypassDelayBuffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
@@ -330,7 +371,7 @@ namespace oxygen
         for (int channel = 0; channel < numChannels; ++channel)
         {
             inputPointers[(size_t) channel] = buffer.getReadPointer(channel);
-            outputPointers[(size_t) channel] = writeToOutput ? buffer.getWritePointer(channel) : nullptr;
+            outputPointers[(size_t) channel] = output != nullptr ? output->getWritePointer(channel) : nullptr;
             delayPointers[(size_t) channel] = bypassDelayBuffer.getWritePointer(channel);
         }
 
@@ -344,7 +385,7 @@ namespace oxygen
                 auto* delayData = delayPointers[(size_t) channel];
                 delayData[bypassDelayWritePosition] = inputPointers[(size_t) channel][sample];
 
-                if (writeToOutput)
+                if (output != nullptr)
                     outputPointers[(size_t) channel][sample] = delayData[readPosition];
             }
 

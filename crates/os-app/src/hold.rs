@@ -171,7 +171,7 @@ impl App {
     /// The moved clips are copied (`playlist::clone_clips`); the copies are dragged from here on, starting one snap
     /// step later (a step without a snap).
     fn pick_up_clips(&mut self) {
-        let Some(Drag::Pl(PlDrag::Move { x0, y0, scroll_x, track0, orig, fresh: false })) = self.drag.clone() else { return };
+        let Some(Drag::Pl(PlDrag::Move { x0, y0, scroll_x, track0, orig, fresh: false, .. })) = self.drag.clone() else { return };
         let Some(grid) = self.pl_grid() else { return };
         crate::history::rename(&mut self.state, "Playlist clone clip");
         let copies = pl::clone_clips(&mut self.state, &orig);
@@ -181,7 +181,7 @@ impl App {
             sn => sn.ticks(g.ppq, g.bar_w),
         };
         // `fresh`: the copies are a change even where they end up.
-        let d = PlDrag::Move { x0: x0 - unit as f32 * g.ppt, y0, scroll_x, track0, orig: copies, fresh: true };
+        let d = PlDrag::Move { x0: x0 - unit as f32 * g.ppt, y0, scroll_x, track0, orig: copies, fresh: true, copy_on_move: false };
         self.drag = Some(Drag::Pl(d.clone()));
         pl::drag_move(self, d, grid);
         self.invalidate();

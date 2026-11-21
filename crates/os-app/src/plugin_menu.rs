@@ -149,9 +149,9 @@ fn personal_groups(effect: bool) -> Option<BTreeMap<String, Vec<String>>> {
 struct PluginLink { uid: String, name: String }
 
 const PREVIOUSLY_UNSORTED_STOCK: &[&str] = &[
-    "ML Phase", "ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Convolver", "ML Vocoder",
+    "ML Phase", "ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Space", "ML Vocoder",
     "ML Reference", "ML Split", "ML Waveshaper", "ML Tuner", "ML Frequency Shift",
-    "ML Multiband Delay", "ML Time Shaper", "ML Vocal Tune", "ML Amp",
+    "ML Multiband Delay", "ML Time Shaper", "TIME-12", "ML Vocal Tune", "ML Amp",
 ];
 
 fn link_filename(entry: &Entry) -> String {
@@ -532,7 +532,7 @@ fn add_generator_with_route(
     let s = &mut app.state;
     s.selected_channel = ch;
     s.rack.select_only(ch);
-    crate::rack::added_instrument(s,ch);
+    crate::rack::added_channel(s, ch);
     if after.is_none() {
         // Keep the new row in view.
         let view_h = crate::views::rack::panel(s).h;
@@ -578,6 +578,7 @@ pub fn replace_generator(app: &mut App, index: usize, row: usize) -> Option<Stri
     s.piano.dirty = true;
     s.selected_channel = row;
     s.rack.select_only(row);
+    crate::rack::added_channel(s, row);
     Some(format!("Replaced with {}", d.name))
 }
 
@@ -667,7 +668,7 @@ mod tests {
         let phase = stock("ML Phase");
         let amp = stock("ML Amp");
         let meter = stock("ML Meter");
-        let removed = stock("ML Convolver");
+        let removed = stock("ML Space");
         let unknown = stock("Third party effect");
         let create = |dir: &std::path::Path, entry: &Entry| {
             let link = PluginLink { uid: entry.uid.clone(), name: entry.name.clone() };

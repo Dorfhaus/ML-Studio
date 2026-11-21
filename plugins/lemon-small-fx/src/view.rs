@@ -82,6 +82,7 @@ pub struct Hit {
 /// The pointer and the pressed control.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ViewState {
+    pub advanced: bool,
     pub mouse: Option<(f32, f32)>,
     pub pressed: Option<Target>,
 }
@@ -105,6 +106,44 @@ impl Ui<'_> {
     }
 }
 
+pub fn mode_tab(spec: &Spec) -> Option<Rect> {
+    match spec.name {
+        "ML Chorus" => Some(Rect::new(321.,251.,165.,26.)),
+        "ML Multiband Delay" => Some(Rect::new(14.,646.,165.,26.)),
+        _ => None,
+    }
+}
+pub fn draw_mode(c:&mut Canvas, rect:Rect, advanced:bool) {
+    for (i,label) in ["Normal","Advanced"].iter().enumerate() {
+        let r=Rect::new(rect.x+i as f32*rect.w*0.5,rect.y,rect.w*0.5,rect.h);
+        lemon::plug_panel(c,r);
+        c.text_center(Font::new(12).bold(),r,if (i==1)==advanced {brand::MAIN} else {plug::DIM},label);
+    }
+}
+pub fn normal(spec:&Spec,c:&mut Canvas,t:&Palette,m:&dyn Model,st:&ViewState)->Vec<Hit>{
+    c.begin_frame(None);
+    c.clear(plug::BG);
+    let mut ui=Ui{c,t,m,st,hits:Vec::new()};
+    let chorus=spec.name=="ML Chorus";
+    let groups:&[(&str,&[(&str,&str)])]=if chorus {
+        &[("CHORUS",&[("depth","Depth"),("speed1","Rate"),("stereo","Stereo"),("delay","Delay")])]
+    }else{
+        &[("BALANCE",&[("low_level","Low"),("mid_level","Mid"),("high_level","High"),("mix","Mix")]),
+          ("FEEDBACK",&[("low_feedback","Low"),("mid_feedback","Mid"),("high_feedback","High")])]
+    };
+    for (row,(name,knobs)) in groups.iter().enumerate(){
+        let y=32.+row as f32*225.;
+        let width=spec.size.0 as f32-24.;
+        lemon::plug_panel(ui.c,Rect::new(12.,y,width,if chorus{175.}else{200.}));
+        ui.c.text(Font::new(14).bold(),26.,y+12.,brand::MAIN,name);
+        for (i,(id,label)) in knobs.iter().enumerate() {
+            let x=12.+width*(i as f32+0.5)/knobs.len() as f32;
+            knob(&mut ui,id,x,y+92.,27.,label,false);
+            ui.c.text_center(VALUE,Rect::new(x-52.,y+144.,104.,20.),plug::DIM,&m.text(id));
+        }
+    }
+    ui.hits
+}
 /// The settings shown (the first `n` of `MAX`).
 pub fn values(spec: &Spec, m: &dyn Model) -> [i32; MAX] {
     std::array::from_fn(|k| spec.settings.get(k).map_or(0, |s| m.plain(s.id).round() as i32))

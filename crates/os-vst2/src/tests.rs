@@ -575,3 +575,26 @@ fn mpe_member_channels_and_reset_are_preserved() {
         assert!(blocks.load(Ordering::Acquire) > 0);
         assert_eq!(shared.lock().unwrap().stopped(), None);
     }
+
+#[test]
+fn multiple_instrument_outputs_sum_and_split_across_render_chunks() {
+    let (_module, mut plugin) = synth();
+    unsafe {(*plugin.inst.effect).num_outputs=5;}
+    plugin.setup_buffers();
+    assert!(plugin.activate(48000));
+    plugin.note_on(3,60,1.);
+    let n=MAX_FRAMES as usize+17;
+    let (mut l,mut r)=(vec![0.;n],vec![0.;n]);
+    plugin.process(48000,&mut l,&mut r);
+    let summed=l[4];
+    assert!(summed>0. && l==r && l[2]==0. && l[n-1]==summed);
+    plugin.set_split_outputs(true);
+    plugin.process(48000,&mut l,&mut r);
+    assert_eq!(plugin.extra_outputs(),2);
+    assert!((l[n-1]*3.-summed).abs()<1e-5);
+    for port in 0..2 {
+        assert!(plugin.extra_output(port,&mut l,&mut r));
+        assert_eq!(l,r);
+        assert!((r[n-1]*3.-summed).abs()<1e-5);
+    }
+}

@@ -262,6 +262,7 @@ struct ChannelState {
     /// The project's panning law (event 23), for the channel pan.
     pan_law: laws::PanLaw,
     insert: usize,
+    split_outputs: bool,
     /// Sample-rate conversion × channel pitch.
     base_rate: f64,
     /// Channel is on (a muted channel stays silent whatever a volume point says).
@@ -1546,6 +1547,7 @@ impl Engine {
                     pan: ch.pan,
                     pan_law,
                     insert,
+                    split_outputs: ch.misc.split_outputs,
                     base_rate: src_ratio,
                     enabled,
                     src_ratio,

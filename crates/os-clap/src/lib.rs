@@ -627,6 +627,10 @@ pub struct Plugin {
     /// A rate the audio thread asked for (the UI reactivates at it on the next `idle`).
     wanted_rate: AtomicU32,
     queue: Vec<Ev>,
+    pending_notes: Vec<Ev>,
+    pending_midi: Vec<(u32, [u8; 3])>,
+    pending_mpe: Vec<(u32, os_engine::mpe::Event)>,
+    sequence: Vec<Seq>,
     notes: Vec<clap_event_note>,
     mods: Vec<clap_event_param_mod>,
     exprs: Vec<clap_event_note_expression>,
@@ -681,8 +685,7 @@ pub struct Plugin {
     /// extra outputs get unheard scratch (spec: audio/sidechain.md "Hosted plugins' input buses").
     aux_ins: Vec<usize>,
     aux_outs: Vec<usize>,
-    aux_frames: usize,
-    aux_capture: Vec<Vec<f32>>,
+    aux: os_host::instrument_outputs::InstrumentOutputs,
     /// Buffers for channels the host has no audio for (a mono input's mix of both sides, channels beyond two, the
     /// other ports), the channel pointers and the port buffers of the current process call: sized at activation, so
     /// the audio thread never allocates.
@@ -878,6 +881,10 @@ impl Plugin {
                 processing: false,
                 wanted_rate: AtomicU32::new(0),
                 queue: Vec::with_capacity(256),
+                pending_notes: Vec::with_capacity(256),
+                pending_midi: Vec::with_capacity(16),
+                pending_mpe: Vec::with_capacity(16),
+                sequence: Vec::with_capacity(320),
                 notes: Vec::with_capacity(256),
                 mods: Vec::with_capacity(64),
                 exprs: Vec::with_capacity(64),
@@ -918,8 +925,7 @@ impl Plugin {
                 outs: 2,
                 aux_ins: Vec::new(),
                 aux_outs: Vec::new(),
-                aux_frames: 0,
-                aux_capture: Vec::new(),
+                aux: Default::default(),
                 scratch: Vec::new(),
                 in_ptrs: Vec::new(),
                 out_ptrs: Vec::new(),
@@ -1020,7 +1026,8 @@ impl Plugin {
         (self.ins, self.outs) = (ins.first().copied().unwrap_or(0), outs.first().copied().unwrap_or(0));
         self.aux_ins = ins.get(1..).unwrap_or_default().to_vec();
         self.aux_outs = outs.get(1..).unwrap_or_default().to_vec();
-        self.aux_capture=if self.desc.id=="org.lemonstudio.lemon-chop" {(0..self.aux_outs.len().min(15)).map(|_|vec![0.;self.max_frames as usize*2]).collect()}else{Vec::new()};
+        self.aux.configure(self.aux_outs.len(), self.max_frames as usize);
+        if self.desc.id == "org.lemonstudio.lemon-chop" { self.aux.split = true; }
         let (aux_in, aux_out): (usize, usize) = (self.aux_ins.iter().sum(), self.aux_outs.iter().sum());
         self.scratch = vec![0.0; (self.ins + self.outs + aux_in + aux_out) * self.max_frames as usize];
         self.in_ptrs = Vec::with_capacity(self.ins + aux_in);
@@ -1452,11 +1459,14 @@ impl Plugin {
         self.mods.clear();
         self.exprs.clear();
         self.midis.clear();
-        let mut rest = Vec::new();
+        let mut rest = std::mem::take(&mut self.pending_notes);
+        rest.clear();
         // Event order; a note's modulation follows its note on at the same time.
-        let mut seq: Vec<Seq> = Vec::new();
+        let mut seq = std::mem::take(&mut self.sequence);
+        seq.clear();
         // Controller messages go before the block's notes (their frames are where the controller moved).
-        let mut later = Vec::new();
+        let mut later = std::mem::take(&mut self.pending_midi);
+        later.clear();
         for &(time, data) in &self.midi_queue {
             if time < n {
                 self.midis.push(clap_event_midi {
@@ -1475,8 +1485,9 @@ impl Plugin {
                 later.push((time - n, data));
             }
         }
-        self.midi_queue = later;
-        let mut pending=vec![];
+        self.pending_midi = std::mem::replace(&mut self.midi_queue, later);
+        let mut pending = std::mem::take(&mut self.pending_mpe);
+        pending.clear();
         for (time,e) in self.mpe_queue.drain(..){if time>=n{pending.push((time-n,e));continue;}
             use os_engine::mpe::Event as E;
             let header=|size,type_|clap_event_header{size,time,space_id:CLAP_CORE_EVENT_SPACE_ID,type_,flags:0};
@@ -1484,7 +1495,8 @@ impl Plugin {
                 E::On{channel,key,id,velocity}|E::Off{channel,key,id,velocity}=>{let on=matches!(e,E::On{..});self.notes.push(clap_event_note{header:header(std::mem::size_of::<clap_event_note>()as u32,if on{CLAP_EVENT_NOTE_ON}else{CLAP_EVENT_NOTE_OFF}),note_id:id,port_index:0,channel:i16::from(channel),key:i16::from(key),velocity:f64::from(velocity)});seq.push(Seq::Note(self.notes.len()-1));if on{self.ledger.start(key,id);}else{self.ledger.release_voice(id);}},
                 E::Expression{id,lane,value}=>{self.exprs.push(clap_event_note_expression{header:header(std::mem::size_of::<clap_event_note_expression>()as u32,CLAP_EVENT_NOTE_EXPRESSION),expression_id:match lane{0=>CLAP_NOTE_EXPRESSION_TUNING,1=>6,_=>5},note_id:id,port_index:0,channel:-1,key:-1,value:f64::from(value)});seq.push(Seq::Expr(self.exprs.len()-1));}
             }
-        }self.mpe_queue=pending;
+        }
+        self.pending_mpe = std::mem::replace(&mut self.mpe_queue, pending);
 
         // Sounding voices' new mod amounts (the channel's mods changed) go first.
         for (id, key, param, amount) in self.mod_resend.drain(..) {
@@ -1653,7 +1665,7 @@ impl Plugin {
                 rest.push(Ev { time: e.time - n, ..e });
             }
         }
-        self.queue = rest;
+        self.pending_notes = std::mem::replace(&mut self.queue, rest);
         // `queue` is sorted by time, so `seq` already is. Host parameter changes go first, at time 0, then automation
         // in time order; parameter values go before the notes at the same frame.
         self.fill_param_events();
@@ -1686,6 +1698,7 @@ impl Plugin {
             self.order.push(h);
         }
         self.order.extend(self.pvals[pi..].iter().map(|e| &e.header as *const clap_event_header));
+        self.sequence = seq;
         self.processed = true;
         let ins = clap_input_events { ctx: &self.order as *const Vec<*const clap_event_header> as *mut c_void, size: Some(events_size), get: Some(events_get) };
         let outs = clap_output_events { ctx: &mut self.param_out as *mut Vec<OutEv> as *mut c_void, try_push: Some(push_out) };
@@ -1790,7 +1803,10 @@ impl Plugin {
             right.copy_from_slice(left);
         }
         // CONTINUE / TAIL: the plugin says it is still going; CONTINUE_IF_NOT_QUIET: while its output is not silent.
-        let loud = left.iter().chain(right.iter()).any(|v| v.abs() > QUIET);
+        let first_aux = self.ins + self.outs + self.aux_ins.iter().sum::<usize>();
+        let extra_loud = self.aux_outs.iter().sum::<usize>() > 0 && self.scratch[first_aux * self.max_frames as usize..]
+            .chunks(self.max_frames as usize).any(|ch| ch.iter().take(n as usize).any(|v| v.abs() > QUIET));
+        let loud = extra_loud || left.iter().chain(right.iter()).any(|v| v.abs() > QUIET);
         self.sounding = status == CLAP_PROCESS_CONTINUE || status == CLAP_PROCESS_TAIL || (status == CLAP_PROCESS_CONTINUE_IF_NOT_QUIET && loud);
         self.steady += i64::from(n);
         // Voices: the ends it reported, none once it sleeps, released voices ringing out (spec: audio/voices.md §2).
@@ -2166,18 +2182,13 @@ impl os_engine::Instrument for Plugin {
         self.song = Some(*info);
     }
 
-    fn extra_outputs(&self)->usize {
-        // Opt in the built-in slicer only; other instruments retain their existing routing.
-        if self.desc.id=="org.lemonstudio.lemon-chop" {self.aux_outs.len().min(15)} else {0}
-    }
-    fn extra_output(&mut self,port:usize,left:&mut[f32],right:&mut[f32])->bool {
-        if port>=self.extra_outputs() || left.len()!=self.aux_frames || right.len()!=left.len() {return false;}
-        let Some(samples)=self.aux_capture.get(port) else{return false;};
-        for (i,pair) in samples[..left.len()*2].chunks_exact(2).enumerate(){left[i]=pair[0];right[i]=pair[1];}true
+    fn set_split_outputs(&mut self, split: bool) { self.aux.split = split || self.desc.id == "org.lemonstudio.lemon-chop"; }
+    fn extra_outputs(&self) -> usize { self.aux.count() }
+    fn extra_output(&mut self, port: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        self.aux.read(port, left, right)
     }
     fn process(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]) {
-        self.aux_frames=0;
-        for port in &mut self.aux_capture {if port.len()<left.len()*2{port.resize(left.len()*2,0.);}port[..left.len()*2].fill(0.);}
+        self.aux.begin(left.len());
         left.fill(0.0);
         right.fill(0.0);
         if self.rate != rate {
@@ -2213,15 +2224,14 @@ impl os_engine::Instrument for Plugin {
             let (l, r) = (&mut left[at..at + n], &mut right[at..at + n]);
             self.process_chunk(l, r);
             let mut base=self.ins+self.outs+self.aux_ins.iter().sum::<usize>();
-            for (port,&channels) in self.aux_outs.iter().enumerate().take(self.aux_capture.len()) {
+            for (port,&channels) in self.aux_outs.iter().enumerate() {
                 if channels>0 {
                     let r=base+usize::from(channels>1);
-                    for f in 0..n {self.aux_capture[port][(at+f)*2]=self.scratch[base*max+f];self.aux_capture[port][(at+f)*2+1]=self.scratch[r*max+f];}
+                    self.aux.route(port, at, (&self.scratch[base*max..base*max+n], &self.scratch[r*max..r*max+n]), (&mut left[at..at+n], &mut right[at..at+n]));
                 }base+=channels;
             }
             at += n;
         }
-        self.aux_frames=left.len();
         if debug() {
             // OS_DEBUG: the hosted plugin's peak level about once a second (stderr).
             self.dbg_peak = left.iter().chain(right.iter()).fold(self.dbg_peak, |m, v| m.max(v.abs()));

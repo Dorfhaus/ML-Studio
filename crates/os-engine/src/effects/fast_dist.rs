@@ -137,10 +137,12 @@ pub fn chop(y: f64) -> f32 {
     }
 }
 
+#[derive(Clone)]
 pub struct FastDist {
     applied: [i32; PARAMS],
-    table: Vec<f64>,
-    table_settings: Option<(i32, i32, f32)>,
+    curves: &'static [Vec<f64>; 20],
+    table: &'static [f64],
+    wet: f64,
     /// `pre * 8191`, not rounded to single.
     scale: f64,
     dry: f32,
@@ -152,10 +154,15 @@ impl FastDist {
     }
 
     pub fn with_settings(s: &Settings) -> FastDist {
+        // Build the twenty fixed transfer curves once at instance creation. Turning
+        // a knob then selects a curve without running 8192 log/pow pairs in process().
+        static CURVES: std::sync::OnceLock<[Vec<f64>; 20]> = std::sync::OnceLock::new();
+        let curves = CURVES.get_or_init(|| std::array::from_fn(|i| {
+            table((i % 10 + 1) as i32, (i / 10) as i32, 1.0)
+        }));
         let mut d = FastDist {
             applied: s.v,
-            table: vec![0.0; TABLE + 1],
-            table_settings: None,
+            curves, table: &curves[0], wet: 0.0,
             scale: 0.0,
             dry: 0.0,
         };
@@ -184,11 +191,9 @@ impl FastDist {
         let v = self.applied;
         let pre = knob(v[PRE]);
         let (wet, dry) = gains(pre, knob(v[MIX]), knob(v[POST]));
-        let table_settings = (v[THRESHOLD], v[TYPE], wet);
-        if self.table_settings != Some(table_settings) {
-            fill_table(&mut self.table, v[THRESHOLD], v[TYPE], wet);
-            self.table_settings = Some(table_settings);
-        }
+        let (threshold, kind) = curve(v[THRESHOLD], v[TYPE]);
+        self.table = &self.curves[(kind * 10 + threshold - 1) as usize];
+        self.wet = f64::from(wet);
         self.scale = f64::from(pre) * 8191.0;
         self.dry = dry;
     }
@@ -202,7 +207,7 @@ impl FastDist {
         let shaped = if p < OVERFLOW {
             let i = p.min(8191.0) as usize;
             let f = p - p.trunc();
-            let (a, b) = (self.table[i], self.table[i + 1]);
+            let (a, b) = (self.table[i] * self.wet, self.table[i + 1] * self.wet);
             (a + (b - a) * f).copysign(x64)
         } else {
             0.0

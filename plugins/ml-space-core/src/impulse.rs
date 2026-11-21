@@ -108,6 +108,39 @@ impl Impulse {
             right,
         }
     }
+    pub const FAMILIES: [&'static str; 6] = ["Studio", "Chamber", "Plate", "Hall", "Cathedral", "Ambience"];
+    pub const VARIANTS: [&'static str; 4] = ["Tight", "Warm", "Open", "Bright"];
+    pub fn factory(family: usize, variant: usize) -> Self {
+        let rate = 32000;
+        let (decay, early_ms, damping, density) = [
+            (0.42, 4., 0.60, 5), (1.1, 11., 0.48, 4), (1.8, 2., 0.76, 1),
+            (2.5, 21., 0.41, 3), (4.3, 34., 0.35, 5), (0.24, 3., 0.66, 7),
+        ][family];
+        let n = (rate as f32 * decay * [0.72,1.,1.35,1.12][variant]) as usize;
+        let alpha = damping * [0.9,0.52,0.83,1.25][variant];
+        let channel = |side: usize| {
+            let mut out = vec![0.;n];
+            let mut seed = 7 + (family*163+variant*41+side*17) as u32;
+            let start = ((early_ms+side as f32*1.3)*0.001*rate as f32) as usize;
+            let attenuation = (-6.91/n as f32).exp();
+            let (mut gain,mut lp) = (0.06,0.);
+            for (i,s) in out.iter_mut().enumerate().skip(start) {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let noise = if i%density==0 {seed as i32 as f32/i32::MAX as f32} else {0.};
+                lp += alpha*(noise-lp);
+                *s = lp*gain;
+                gain *= attenuation;
+            }
+            for tap in 0..8 {
+                let offset = start+(start as f32*(tap as f32*0.67).powf(1.17)) as usize;
+                if offset<n {out[offset]+=0.32*(-0.77_f32).powi(tap);}
+            }
+            let norm = out.iter().map(|v|v*v).sum::<f32>().sqrt().max(1.);
+            for s in &mut out {*s/=norm}
+            out
+        };
+        Self {name:format!("{} {}",Self::FAMILIES[family],Self::VARIANTS[variant]),rate,left:channel(0),right:channel(1)}
+    }
     pub fn at_rate(&self, rate: u32) -> [Vec<f32>; 2] {
         if rate == self.rate {
             return [self.left.clone(), self.right.clone()];

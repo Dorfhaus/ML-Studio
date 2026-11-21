@@ -241,6 +241,7 @@ pub enum Action {
     /// Channel rack: activity / select slot, mixer track box (drag), add channel, resize edges
     /// (`views::rack::EDGE_*` bits).
     RackSelect(usize),
+    RackSelection(usize),
     RackMixer(usize),
     RackAdd,
     RackPitchFollow(usize),
@@ -612,6 +613,7 @@ fn add_damage(v: &mut Vec<Rect>, r: Rect) {
 pub enum Live {
     /// The song position display.
     Clock,
+    MixerNumber(u16),
     VintageTitle,
     VintageScope,
     VintageMidi,
@@ -1061,7 +1063,7 @@ pub enum Drag {
     Marker,
     /// Ruler in SONG mode over a pattern the playlist plays: the song position follows (see `piano_song_seek`).
     SongRuler,
-    TimeSel { t0: u32 },
+    TimeSel(crate::timeline_range::RangeDrag),
     /// Painting the event panel (note property or channel control points).
     Velocity { last_x: f32, last_y: f32 },
     /// Right-drag in a channel lane deletes its points (a Lemon Studio choice, spec §7b).
@@ -5144,8 +5146,7 @@ impl App {
         self.state.screen = canvas.size();
         self.state.ui_scale = canvas.scale;
         if self.state.native_view.is_none() {
-            let inline_hint = views::toolbar::inline_hint(&self.state) && !self.state.bar.editing && !self.state.vintage_2005;
-            self.state.toolbar_actions = views::toolbar::ActionSizes::measure(canvas, inline_hint, self.state.ai.enabled, self.state.vintage_2005);
+            self.state.toolbar_actions = views::toolbar::ActionSizes::measure(canvas, self.state.ai.enabled, self.state.vintage_2005);
             views::toolbar::refresh_layout(&mut self.state);
         }
         if !guide_only {
@@ -5529,6 +5530,7 @@ impl App {
             }
             s.selected_channel = recorded;
             s.rack.select_only(recorded);
+            crate::rack::focus_channel(s, recorded);
             s.piano.dirty = true;
             s.message = Some(format!("Using the recording on mixer insert {}", s.project.channels[recorded].mixer_track));
             self.invalidate();
@@ -5548,6 +5550,7 @@ impl App {
         ch.sample_path = Some(path);
         s.selected_channel = row;
         s.rack.select_only(row);
+        crate::rack::added_channel(s, row);
         s.piano.dirty = true;
         s.message = Some(format!("{} loaded in ML Sampler", stem.unwrap_or_default()));
         self.invalidate();
@@ -6775,10 +6778,11 @@ impl App {
                     }
                     self.damage_piano();
                 }
-                Drag::TimeSel { t0 } => {
+                Drag::TimeSel(range) => {
                     if let Some(g) = self.piano_geom() {
                         let t = crate::piano_snap::place(&self.state, &g, g.tick_at(x), self.alt);
-                        piano::select_range(&mut self.state, t0.min(t), t0.max(t));
+                        let (start, end) = range.at(t).unwrap_or((t, t));
+                        piano::select_range(&mut self.state, start, end);
                     }
                     self.damage_piano();
                 }
@@ -7228,7 +7232,9 @@ impl App {
             let mut dirty = Vec::new();
             for (a, r) in [(&self.hover, self.hover_rect), (&hover, rect)] {
                 if let (Some(a), Some(r)) = (a, r) {
-                    if hover_is_visible(a) {
+                    if let Action::Mix(crate::mixer::MHit::Strip(n)) = a {
+                        dirty.extend(self.live.iter().filter(|(k,_)| *k == Live::MixerNumber(*n)).map(|(_,r)| *r));
+                    } else if hover_is_visible(a) {
                         dirty.push(r.outset(3.0));
                     }
                 }
@@ -7451,6 +7457,39 @@ impl App {
                     | Action::SongInfo
             ),
         }
+    }
+
+    fn press_piano_ruler(&mut self, right: bool) {
+        use crate::timeline_range::{RangeDrag, ruler_double_click};
+
+        let Some(g) = self.piano_geom() else { return };
+        let x = self.mouse.0;
+        let anchor = crate::piano_snap::place(&self.state, &g, g.tick_at(x), self.alt);
+        let piano = &mut self.state.piano;
+        let double = if right || self.ctrl || self.shift {
+            piano.last_ruler = None;
+            false
+        } else {
+            ruler_double_click(&mut piano.last_ruler, x)
+        };
+        if !right && self.shift && let Some(range @ (start, end)) = piano.range
+            && (g.x_of(start as f32)..=g.x_of(end as f32)).contains(&x)
+        {
+            self.drag = Some(Drag::TimeSel(RangeDrag::Move { anchor, range }));
+        } else if right || self.ctrl || double {
+            let unchanged = if self.ctrl && !right { piano.range } else { None };
+            if unchanged.is_none() {
+                piano.clear_selection();
+            }
+            self.drag = Some(Drag::TimeSel(RangeDrag::Draw { anchor, unchanged }));
+        } else if self.state.song_mode && self.piano_song_seek(anchor, true) {
+            self.drag = Some(Drag::SongRuler);
+        } else {
+            self.state.piano.marker = anchor;
+            self.state.piano.marker_placed = true;
+            self.drag = Some(Drag::Marker);
+        }
+        self.damage_piano();
     }
 
     pub(crate) fn clear_binding_press(&mut self) {
@@ -8340,13 +8379,7 @@ impl App {
             return self.damage_win(Win::Mixer);
         }
         if action == Some(Action::PianoRuler) {
-            if let Some(g) = self.piano_geom() {
-                let t = crate::piano_snap::place(&self.state, &g, g.tick_at(x), self.alt);
-                self.state.piano.clear_selection();
-                self.drag = Some(Drag::TimeSel { t0: t });
-                self.damage_piano();
-            }
-            return;
+            return self.press_piano_ruler(true);
         }
         if action == Some(Action::PianoVelocity) && self.state.piano.lane.is_channel() {
             self.state.piano.event_focus = true;
@@ -8497,6 +8530,14 @@ impl App {
             self.drag = None;
             self.clear_binding_press();
             self.damage_win(win);
+        }
+    }
+
+    /// End the drag first, then synchronize hit testing with the visible cursor.
+    pub(crate) fn mouse_up_at(&mut self, anchor: Option<(f32, f32)>) {
+        self.mouse_up();
+        if let Some((x, y)) = anchor {
+            self.mouse_move(x, y);
         }
     }
 
@@ -9659,20 +9700,34 @@ impl App {
         if matches!(key, Key::Named(NamedKey::Escape)) && self.cancel_rack_rows() { return; }
         if matches!(key,Key::Named(NamedKey::Escape)) && matches!(self.drag,Some(Drag::MixSelect{..})) {self.drag=None;self.pressed=None;return;}
 
-        if !ctrl && !alt && !self.shift && !self.repeat && matches!(key, Key::Character(c) if c.eq_ignore_ascii_case("d")) {
+        let menu_d = matches!(key, Key::Character(c) if c.eq_ignore_ascii_case("d"));
+        let delete_key = matches!(key, Key::Named(NamedKey::Delete));
+        if !ctrl && !alt && !self.shift && !self.repeat && (menu_d || delete_key) {
             use crate::playlist as pl;
-            fn rack_delete_key(items: &[pl::PItem]) -> Option<usize> {
+            use crate::rack::{self as rk, RCmd};
+            fn rack_delete_key(items: &[pl::PItem]) -> Option<RCmd> {
                 items.iter().find_map(|item| {
-                    if let pl::Cmd::Rack(crate::rack::RCmd::Delete(row)) = item.cmd {
-                        if item.key == "D" { return Some(row); }
+                    if item.enabled && item.key == "D"
+                        && let pl::Cmd::Rack(cmd @ (RCmd::Delete(_) | RCmd::DeleteSel)) = &item.cmd
+                    {
+                        return Some(cmd.clone());
                     }
                     rack_delete_key(&item.children)
                 })
             }
-            let row = self.state.playlist.popup.as_ref().and_then(|menu| rack_delete_key(&menu.items));
-            if let Some(row) = row {
+            let command = self.state.playlist.popup.as_ref().and_then(|menu| rack_delete_key(&menu.items));
+            if let Some(command) = command {
                 self.state.playlist.popup = None;
-                crate::rack::delete_rows(self, &[row]);
+                if menu_d {
+                    let rows = match command {
+                        RCmd::Delete(row) => vec![row],
+                        RCmd::DeleteSel => self.state.rack.sel.iter().copied().collect(),
+                        _ => unreachable!(),
+                    };
+                    rk::delete_rows(self, &rows);
+                } else {
+                    pl::run(self, pl::Cmd::Rack(command));
+                }
                 return;
             }
         }
@@ -10706,17 +10761,7 @@ impl App {
             return;
         }
         if a == Action::PianoRuler {
-            if let Some(g) = self.piano_geom() {
-                let t = crate::piano_snap::place(&self.state, &g, g.tick_at(self.mouse.0), self.alt);
-                if self.state.song_mode && self.piano_song_seek(t, true) {
-                    self.drag = Some(Drag::SongRuler);
-                } else {
-                    self.state.piano.marker = t;
-                    self.state.piano.marker_placed = true;
-                    self.drag = Some(Drag::Marker);
-                }
-            }
-            return;
+            return self.press_piano_ruler(false);
         }
         let s = &mut self.state;
         match a {
@@ -10980,7 +11025,7 @@ impl App {
                 let per_px=travel.map_or_else(||views::mixer::fader_per_px(s,t),|h|1./f64::from(h.max(1.)));
                 self.drag=Some(Drag::Fader{track:t,y0:self.mouse.1,v0,group,per_px});
             }
-            Action::ChannelSelect(_) | Action::RackSelect(_) => {}
+            Action::ChannelSelect(_) | Action::RackSelect(_) | Action::RackSelection(_) => {}
             Action::RackRollView => s.rack_roll_view = !s.rack_roll_view,
             Action::RackRoll(i) => {
                 s.selected_channel = i;
@@ -11336,15 +11381,17 @@ impl App {
         use crate::rack as rk;
         let (shift, ctrl, alt) = (self.shift, self.ctrl, self.alt);
         let now = std::time::Instant::now();
-        let selection_gesture = !matches!(a, Action::RackSelect(_)) || self.state.vintage_2005 || shift || !rk::show_steps();
+        let graph_arrow = matches!(a, Action::RackSelect(_))
+            && !self.state.vintage_2005 && !shift && rk::show_steps();
+        let selection_gesture = !graph_arrow;
         let double = selection_gesture
             && matches!(&self.rack_click, Some((p, t)) if p == a && now.duration_since(*t).as_millis() < 400);
-        if matches!(a, Action::RackSelect(_) | Action::RackMixer(_)) {
+        if matches!(a, Action::RackSelect(_) | Action::RackSelection(_) | Action::RackMixer(_)) {
             self.rack_click = if double || !selection_gesture { None } else { Some((a.clone(), now)) };
         }
         let mouse = self.mouse;
         match *a {
-            Action::RackSelect(i) => {
+            Action::RackSelect(i) | Action::RackSelection(i) => {
                 if double {
                     self.state.rack.sel = rk::shown(&self.state).into_iter().collect();
                 } else if shift {
@@ -11353,11 +11400,10 @@ impl App {
                         sel.insert(i);
                     }
                 } else {
-                    let studio = !self.state.vintage_2005;
                     let close_graph = self.state.rack.graph_open && self.state.selected_channel == i;
                     self.state.rack.select_only(i);
                     self.focus_channel(i);
-                    if studio {
+                    if graph_arrow {
                         rk::set_graph_open(&mut self.state, !close_graph);
                     }
                 }
@@ -11438,7 +11484,7 @@ impl App {
         let (x, y) = self.mouse;
         let s = &self.state;
         let popup = match *a {
-            Action::ChannelSelect(i) | Action::RackRoll(i) => {
+            Action::ChannelSelect(i) | Action::RackRoll(i) | Action::RackSelection(i) => {
                 let mut menu = rk::channel_menu(s, i, x, y);
                 if self.plugins.descriptor(i).is_some_and(|desc| desc.is_vst2_x86()) {
                     let presets = crate::presets::popup(self, i, x, y);
@@ -14488,7 +14534,7 @@ mod tests {
             assert!(unique_cursors.insert(cursor.pixmap.data().to_vec()));
             assert!(crate::playlist_tools::packed_cursor_source(PlTool::Draw, 3, 2.0, pack).is_some());
             if pack != 0 {
-                assert!(crate::playlist_tools::window_cursor_source(Cursor::EwResize, 2.0, pack).is_some());
+                assert!(crate::playlist_tools::window_cursor_source(Cursor::EwResize, 2.0, pack, false).is_some());
             }
         }
         c.set_theme_font(1, None);
@@ -14649,8 +14695,10 @@ mod tests {
         assert!(!saved.exists());
 
         app.settings_act(SAct::Button(editor::OPEN));
-        app.settings_act(SAct::ThemeEditor(Hit::Choice(0, "Beveled")));
-        app.settings_act(SAct::ThemeEditor(Hit::Choice(4, "Theme colors")));
+        let style = |label| editor::groups(label).into_iter().flat_map(|(_, rows)| rows)
+            .find_map(|row| match row { editor::Row::Style(i) => Some(i), _ => None }).unwrap();
+        app.settings_act(SAct::ThemeEditor(Hit::Choice(style("Button finish"), "Beveled")));
+        app.settings_act(SAct::ThemeEditor(Hit::Choice(style("Mixer finish"), "Theme colors")));
         app.settings_act(SAct::ThemeEditor(Hit::Field(FieldFor::Hex("note_group_02"))));
         app.key(&Key::Character("E6A14A".into()), false, false);
         app.key(&Key::Named(NamedKey::Enter), false, false);
@@ -14793,7 +14841,7 @@ mod tests {
     #[test]
     fn theme_options_toggle_the_applied_theme() {
         use crate::views::settings::{SAct, NOTE_COLORS_CHECK, THEME};
-        use os_theme::{FlTheme, Palette};
+        use os_theme::FlTheme;
         let dir = std::env::temp_dir().join(format!("lemon-theme-options-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         THEME_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
@@ -14809,12 +14857,14 @@ mod tests {
         let mut app = App::new(None);
         assert_eq!((app.design(), app.state.fl_text.as_deref()), (Design::Citrus, None));
         assert_eq!(checks(&app), [(NOTE_COLORS_CHECK, false)], "only the clip note colours check");
+        let before = app.theme.colors.clone();
         // Clip note colours: stored and saved; new clips' channels follow it (`App::clip_colors`); the palette stays.
         app.settings_act(SAct::Check(NOTE_COLORS_CHECK));
         assert!(app.state.fl_theme().override_clips && saved().contains("OverrideClips=1"));
         app.tick();
         assert!(app.clip_colors().note_colors && app.state.clip_colors.note_colors);
-        assert_eq!((checks(&app), &app.theme.colors), (vec![(NOTE_COLORS_CHECK, true)], &Palette::default()));
+        assert_eq!(checks(&app), [(NOTE_COLORS_CHECK, true)]);
+        assert!(app.theme.colors == before, "the clip option preserves the default palette");
         app.settings_act(SAct::Check(NOTE_COLORS_CHECK));
         assert!(!app.state.fl_theme().override_clips && saved().contains("OverrideClips=0"));
         // An imported theme with Lightmode=0 (a BOM, CRLF lines) draws as with Light mode on; a click on the page
@@ -14824,7 +14874,7 @@ mod tests {
         std::fs::write(&file, night).unwrap();
         app.load_theme_file_ex(&file, false);
         let lit = night.replace("Lightmode=0", "Lightmode=1");
-        assert_eq!(app.theme.base, os_theme::fl::palette(&FlTheme::parse(&lit)));
+        assert!(app.theme.base == os_theme::design::palette(app.design(), Some(&FlTheme::parse(&lit))));
         if let Ok(mut c) = Canvas::new(1920, 1080, 1.0) {
             app.open_settings(THEME);
             app.state.settings.scroll = views::settings::content_h(&app.state);
@@ -15063,6 +15113,30 @@ mod tests {
         assert!(!app.hits.iter().any(|h| h.action == Action::Settings(SAct::Button(FIX_TEXT))), "the warning is gone");
         THEME_DIR.with(|d| *d.borrow_mut() = None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn theme_step_color_picker_reaches_the_modern_rack() {
+        use crate::theme_adjust::STEPS;
+        use crate::views::settings::SAct;
+
+        let (mut app, mut canvas) = rack_drag_fixture(false);
+        let pixels = |app: &mut App, canvas: &mut Canvas| {
+            frame(app, canvas, None);
+            [0, 4].map(|step| {
+                let r = hit_rect(app, &Action::Step(0, step));
+                canvas.pixmap.pixel(r.cx() as u32, r.cy() as u32).unwrap()
+            })
+        };
+        let wheel = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let stock = pixels(&mut app, &mut canvas);
+        app.settings_act(SAct::Swatch(STEPS as u8, 0));
+        app.picker_wheel(wheel, 100.0, 50.0);
+        app.picker_value(wheel, 0.0);
+        let edited = pixels(&mut app, &mut canvas);
+        assert_ne!(stock[0], edited[0]);
+        assert_eq!(stock[1], edited[1], "the other step group keeps its color");
+
     }
 
     /// Theme ▸ Adjustments (spec: ui/theme-presets.md §C): the knobs show the applied theme's values and edit them live
@@ -16025,6 +16099,49 @@ mod tests {
         if let Some(dir) = std::env::var_os("OS_SHOT_DIR") {
             frame(&mut app, &mut canvas, None);
             canvas.pixmap.save_png(std::path::PathBuf::from(dir).join("vintage-rack-footer.png")).unwrap();
+        }
+    }
+
+    #[test]
+    fn captured_control_resets_without_a_cursor_event() {
+        use crate::knobs::KnobId::*;
+        crate::prefs::set_check(&crate::prefs::DOUBLE_CLICK_RESET, true);
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.show_browser = false;
+        app.state.z = vec![Win::Mixer];
+        app.state.wins[Win::Mixer.slot().unwrap()].maxed = true;
+        app.state.selected_mixer = 1;
+        app.state.startup_layout_pending = false;
+        let mut canvas = Canvas::new(1920, 1080, 1.25).unwrap();
+        for view in [crate::mixer::WIDE, crate::mixer::TRADITIONAL] {
+            crate::mixer::set_layout(&mut app.state, view);
+            frame(&mut app, &mut canvas, None);
+            for id in [MixPan(1), MixSep(1), SlotMix(1, 0)] {
+                let r = hit_rect(&app, &Action::Knob(id));
+                let at = (r.cx(), r.cy());
+                let default = id.default_value();
+                for middle in [false, true] {
+                    app.control_click = None;
+                    app.mouse_move(at.0, at.1);
+                    app.mouse_down();
+                    assert!(app.cursor_locked());
+                    app.mouse_move(at.0, at.1 + 28.0);
+                    assert_ne!(app.state.knob(id), default, "{view} {id:?} drag");
+                    app.mouse_up_at(Some(at));
+                    assert_eq!(app.mouse, at);
+                    if middle {
+                        app.mouse_down_middle();
+                        app.mouse_up();
+                    } else {
+                        for _ in 0..2 {
+                            app.mouse_down();
+                            app.mouse_up_at(Some(at));
+                        }
+                    }
+                    assert_eq!(app.state.knob(id), default, "{view} {id:?} middle={middle}");
+                }
+            }
         }
     }
 
@@ -22825,6 +22942,199 @@ LemonStudioStyle.button-radius=8
     }
 
     #[test]
+    fn rack_selection_slot_is_separate_from_graph_and_plugin() {
+        let (mut app, mut canvas) = rack_drag_fixture(false);
+        app.state.rack.select_only(0);
+        let first = hit_rect(&app, &Action::RackSelection(0));
+        let next = hit_rect(&app, &Action::RackSelection(1));
+        let graph = hit_rect(&app, &Action::RackSelect(1));
+        let mixer_track = hit_rect(&app, &Action::RackMixer(1));
+        let global_pitch = hit_rect(&app, &Action::RackPitchFollow(1));
+        assert!(next.intersect(&graph).is_empty());
+        assert!(mixer_track.right() < next.x && next.right() < global_pitch.x);
+
+        let slot_pixels = |canvas: &Canvas, rect: Rect| {
+            let (x, y, w, h) = canvas.device_rect(rect);
+            let width = canvas.pixmap.width() as usize;
+            (y..y+h).flat_map(|row| &canvas.pixmap.pixels()[row*width+x..row*width+x+w])
+                .copied().collect::<Vec<_>>()
+        };
+        frame(&mut app, &mut canvas, None);
+        let idle = slot_pixels(&canvas, next);
+        click(&mut app, &mut canvas, next);
+        app.mouse_move(10.0, 100.0);
+        frame(&mut app, &mut canvas, None);
+        assert_ne!(idle, slot_pixels(&canvas, next), "selection remains visible after the pointer leaves");
+        assert_eq!(app.state.rack.sel, [1].into());
+        assert_eq!(app.state.selected_channel, 1);
+        assert!(!app.state.rack.graph_open && !app.state.shown(Win::Plugin));
+        assert!(app.state.pending_open.is_none());
+
+        app.shift = true;
+        click(&mut app, &mut canvas, first);
+        app.shift = false;
+        assert_eq!(app.state.rack.sel, [0, 1].into());
+        crate::workspace_visibility::toggle(crate::rack::SELECTION_SLOT_VISIBILITY);
+        frame(&mut app, &mut canvas, None);
+        assert!(!app.hits.iter().any(|hit| matches!(hit.action, Action::RackSelection(_))));
+        assert_eq!(app.state.rack.sel, [0, 1].into());
+        crate::workspace_visibility::toggle(crate::rack::SELECTION_SLOT_VISIBILITY);
+    }
+
+    #[test]
+    fn rack_selection_delete_works_from_slot_menu_and_delete_key() {
+        use crate::messages::{DELETE_CHANNEL, set};
+        use crate::patterns::Hit;
+        use crate::playlist::Cmd;
+        use crate::rack::RCmd;
+        use winit::keyboard::{Key, NamedKey};
+
+        for source in ["slot menu", "channel menu", "Delete key", "menu Delete key", "menu D"] {
+            set(&DELETE_CHANNEL, true);
+            let (mut app, mut canvas) = rack_drag_fixture(false);
+            app.state.project.patterns[0].notes = (0..5)
+                .map(|row| os_model::Note::step(row, u32::from(row) * 24)).collect();
+            let original = app.state.project.channels.clone();
+            let notes = app.state.project.patterns[0].notes.clone();
+            let first = hit_rect(&app, &Action::RackSelection(0));
+            let third = hit_rect(&app, &Action::RackSelection(2));
+            click(&mut app, &mut canvas, first);
+            app.shift = true;
+            click(&mut app, &mut canvas, third);
+            app.shift = false;
+            assert_eq!(app.state.rack.sel, [0, 2].into());
+
+            if source != "Delete key" {
+                let hit = if source == "channel menu" {
+                    hit_rect(&app, &Action::ChannelSelect(2))
+                } else {
+                    third
+                };
+                app.mouse_move(hit.cx(), hit.cy());
+                app.mouse_down_right();
+                app.mouse_up();
+                frame(&mut app, &mut canvas, None);
+                assert_eq!(app.state.rack.sel, [0, 2].into(), "{source}");
+            }
+            match source {
+                "Delete key" | "menu Delete key" => app.key(&Key::Named(NamedKey::Delete), false, false),
+                "menu D" => app.key(&Key::Character("d".into()), false, false),
+                _ => click_popup_item(&mut app, &mut canvas, |item| item.cmd == Cmd::Rack(RCmd::DeleteSel)),
+            }
+            if source != "menu D" {
+                assert_eq!(app.state.rack.pending_delete, Some(vec![0, 2]), "{source}");
+                assert_eq!(app.state.project.channels, original);
+                frame(&mut app, &mut canvas, None);
+                let ok = hit_rect(&app, &Action::Pat(Hit::ConfirmOk));
+                click(&mut app, &mut canvas, ok);
+            }
+            let remaining: Vec<_> = app.state.project.channels.iter().map(|c| c.name.as_deref().unwrap()).collect();
+            assert_eq!(remaining, ["Clap", "Snare", "Pluck"], "{source}");
+            let remaining_notes: Vec<_> = app.state.project.patterns[0].notes.iter().map(|n| n.position).collect();
+            assert_eq!(remaining_notes, [24, 72, 96]);
+            assert!(crate::history::undo(&mut app.state).is_some());
+            assert_eq!(app.state.project.channels, original);
+            assert_eq!(app.state.project.patterns[0].notes, notes);
+        }
+    }
+
+    #[test]
+    fn rack_selection_delete_skips_repeat_and_targets_unselected_context_row() {
+        use crate::playlist::Cmd;
+        use crate::rack::RCmd;
+        use winit::keyboard::{Key, NamedKey};
+
+        let (mut app, mut canvas) = rack_drag_fixture(false);
+        crate::messages::set(&crate::messages::DELETE_CHANNEL, false);
+        app.state.rack.sel = [0, 2].into();
+        let other = hit_rect(&app, &Action::RackSelection(4));
+        app.mouse_move(other.cx(), other.cy());
+        app.mouse_down_right();
+        app.mouse_up();
+        frame(&mut app, &mut canvas, None);
+        click_popup_item(&mut app, &mut canvas, |item| item.cmd == Cmd::Rack(RCmd::Delete(4)));
+        assert_eq!(app.state.project.channels.len(), 4);
+        assert!(app.state.project.channels.iter().any(|c| c.name.as_deref() == Some("Kick")));
+        assert!(app.state.project.channels.iter().any(|c| c.name.as_deref() == Some("Hat")));
+
+        let delete = Key::Named(NamedKey::Delete);
+        app.state.rack.sel = [0, 2].into();
+        app.key(&delete, false, false);
+        assert_eq!(app.state.project.channels.len(), 2);
+        app.repeat = true;
+        app.key(&delete, false, false);
+        assert_eq!(app.state.project.channels.len(), 2);
+        crate::messages::set(&crate::messages::DELETE_CHANNEL, true);
+    }
+
+    #[test]
+    fn rack_selection_slot_lights_only_the_channel_playing() {
+        for scale in [1.0, 1.25] {
+            let (mut app, _) = rack_drag_fixture(false);
+            let mut canvas = Canvas::new(1600, 900, scale).unwrap();
+            let mut full = Canvas::new(1600, 900, scale).unwrap();
+            frame(&mut app, &mut canvas, None);
+            app.take_damage();
+            let center = |rect: Rect| ((rect.cx() * scale) as u32, (rect.cy() * scale) as u32);
+            let first = center(hit_rect(&app, &Action::RackSelection(0)));
+            let second = center(hit_rect(&app, &Action::RackSelection(1)));
+            let read = |c: &Canvas, (x, y)| c.pixmap.pixel(x, y).unwrap();
+            let idle = read(&canvas, second);
+            let selected_idle = read(&canvas, first);
+            let channel = app.state.project.channels[1].index;
+
+            // Both a live note and audio coming from a Playlist clip count as activity.
+            for note in [60, u16::MAX] {
+                app.show_playback(Shown { sounding: vec![(channel, note)], ..Shown::default() });
+                let damage = app.take_damage();
+                assert!(matches!(damage, Some(Some(ref rects)) if rects.iter().any(|r|
+                    r.contains(second.0 as f32 / scale, second.1 as f32 / scale))));
+                frame_damage(&mut app, &mut canvas, damage);
+                assert_ne!(read(&canvas, second), idle);
+                assert_eq!(read(&canvas, first), selected_idle);
+                frame(&mut app, &mut full, None);
+                assert_eq!(read(&canvas, second), read(&full, second));
+
+                app.show_playback(Shown::default());
+                let damage = app.take_damage();
+                frame_damage(&mut app, &mut canvas, damage);
+                assert_eq!(read(&canvas, second), idle);
+            }
+
+            app.state.project.channels[1].enabled = false;
+            app.show_playback(Shown { sounding: vec![(channel, 60)], ..Shown::default() });
+            frame(&mut app, &mut canvas, None);
+            assert_eq!(read(&canvas, second), idle);
+        }
+    }
+
+    #[test]
+    fn playlist_automation_switch_has_visible_thumb_in_both_states() {
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.show_browser = false;
+        app.state.z = vec![Win::Playlist];
+        app.state.wins[Win::Playlist.slot().unwrap()].maxed = true;
+        app.state.playlist.row_h = 90.0;
+        app.state.playlist.automation_views.insert(0, 0);
+        let mut canvas = Canvas::new(1920, 1080, 1.25).unwrap();
+        frame(&mut app, &mut canvas, None);
+
+        for on in [true, false] {
+            let switch = hit_rect(&app, &Action::PlAutomationToggle(0));
+            let (x, y, w, h) = canvas.device_rect(switch);
+            let pixel = |fraction: f32| {
+                let col = x + (w as f32 * fraction) as usize;
+                let p = canvas.pixmap.pixel(col as u32, (y+h/2) as u32).unwrap();
+                (f32::from(p.red()) + f32::from(p.green()) + f32::from(p.blue())) / 3.0
+            };
+            assert_eq!(app.state.playlist.automation_views.contains_key(&0), on);
+            assert!((pixel(0.30) - pixel(0.70)).abs() >= 60.0, "thumb must contrast with rail: {on}");
+            if on { click(&mut app, &mut canvas, switch); }
+        }
+    }
+
+    #[test]
     fn rack_selection_drag_and_group_controls() {
         use crate::knobs::KnobId;
         use winit::keyboard::{Key, NamedKey};
@@ -24797,6 +25107,44 @@ LemonStudioStyle.button-radius=8
         assert_eq!((now(&app), app.state.piano.snap, app.state.playlist.snap), (Snap::Beat, EditorSnap::Main, EditorSnap::Grid(Snap::Cell)));
     }
 
+    #[test]
+    fn layout_shortcuts_edit_piano_roll_and_playlist() {
+        use winit::keyboard::{Key, KeyCode, PhysicalKey};
+        let mut canvas = Canvas::new(1920, 1080, 1.0).unwrap();
+        let mut app = App::new(None);
+        app.state.project = test_project();
+        app.state.z = vec![Win::PianoRoll];
+        app.state.selected_channel = 0;
+        frame(&mut app, &mut canvas, None);
+        let ch = piano::channel(&app.state).unwrap();
+        piano::pattern_mut(&mut app.state).notes = vec![
+            Note { length: 10, ..Note::step(ch, 0) },
+            Note { length: 10, ..Note::step(ch, 48) },
+        ];
+        let ctrl_letter = |app: &mut App, position, text: &str| {
+            let key = crate::shortcut_letter(&Key::Character(text.into()), PhysicalKey::Code(position), true, false)
+                .expect("Ukrainian shortcut key");
+            app.key(&key, true, false);
+        };
+        ctrl_letter(&mut app, KeyCode::KeyL, "д");
+        assert_eq!(piano::notes(&app.state)[0].length, 48);
+        ctrl_letter(&mut app, KeyCode::KeyA, "ф");
+        ctrl_letter(&mut app, KeyCode::KeyC, "с");
+        assert_eq!(app.state.piano.clipboard.len(), 2);
+        ctrl_letter(&mut app, KeyCode::KeyV, "м");
+        assert_eq!(piano::notes(&app.state).len(), 4);
+        ctrl_letter(&mut app, KeyCode::KeyB, "и");
+        assert_eq!(piano::notes(&app.state).len(), 6);
+
+        app.state.z = vec![Win::Playlist];
+        let arrangement = crate::playlist::arr_mut(&mut app.state);
+        arrangement.clips = vec![os_model::Clip::new(0, 96, 0, os_model::ClipSource::Pattern(1))];
+        frame(&mut app, &mut canvas, None);
+        ctrl_letter(&mut app, KeyCode::KeyA, "ф");
+        ctrl_letter(&mut app, KeyCode::KeyB, "и");
+        assert_eq!(crate::playlist::clips(&app.state).len(), 2);
+    }
+
     /// Piano-roll shortcuts (spec: ui/piano-roll.md §3a, §10a, §11): edits, tool menus, ghosts, markers, channel
     /// cycling and the wheel zooms, driven through `App::key` / `App::wheel` like the shell does.
     #[test]
@@ -25582,8 +25930,14 @@ LemonStudioStyle.button-radius=8
         let before=clips.len();let original=clips[0].clone();let r=g.clip_rect(&original);
         a.state.playlist.sel=vec![0];a.shift=true;
         a.mouse_move(r.cx(),r.cy());a.mouse_down();
-        a.mouse_move(r.cx()+100.,r.cy());a.mouse_up();
-        assert!(crate::playlist::clips(&a.state).len()>before);
+        a.mouse_move(r.cx()+1.,r.cy());a.mouse_up();
+        assert_eq!(crate::playlist::clips(&a.state).len(),before,"Shift-click leaves no hidden copy");
+        frame(&mut a,&mut c,None);
+        a.mouse_move(r.cx(),r.cy());a.mouse_down();
+        assert_eq!(crate::playlist::clips(&a.state).len(),before,"press alone does not copy");
+        a.mouse_move(r.cx()+bar as f32*g.ppt,r.cy());a.mouse_up();
+        assert_eq!(crate::playlist::clips(&a.state).len(),before+1);
+        assert_eq!(crate::playlist::clips(&a.state)[before].source,original.source);
         assert!(a.state.playlist.sel.iter().all(|&i|i>=before));
         assert!(!a.state.playlist.sel.is_empty());
         assert_eq!(crate::playlist::clips(&a.state)[0],original);
@@ -25597,6 +25951,29 @@ LemonStudioStyle.button-radius=8
         let mut c=Canvas::new(1280,900,1.).unwrap();frame(&mut a,&mut c,None);
         assert!(a.hits.iter().any(|h|h.action==Action::Typing));
         assert!(a.hits.iter().any(|h|h.action==Action::SongPos));
+    }
+
+    #[test]
+    fn playlist_right_erase_sweeps_between_pointer_events() {
+        use crate::playlist as pl;
+        use os_model::{Clip, ClipSource};
+        let mut canvas = Canvas::new(1920, 1080, 1.0).unwrap();
+        for tool in [pl::PlTool::Draw, pl::PlTool::Paint, pl::PlTool::Mute, pl::PlTool::Delete] {
+            let (mut app, _, grid, bar) = ruler_app(&mut canvas);
+            app.state.playlist.tool = tool;
+            for step in 1..=3 {
+                pl::arr_mut(&mut app.state).clips.push(Clip::new(bar * step, bar / 2, 0, ClipSource::Pattern(1)));
+            }
+            frame(&mut app, &mut canvas, None);
+            let y = grid.y_of(0) + 10.0;
+            app.mouse_move(grid.x_of(12.0), y);
+            app.mouse_down_right();
+            app.mouse_move(grid.x_of((4 * bar) as f32), y);
+            app.mouse_up();
+            assert!(pl::clips(&app.state).is_empty(), "{tool:?}");
+            assert!(crate::history::undo(&mut app.state).is_some());
+            assert_eq!(pl::clips(&app.state).len(), 3, "{tool:?} is one undo step");
+        }
     }
 
     fn ruler_app(c: &mut Canvas) -> (App, Rect, crate::playlist::PGeom, u32) {
@@ -25810,6 +26187,50 @@ LemonStudioStyle.button-radius=8
             assert_eq!(app.selection_loop(), Some((3 * bar, 4 * bar)), "a right-drag can redraw the loop");
             tap_right(&mut app, at(2.0), grid_y);
             assert_eq!(app.selection_loop(), None, "outside-grid right-click can still clear the loop");
+        }
+    }
+
+    #[test]
+    fn ruler_loop_gestures_draw_and_move_both_editors() {
+        use crate::playlist as pl;
+        for win in [Win::Playlist, Win::PianoRoll] {
+            let mut canvas = Canvas::new(1920, 1080, 1.0).unwrap();
+            let (mut app, _, _, bar) = ruler_app(&mut canvas);
+            app.state.show_browser = false;
+            app.state.startup_layout_pending = false;
+            app.state.z = vec![win];
+            app.state.wins[win.slot().unwrap()].maxed = true;
+            app.state.song_mode = win == Win::Playlist;
+            frame(&mut app, &mut canvas, None);
+
+            let (x0, x1, middle, near_zero, y, unit) = if win == Win::Playlist {
+                let g = pl::PGeom::new(&app.state, app.pl_grid().unwrap());
+                let at = |bars: u32| g.x_of((bars * bar) as f32);
+                (at(1), at(3), at(2), at(0) + 1.0, hit_rect(&app, &Action::PlRuler).cy(), bar)
+            } else {
+                let g = app.piano_geom().unwrap();
+                let beat = bar / 4;
+                let at = |beats: u32| g.x_of((beats * beat) as f32);
+                (at(1), at(3), at(2), at(0) + 1.0, hit_rect(&app, &Action::PianoRuler).cy(), beat)
+            };
+            for button in ["Ctrl", "double-click", "right"] {
+                app.state.piano.range = None;
+                app.state.project.playlist_loop = None;
+                app.ctrl = button == "Ctrl";
+                app.mouse_move(x0, y);
+                if button == "double-click" {
+                    app.mouse_down();
+                    app.mouse_up();
+                    frame(&mut app, &mut canvas, None);
+                }
+                ruler_press(&mut app, &mut canvas, x0, x1, y, button == "right");
+                app.ctrl = false;
+                assert_eq!(app.selection_loop(), Some((unit, unit * 3)), "{win:?} {button}");
+                app.shift = true;
+                ruler_press(&mut app, &mut canvas, middle, near_zero, y, false);
+                app.shift = false;
+                assert_eq!(app.selection_loop(), Some((0, unit * 2)), "{win:?} retains range length");
+            }
         }
     }
 

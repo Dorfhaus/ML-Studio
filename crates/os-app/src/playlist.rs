@@ -768,7 +768,7 @@ pub struct PlaylistState {
     /// Last left click on an audio clip (clip, time): a second one soon after opens its sampler.
     pub last_clip: Option<(usize, std::time::Instant)>,
     /// Last left click in the ruler: a second one soon after clears the time selection.
-    pub last_ruler: Option<std::time::Instant>,
+    pub last_ruler: Option<crate::timeline_range::RulerClick>,
     /// Waveform cache by sample path (`None` = could not be loaded).
     pub waves: RefCell<HashMap<String, Option<Rc<Wave>>>>,
     /// Tones of the same samples for colourful waveforms, analysed when first needed (`tones`).
@@ -1714,7 +1714,7 @@ pub(crate) fn place_current_pattern(app: &mut App) -> String {
     else { return format!("No free space at the playhead within the {TRACKS}-track Playlist limit."); };
 
     snapshot_placement(s, "Place Pattern to Playlist", [source]);
-    let index = push_placement(s, Clip::new(start, length, row, source));
+    let index = push_placement(s, Clip::new(start, length, row, source), true);
     crate::attached_mixer::clear(s);
     s.playlist.track = row;
     s.playlist.sel = vec![index];
@@ -1802,16 +1802,18 @@ fn new_placement(s: &State, track: u16, tick: u32) -> Clip {
 
 fn place_clip(s: &mut State, track: u16, tick: u32) -> usize {
     let clip = new_placement(s, track, tick);
-    push_placement(s, clip)
+    push_placement(s, clip, true)
 }
 
-fn push_placement(s: &mut State, clip: Clip) -> usize {
+fn push_placement(s: &mut State, clip: Clip, route_to_lane: bool) -> usize {
     reveal_track(s, clip.track);
     crate::attached_mixer::pin_lane(s, clip.track);
     let a = arr_mut(s);
     let index = a.clips.len();
     a.clips.push(clip);
-    crate::attached_mixer::route_placement(s, index);
+    if route_to_lane {
+        crate::attached_mixer::route_placement(s, index);
+    }
     crate::attached_mixer::clear(s);
     s.piano.dirty = true;
     index
@@ -2274,12 +2276,12 @@ pub fn paste(s: &mut State) {
     let cb = s.playlist.clipboard.clone();
     let Some(first) = cb.iter().map(|c| c.position).min() else { return };
     let at = s.playlist.pos;
-    let mut placed = cb;
+    let mut placed: Vec<_> = cb.into_iter().map(|clip| (clip.track, clip)).collect();
     if crate::attached_mixer::active(s) {
         let rows = Rows::new(s);
-        let first_row = placed.iter().map(|c| rows.rank(c.track)).min().unwrap_or(0);
+        let first_row = placed.iter().map(|(_, c)| rows.rank(c.track)).min().unwrap_or(0);
         let dest = rows.rank(s.playlist.track);
-        for clip in &mut placed {
+        for (_, clip) in &mut placed {
             let rank = dest + rows.rank(clip.track) - first_row;
             if rank >= TRACKS { return; }
             clip.track = rows.row(rank.into());
@@ -2288,12 +2290,14 @@ pub fn paste(s: &mut State) {
             }
         }
     }
-    snapshot_placement(s, "Playlist edit", placed.iter().map(|clip| clip.source));
+    snapshot_placement(s, "Playlist edit", placed.iter().map(|(_, clip)| clip.source));
     let start = clips(s).len();
-    for mut clip in placed {
+    for (original_track, mut clip) in placed {
         clip.position = at.saturating_add(clip.position - first);
         clip.set_id(0);
-        push_placement(s, clip);
+        // Keep the copied source and its routing when pasting back to its own lane.
+        let route_to_lane = clip.track != original_track;
+        push_placement(s, clip, route_to_lane);
     }
     let n = clips(s).len();
     regroup_copies(s, start);
@@ -2783,7 +2787,7 @@ fn create_automation_with_history(s:&mut State,tgt:u32,name:&str,value:f64,free:
         crate::init::put(s, tgt, init);
     }
     s.piano.dirty = true;
-    crate::rack::organize_clips(s);
+    crate::rack::organize_channels(s);
     index
 }
 
@@ -3706,11 +3710,10 @@ pub enum PlDrag {
     HeaderRange { anchor: u16, base: Vec<u16>, contents: bool },
     Comp { clip: usize, x0: f32, start: u32 },
     /// `fresh` = the clip was just placed (its undo step stays even without a move).
-    Move { x0: f32, y0: f32, scroll_x: f32, track0: u16, orig: Vec<(usize, Clip)>, fresh: bool },
+    Move { x0: f32, y0: f32, scroll_x: f32, track0: u16, orig: Vec<(usize, Clip)>, fresh: bool, copy_on_move: bool },
     ResizeL { x0: f32, scroll_x: f32, orig: Vec<(usize, Clip)> },
     ResizeR { x0: f32, scroll_x: f32, orig: Vec<(usize, Clip)> },
     Slip { x0: f32, i: usize, orig: Clip },
-    Erase,
     SweepErase{x:f32,y:f32, recorded:bool},
     Mute { on: bool },
     Paint { template: Clip },
@@ -3721,7 +3724,7 @@ pub enum PlDrag {
     ZoomBox { x0: f32, y0: f32 },
     Playback,
     SongPos,
-    TimeSel { t0: u32, original: Option<(u32, u32)>, resizing: bool },
+    TimeSel { range: crate::timeline_range::RangeDrag, resizing: bool },
     Marker { i: usize, dt: i64, t0: u32 },
     PointSelect { clip: usize, x0: f32, y0: f32 },
     PointPaint { clip: usize, x0: f32, y0: f32 },
@@ -4095,13 +4098,13 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
     if let Some(ci) = hit {
         let c = clips(s)[ci].clone();
         let resizing = matches!(tool, PlTool::Draw | PlTool::Paint | PlTool::Select) && edge(g.clip_rect(&c), x) != 0;
-        if resizing { s.playlist.last_clip = None; }
+        if resizing || app.shift { s.playlist.last_clip = None; }
         // Double-clicking an audio clip opens its channel's sampler and selects that channel in the rack (§9); a
         // pattern clip makes its pattern the current one and opens the piano roll (§2b, as FL does). Which modifier
         // opens what on an audio clip is General ▸ Input ▸ Manage shortcuts' (`crate::shortcuts::clip_double_click`):
         // Show clip properties does nothing yet (no clip properties window); with neither row's modifier (a row set to
         // "(disabled)"), the second click is a plain one.
-        if !right && !resizing && matches!(tool, PlTool::Draw | PlTool::Paint | PlTool::Select) {
+        if !right && !resizing && !app.shift && matches!(tool, PlTool::Draw | PlTool::Paint | PlTool::Select) {
             let audio = audio_clip_row(s, &c);
             if audio.is_some() || matches!(c.source, ClipSource::Pattern(_)) {
                 let now = std::time::Instant::now();
@@ -4187,9 +4190,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
             }
             // Any other tool: the right button is the Delete tool while held (also starting on empty grid).
             _ => {
-                snapshot_as(s, "Playlist delete clip");
-                app.drag = Some(Drag::Pl(PlDrag::Erase));
-                erase_at(app, grid);
+                begin_erase_sweep(app, hit);
                 return;
             }
         }
@@ -4197,11 +4198,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
 
     match tool {
         PlTool::Comp => {},
-        PlTool::Delete => {
-            snapshot_as(s, "Playlist delete clip");
-            app.drag = Some(Drag::Pl(PlDrag::Erase));
-            erase_at(app, grid);
-        }
+        PlTool::Delete => begin_erase_sweep(app, hit),
         PlTool::Mute => {
             let Some(i) = hit else { return };
             snapshot(s);
@@ -4246,7 +4243,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
                 let clip = s.playlist.audio_template.as_ref()
                     .filter(|clip| clip.source == source(s))
                     .map_or_else(|| new_placement(s, track, start), |clip| copy_placement(clip, track, start));
-                let i = push_placement(s, clip);
+                let i = push_placement(s, clip, true);
                 s.playlist.placement_edge = s.playlist.placement_edge.or(placement_edge);
                 let c = clips(s)[i].clone();
                 if tool == PlTool::Paint {
@@ -4254,7 +4251,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
                     app.drag = Some(Drag::Pl(PlDrag::Paint { template: c }));
                 } else {
                     app.placed_cursor_at=Some((x,y));
-                    app.drag = Some(Drag::Pl(PlDrag::Move { x0: x, y0: y, scroll_x: g.scroll_x, track0: g.track_at(y), orig: vec![(i, c)], fresh: true }));
+                    app.drag = Some(Drag::Pl(PlDrag::Move { x0: x, y0: y, scroll_x: g.scroll_x, track0: g.track_at(y), orig: vec![(i, c)], fresh: true, copy_on_move: false }));
                 }
             }
             Some(i) => {
@@ -4289,21 +4286,6 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
                 // The clicked clip first.
                 group.retain(|&j| j != i);
                 group.insert(0, i);
-                if app.shift && e == 0 {
-                    group = copy_indices(s, group);
-                    // Shift+drag copies: the copies move, the originals stay.
-                    let arr = arr_mut(s);
-                    let first = arr.clips.len();
-                    let copies: Vec<Clip> = group.iter().filter_map(|&j| arr.clips.get(j).cloned()).collect();
-                    for mut cp in copies {
-                        cp.set_id(0);
-                        arr.clips.push(cp);
-                    }
-                    group = (first..arr.clips.len()).collect();
-                    regroup_copies(s, first);
-                    s.playlist.sel = group.clone();
-                    s.piano.dirty = true;
-                }
                 let orig: Vec<(usize, Clip)> = group.iter().filter_map(|&j| clips(s).get(j).map(|c| (j, c.clone()))).collect();
                 s.playlist.stretch_base = if s.playlist.stretch && e != 0 {
                     orig.iter()
@@ -4326,7 +4308,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
                 app.drag = Some(Drag::Pl(match e {
                     -1 => PlDrag::ResizeL { x0: x, scroll_x: g.scroll_x, orig },
                     1 => PlDrag::ResizeR { x0: x, scroll_x: g.scroll_x, orig },
-                    _ => PlDrag::Move { x0: x, y0: y, scroll_x: g.scroll_x, track0: g.track_at(y), orig, fresh: app.shift },
+                    _ => PlDrag::Move { x0: x, y0: y, scroll_x: g.scroll_x, track0: g.track_at(y), orig, fresh: false, copy_on_move: app.shift },
                 }));
                 // Held without a move, the clips are cloned (Click-and-hold & special gesture functions).
                 if e == 0 && !app.shift {
@@ -4356,15 +4338,6 @@ fn begin_erase_sweep(app: &mut App, hit: Option<usize>) {
     app.drag = Some(Drag::Pl(PlDrag::SweepErase { x, y, recorded: hit.is_some() }));
     app.resize_cursor = false;
     app.invalidate();
-}
-
-fn erase_at(app: &mut App, grid: Rect) {
-    let (x, y) = app.mouse;
-    let g = PGeom::new(&app.state, grid);
-    if let Some(i) = clip_at(&app.state, &g, x, y) {
-        delete(&mut app.state, vec![i]);
-        app.invalidate();
-    }
 }
 
 fn mute_at(app: &mut App, grid: Rect, on: bool) {
@@ -4496,7 +4469,7 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
                 s.playlist.overlay=Some(Overlay::Comp{clip,a:start.min(end),b:start.max(end)});
             }
         }
-        PlDrag::Move { x0, scroll_x, track0, orig, .. } => {
+        PlDrag::Move { x0, y0, scroll_x, track0, mut orig, copy_on_move, .. } => {
             let skip:Vec<_>=orig.iter().map(|&(i,_)|i).collect();
             let mut dt=orig.first().map_or(0,|(_,c)|snap_edge(s,&g,c.position,(x-x0+g.scroll_x-scroll_x)/g.ppt,alt,&skip));
             let min_pos = orig.iter().map(|(_, c)| i64::from(c.position)).min().unwrap_or(0);
@@ -4506,7 +4479,7 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
             let lo = orig.iter().map(|(_, c)| starting_row(c)).min().unwrap_or(0);
             let hi = orig.iter().map(|(_, c)| starting_row(c)).max().unwrap_or(0);
             let mut dk = dk.clamp(-lo, i32::from(TRACKS) - 1 - hi);
-            let is_automation = |clip: &Clip| {
+            let is_automation = |s: &State, clip: &Clip| {
                 matches!(clip.source, ClipSource::Channel(ch) if s.project.automation(ch).is_some())
             };
             if dk != 0 && orig.iter().any(|(_, clip)| {
@@ -4514,14 +4487,25 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
                 if crate::attached_mixer::active(s) {
                     !attached_destination_editable(s, &g.rows, row)
                 } else {
-                    is_automation(clip) && (g.rows.strip(row)
+                    is_automation(s, clip) && (g.rows.strip(row)
                         || track_info(s, row).is_some_and(|t| t.locked || t.frozen.is_some()))
                 }
             }) {
                 dk = 0;
             }
+            if copy_on_move {
+                // Wait for a deliberate drag to a different position before duplicating.
+                if (dt == 0 && dk == 0) || (x - x0).abs().max((y - y0).abs()) < crate::hold::SLOP {
+                    return;
+                }
+                orig = clone_clips(s, &orig);
+                s.playlist.sel = orig.iter().map(|(index, _)| *index).collect();
+                app.drag = Some(Drag::Pl(PlDrag::Move {
+                    x0, y0, scroll_x, track0, orig: orig.clone(), fresh: true, copy_on_move: false,
+                }));
+            }
             let independent: Vec<_> = orig.iter().map(|(_, clip)| {
-                clip.independent_automation || (dk != 0 && is_automation(clip))
+                clip.independent_automation || (dk != 0 && is_automation(s, clip))
             }).collect();
             let arr = arr_mut(s);
             for ((i, o), independent) in orig.iter().zip(independent) {
@@ -4532,7 +4516,7 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
                     c.independent_automation = independent;
                 }
             }
-            rows_changed = !s.playlist.automation_owners.is_empty() && g.rows.top != Rows::new(s).top;
+            rows_changed = copy_on_move || (!s.playlist.automation_owners.is_empty() && g.rows.top != Rows::new(s).top);
             s.piano.dirty = true;
         }
         PlDrag::ResizeR { x0, scroll_x, orig } => {
@@ -4587,7 +4571,6 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
             }
             app.resize_cursor=false;app.drag=Some(Drag::Pl(PlDrag::SweepErase{x,y,recorded}));return;
         }
-        PlDrag::Erase => return erase_at(app, grid),
         PlDrag::Mute { on } => return mute_at(app, grid, on),
         PlDrag::Paint { template } => {
             // Clips back to back along the track from the first, up to the mouse (either direction).
@@ -4602,7 +4585,7 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
                 let pos = pos as u32;
                 let taken = clips(s).iter().any(|c| c.track == track && c.position < pos + len && c.end() > pos);
                 if !taken {
-                    let index = push_placement(s, copy_placement(&template, track, pos));
+                    let index = push_placement(s, copy_placement(&template, track, pos), true);
                     s.playlist.placement_edge = s.playlist.placement_edge.or(placement_edge);
                     s.playlist.sel.push(index);
                     s.piano.dirty = true;
@@ -4640,9 +4623,9 @@ pub fn drag_move(app: &mut App, d: PlDrag, grid: Rect) {
             s.playlist.pos = snap_down(s, &g, g.tick_at(x), alt);
             crate::init::apply(s);
         }
-        PlDrag::TimeSel { t0, original, .. } => {
+        PlDrag::TimeSel { range, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
-            s.project.playlist_loop = if t == t0 { original } else { Some((t0.min(t), t0.max(t))) };
+            s.project.playlist_loop = range.at(t);
         }
         PlDrag::Marker { i, t0, .. } => {
             let t = snap_round(s, &g, g.tick_at(x), alt);
@@ -4918,7 +4901,7 @@ pub fn drag_end(app: &mut App, d: PlDrag, grid: Rect) {
         PlDrag::Move { orig, fresh: false, .. } | PlDrag::ResizeL { orig, .. } | PlDrag::ResizeR { orig, .. } => {
             // A click that changed nothing leaves no undo step.
             let same = orig.iter().all(|(i, o)| clips(s).get(*i) == Some(o));
-            if same && !app.shift {
+            if same {
                 crate::history::unrecord(s);
             }
         }
@@ -5067,41 +5050,46 @@ pub(crate) fn ruler_resize_anchor(s: &State, grid: Rect, x: f32) -> Option<u32> 
         .then_some(if left_distance <= right_distance { end } else { start })
 }
 
-/// Ruler press: left seeks, right selects time, and either button resizes a loop edge.
+/// Seek, draw a time selection, resize an edge, or move the whole range on the ruler.
 pub fn press_ruler(app: &mut App, grid: Rect, right: bool) {
+    use crate::timeline_range::{RangeDrag, ruler_double_click};
+
     let x = app.mouse.0;
-    let alt = app.alt;
     let s = &mut app.state;
     s.playlist.popup = None;
-    if let Some(t0) = ruler_resize_anchor(s, grid, x) {
-        s.playlist.last_ruler = None;
-        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0, original: None, resizing: true }));
-        app.invalidate();
-        return;
-    }
     let g = PGeom::new(s, grid);
-    if right {
-        if !range_contains_x(s, grid, x) {
-            s.project.playlist_loop = None;
-        }
+    let anchor = snap_round(s, &g, g.tick_at(x), app.alt);
+    let original = s.project.playlist_loop;
+    let inside = range_contains_x(s, grid, x);
+    let ctrl_draw = app.ctrl && !right;
+    let drag = if !right && app.shift && inside && let Some(range) = original {
         s.playlist.last_ruler = None;
-        let t0 = snap_round(s, &g, g.tick_at(x), alt);
-        app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0, original: s.project.playlist_loop, resizing: false }));
+        PlDrag::TimeSel { range: RangeDrag::Move { anchor, range }, resizing: false }
+    } else if !ctrl_draw && let Some(anchor) = ruler_resize_anchor(s, grid, x) {
+        s.playlist.last_ruler = None;
+        PlDrag::TimeSel { range: RangeDrag::Draw { anchor, unchanged: original }, resizing: true }
     } else {
-        // A double click clears the time selection (a Lemon Studio choice, besides FL's right click).
-        let now = std::time::Instant::now();
-        let double = s.playlist.last_ruler.is_some_and(|t| now.duration_since(t).as_millis() < 450);
-        s.playlist.last_ruler = (!double).then_some(now);
-        if double {
-            s.project.playlist_loop = None;
+        let double = if right || ctrl_draw || app.shift {
+            s.playlist.last_ruler = None;
+            false
+        } else {
+            ruler_double_click(&mut s.playlist.last_ruler, x)
+        };
+        if right || ctrl_draw || double {
+            if double || (right && !inside) {
+                s.project.playlist_loop = None;
+            }
+            let range = RangeDrag::Draw { anchor, unchanged: s.project.playlist_loop };
+            PlDrag::TimeSel { range, resizing: false }
+        } else {
+            s.playlist.pos = snap_down(s, &g, g.tick_at(x), app.alt);
+            // Seeking switches to SONG; drawing or moving a loop keeps the current transport mode.
+            s.song_mode = true;
+            crate::init::apply(s);
+            PlDrag::SongPos
         }
-        s.playlist.pos = snap_down(s, &g, g.tick_at(x), alt);
-        // Moving the song position switches to SONG mode; a time selection does not (§7). The initial values follow
-        // (spec: ui/settings-choices.md "Advanced: Initialize controls automatically").
-        s.song_mode = true;
-        crate::init::apply(s);
-        app.drag = Some(Drag::Pl(PlDrag::SongPos));
-    }
+    };
+    app.drag = Some(Drag::Pl(drag));
     app.invalidate();
 }
 

@@ -566,6 +566,8 @@ pub fn sweep(
         let prev = old_by.get(&(path_key(&f.path), f.format.as_str()));
         match prev {
             Some(p) if mode == Mode::Changed && f.format != Format::AudioUnit
+                && !p.plugins.iter().any(|d| d.features.iter().any(|x| x == os_host::VST2_X86)
+                    && !d.features.iter().any(|x| x.starts_with("audio-outputs:")))
                 && p.size == size && p.modified == modified && !(p.status.failed() && rescan_errors) => {
                 files[i] = Some((*p).clone());
             }

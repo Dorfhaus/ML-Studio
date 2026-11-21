@@ -11,6 +11,67 @@
 // spec: plugins/fruity-limiter-dsp.md, audio/conventions.md (single, double, Round)
 
 use super::{delay_line::DelayLine, peak_guard::PeakGuard};
+
+/// Keep the input history even at zero lookahead. An attack edit crossfades two
+/// read positions without interrupting the limiter detector or resetting a delay.
+struct Lookahead {
+    history: Vec<[f32; 2]>,
+    cursor: usize,
+    filled: usize,
+    from: usize,
+    to: usize,
+    requested: usize,
+    left: usize,
+    fade: usize,
+}
+
+impl Lookahead {
+    fn new(max: usize) -> Self {
+        Self { history: vec![[0.; 2]; max + 1], cursor: 0, filled: 0, from: 0, to: 0,
+            requested: 0, left: 0, fade: 1 }
+    }
+    fn prepare(&mut self, max: usize) {
+        if self.history.len() < max + 1 { self.history.resize(max + 1, [0.; 2]); }
+        self.clear();
+    }
+    fn clear(&mut self) {
+        self.filled = 0;
+        self.cursor = 0;
+        self.to = self.requested;
+        self.from = self.to;
+        self.left = 0;
+    }
+    fn set(&mut self, frames: usize, immediate: bool, fade: usize) {
+        self.requested = frames.min(self.history.len() - 1);
+        self.fade = fade;
+        if immediate { self.to = self.requested; self.from = self.to; self.left = 0; }
+    }
+    fn tap(&self, delay: usize) -> [f32; 2] {
+        if delay > self.filled { return [0.; 2]; }
+        let i = if delay <= self.cursor { self.cursor-delay } else { self.history.len()-(delay-self.cursor) };
+        self.history[i]
+    }
+    fn push(&mut self, input: [f32; 2]) -> [f32; 2] {
+        self.history[self.cursor] = input;
+        if self.left == 0 && self.to != self.requested {
+            self.from = self.to;
+            self.to = self.requested;
+            self.left = self.fade;
+        }
+        let mut out = self.tap(self.to);
+        if self.left != 0 {
+            let old = self.tap(self.from);
+            let blend = self.left as f32 / self.fade as f32;
+            for ch in 0..2 { out[ch] += blend * (old[ch] - out[ch]); }
+            self.left -= 1;
+        }
+        self.filled = (self.filled + 1).min(self.history.len() - 1);
+        self.cursor += 1;
+        if self.cursor == self.history.len() { self.cursor = 0; }
+        out
+    }
+}
+
 use std::collections::VecDeque;
 
 /// Parameters, in the original's order (state field k + 1).
@@ -192,7 +253,7 @@ pub struct Dynamics {
     rms_ring: DelayLine<f32>,
     rms_sum: f64,
     /// Look-ahead delay (stereo).
-    delay: DelayLine<[f32; 2]>,
+    delay: Lookahead,
     peak_guard: PeakGuard,
     guard_enabled: bool,
     counter: i64,
@@ -236,7 +297,7 @@ impl Dynamics {
             pos: 0,
             rms_ring: DelayLine::new(rate.ceil() as usize),
             rms_sum: 0.0,
-            delay: DelayLine::new(rate.ceil() as usize),
+            delay: Lookahead::new(rate.ceil() as usize),
             peak_guard: PeakGuard::new(rate),
             guard_enabled: false,
             counter: 0,
@@ -408,7 +469,7 @@ impl Dynamics {
         let old = std::mem::replace(&mut self.w, w);
         // A changed look-ahead clears the delay line; a changed window clears that window.
         if fresh || old.look != look {
-            self.delay.set_length(look);
+            self.delay.set(look, fresh || self.asleep, (self.rate * 0.004).max(1.) as usize);
         }
         if fresh || old.peak_n != self.w.peak_n {
             self.peaks.clear();
@@ -517,10 +578,8 @@ impl Dynamics {
         }
 
         // 3. Delay the audio by the look-ahead.
-        if w.look > 0 {
-            for i in 0..n {
-                [left[i], right[i]] = self.delay.push([left[i], right[i]]);
-            }
+        for i in 0..n {
+            [left[i], right[i]] = self.delay.push([left[i], right[i]]);
         }
 
         // 4. Limiter and gate on the release-smoothed held peak.

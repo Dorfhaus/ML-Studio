@@ -137,6 +137,11 @@ impl Enhancer {
     }
 }
 
+impl Clone for Enhancer {
+    fn clone(&self) -> Self { Self(self.0.clone()) }
+    fn clone_from(&mut self, source: &Self) { self.0.copy_state_from(&source.0); }
+}
+
 impl Sound for Enhancer {
     fn set(&mut self, v: &[i32]) {
         self.0.set(&settings(v));
@@ -162,7 +167,7 @@ fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
     let mut e = StereoEnhancer::with_settings(rate, &settings(v));
     e.set_bass_mono(v.get(BASS_MONO).copied().unwrap_or_default());
     e.flush();
-    Box::new(Enhancer(e))
+    super::quality::ControlTransition::<_, { SETTINGS.len() }>::boxed(Enhancer(e), v, rate)
 }
 
 pub struct StereoEnhancerKind;

@@ -299,7 +299,7 @@ fn actual_host_state_and_sidechain() {
     use os_engine::HostedEffect as _;
     use os_host::Plugin as _;
     for (entry, name) in [
-        (&a::LINKED_CLAP_ENTRY, "ML Convolver"),
+        (&a::LINKED_CLAP_ENTRY, "ML Space"),
         (&b::LINKED_CLAP_ENTRY, "ML Vocoder"),
     ] {
         let lib = unsafe {
@@ -365,7 +365,7 @@ fn editor_controls_and_actual_renders() {
         }
         let c = convolver::Convolver::default();
         let v = vocoder::Vocoder::default();
-        let panel: Box<dyn Extension> = if spec.name == "ML Convolver" {
+        let panel: Box<dyn Extension> = if spec.name == "ML Space" {
             Box::new(convolver::Panel {
                 shared: c.params.shared.clone(),
             })
@@ -399,6 +399,20 @@ fn editor_controls_and_actual_renders() {
                     .save_png(std::path::Path::new(&dir).join(format!("{} {scale}.png", spec.name)))
                     .unwrap();
             }
+        }
+    }
+}
+
+#[test]
+fn factory_spaces_have_distinct_finite_stereo_responses() {
+    let mut names=std::collections::HashSet::new();
+    for family in 0..6 {
+        for variant in 0..4 {
+            let ir=impulse::Impulse::factory(family,variant);
+            assert!(names.insert(ir.name));
+            assert!(!ir.left.is_empty() && ir.left.len()==ir.right.len());
+            assert_ne!(ir.left,ir.right);
+            assert!(ir.left.iter().chain(&ir.right).all(|x|x.is_finite()));
         }
     }
 }

@@ -114,6 +114,7 @@ fn curve(c: &mut Canvas, r: Rect, v: &[i32]) {
     });
 }
 
+#[derive(Clone)]
 struct Dist {
     shaper: FastDist,
     oversampling: Oversampler,
@@ -138,10 +139,10 @@ impl Sound for Dist {
     }
 }
 
-fn sound(_rate: u32, v: &[i32]) -> Box<dyn Sound> {
+fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
     let mut dist = Dist { shaper: FastDist::with_settings(&settings(v)), oversampling: Oversampler::default() };
     dist.set(v);
-    Box::new(dist)
+    super::quality::ControlTransition::<_, { SETTINGS.len() }>::boxed(dist, v, rate)
 }
 
 pub struct FastDistortionKind;

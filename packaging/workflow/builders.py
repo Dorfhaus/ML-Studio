@@ -86,6 +86,14 @@ def windows(config,out,log):
     binary=Path(env['CARGO_TARGET_DIR'])/'release/lemonstudio.exe'
     command(log,r.sys.executable,r.ROOT/'packaging/windows/prepare-update.py','--output',out,'--binary',binary,env=env)
     site=out/'lemon-studio';v=str(r.version());payload=out/'payload';payload.mkdir()
+    if os.environ.get('ML_STUDIO_FILTERED_RELEASE') == '1':
+        profile=out/'startup-profile'
+        profile.mkdir()
+        report=out/'startup-report.txt'
+        clean=dict(env, OPENSTUDIO_USER_DIR=str(profile), GRIDLINE_CONFIG_HOME=str(profile))
+        command(log,site/'updates'/v/'lemonstudio.exe','--startup-report',report,env=clean,timeout=140)
+        if 'mixer_tracks=127' not in report.read_text(encoding='utf8'):
+            raise RuntimeError('Windows release failed clean-profile startup')
     for name in ('lemonstudio.exe','ML Studio Source.zip','LICENSE','THIRD-PARTY-NOTICES.txt'):shutil.copy2(site/'updates'/v/name,payload/name)
     shutil.copytree(cfg['runtime'],payload/'runtime');shutil.copy2(r.ROOT/'crates/os-app/assets/templates/ML Mix Template.flp',payload/'ML Mix Template.lmn')
     (payload/'READ ME.txt').write_text('ML Studio — Michael Lane Edition\n'+r.BASE,encoding='utf-8')

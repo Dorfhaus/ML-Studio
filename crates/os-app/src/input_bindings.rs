@@ -322,6 +322,17 @@ fn context(win: Option<Win>) -> usize {
         _ => 0,
     }
 }
+fn keyboard_context(app: &App) -> usize {
+    if app.over_browser() { 5 } else { context(app.state.z.last().copied()) }
+}
+
+pub(crate) fn has_keyboard_binding(app: &App, key: &Key, ctrl: bool, alt: bool, shift: bool) -> bool {
+    available(app)
+        && key_name(key).is_some_and(|name| {
+            lookup(keyboard_context(app), &format!("Key {name}"), modifiers(ctrl, alt, shift)).is_some()
+        })
+}
+
 fn available(app: &App) -> bool {
     !app.input_bindings.replay
         && !app.modal_open()
@@ -711,6 +722,7 @@ pub fn press(app: &mut App, button: usize) -> bool {
                 | Action::RackStepGap
                 | Action::Step(..)
                 | Action::RackSelect(_)
+                | Action::RackSelection(_)
                 | Action::BrowserRow(_)
                 | Action::BrowserList
                 | Action::Fader(_)
@@ -1045,11 +1057,7 @@ pub fn key(app: &mut App, key: &Key, ctrl: bool, alt: bool) -> bool {
     if !ctrl && !alt && matches!(key, Key::Character(_)) && app.browser_takes_typing() {
         return false;
     }
-    let c = if app.over_browser() {
-        5
-    } else {
-        context(app.state.z.last().copied())
-    };
+    let c = keyboard_context(app);
     let Some(actions) = lookup(c, &format!("Key {name}"), modifiers(ctrl, alt, app.shift)) else {
         return false;
     };

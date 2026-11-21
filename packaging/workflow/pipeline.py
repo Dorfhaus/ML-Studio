@@ -9,7 +9,7 @@ import discord_changelog
 import download_page
 from checkpoints import Journal, atomic_json, digest, exclusive, plan_files, stage_plan
 
-CONFIG=r.PRIVATE/'pipeline.json'
+CONFIG=Path(os.environ.get('ML_STUDIO_RELEASE_CONFIG', r.PRIVATE/'pipeline.json'))
 PLATFORMS=download_page.PLATFORMS
 MAC_PLATFORMS=PLATFORMS[2:]
 WINDOWS_LINUX_LINKS=('platforms/windows.json','platforms/linux.json','updates/stable.json','updates/linux-x64/stable.json')
@@ -19,6 +19,21 @@ REPOSITORY='Dorfhaus/ML-Studio'
 def config():
     if not CONFIG.exists():raise RuntimeError('Publishing pipeline is not configured on this computer: '+str(CONFIG))
     return json.loads(CONFIG.read_text(encoding='utf-8-sig'))
+
+
+def source_branch():
+    branch = r.git('branch', '--show-current')
+    return branch if re.fullmatch(r'release/[a-z0-9-]+', branch) else 'main'
+
+
+def ensure_public_tree():
+    markers = r'ML Studio 30' + r'36|neon_30' + r'36|crate::synth' + r'wave|LEMON_30' + r'36'
+    result = subprocess.run(
+        ['git', 'grep', '-IilE', markers, '--', 'crates', 'plugins', 'packaging', 'docs'],
+        cwd=r.ROOT, capture_output=True, text=True,
+    )
+    if result.returncode != 1:
+        raise RuntimeError('Unreleased theme source found or source scan failed: ' + result.stdout.strip())
 
 
 def read_url(url):
@@ -85,9 +100,23 @@ def remote(args,log,sync=False):
     import shlex
     cfg=r.read_config();repo=cfg['mac_repo'];q=shlex.quote
     prefix='export PATH="$HOME/.cargo/bin:$HOME/.lemon-studio-release/tools/bin:$PATH"; set -e; '
-    if sync:
+    branch=source_branch()
+    revision=r.git('rev-parse','HEAD')
+    if branch!='main':
+        primary=repo
+        name=branch.split('/')[-1]
+        repo=primary+'-'+name
+        prefix+=f'export ML_STUDIO_RELEASE_CONFIG="$HOME/.lemon-studio-release/pipeline-{name}.json"; '
+        prefix+='export ML_STUDIO_FILTERED_RELEASE=1; '
+        if sync:
+            prefix+=f'git -C {q(primary)} fetch home {q(branch)}; '
+            prefix+=f'test "$(git -C {q(primary)} rev-parse FETCH_HEAD)" = {q(revision)}; '
+            prefix+=f'if test -e {q(repo)}; then test -z "$(git -C {q(repo)} status --porcelain)"; '
+            prefix+=f'git -C {q(repo)} merge --ff-only {q(revision)}; '
+            prefix+=f'else git -C {q(primary)} worktree add --detach {q(repo)} {q(revision)}; fi; '
+    elif sync:
         prefix+=f'test -z "$(git -C {q(repo)} status --porcelain)"; git -C {q(repo)} fetch home main; git -C {q(repo)} merge --ff-only home/main; '
-    prefix+=f'test -z "$(git -C {q(repo)} status --porcelain)"; test "$(git -C {q(repo)} rev-parse HEAD)" = {q(r.git("rev-parse","HEAD"))}; '
+    prefix+=f'test -z "$(git -C {q(repo)} status --porcelain)"; test "$(git -C {q(repo)} rev-parse HEAD)" = {q(revision)}; '
     command=prefix+'exec '+shlex.join([cfg['mac_python'],repo+'/packaging/workflow/pipeline.py',*map(str,args)])
     for attempt in range(3 if args[0] in ('publish-worker','publish-files-worker') else 1):
         try:
@@ -147,7 +176,7 @@ def prepare(notes, no_changelog=False, mac_only=False):
         r.run('git','commit','-m',f'Prepare {"macOS" if mac_only else "complete"} release {v}')
     elif v<=max(live.values()):raise RuntimeError('This build is already published. Supply --notes with the new changes to prepare a new release.')
     release_notes()
-    r.run('git','push','--receive-pack=git -c receive.autogc=false receive-pack','home','HEAD:main')
+    r.run('git','push','--receive-pack=git -c receive.autogc=false receive-pack','home','HEAD:refs/heads/'+source_branch())
 
 
 def identity():
@@ -159,6 +188,21 @@ def output_root():return storage.app_root()/'Lemon Studio Public Download'/str(r
 
 
 def privacy(plan):
+    if os.environ.get('ML_STUDIO_FILTERED_RELEASE') == '1':
+        ensure_public_tree()
+        markers = (b'ML Studio '+b'3036', b'neon_'+b'3036', b'appearance_ml_studio_'+b'3036')
+        for path in plan_files(plan)[1:]:
+            if path.name in ('lemonstudio', 'lemonstudio.exe'):
+                with path.open('rb') as f, mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as data:
+                    if any(data.find(marker)>=0 for marker in markers):
+                        raise RuntimeError('Unreleased theme marker in '+path.name)
+            elif path.name.endswith('Studio Source.zip'):
+                with zipfile.ZipFile(path) as source:
+                    for member in source.infolist():
+                        if member.filename.endswith(('.rs', '.md', '.json', '.cpp', '.h')):
+                            data=source.read(member)
+                            if any(marker in data for marker in markers):
+                                raise RuntimeError('Unreleased theme marker in '+member.filename)
     pack=Path(os.environ.get('LOCALAPPDATA',''))/'Lemon Studio/Lemon Wave/Included Library.lwpack'
     if pack.is_file():
         data=pack.read_bytes()
@@ -422,8 +466,14 @@ def coordinator(notes=None,check=False,no_changelog=False,mac_only=False):
     if platform.system()!='Windows':raise RuntimeError('Run the complete release from the Windows coordinator; this Mac provides native workers.')
     with exclusive(r.PRIVATE/'pipeline.lock'):
         if r.git('status','--porcelain'):raise RuntimeError('Commit intended source changes first; nothing was stashed or reset')
-        r.run('git','fetch','home','main');r.run('git','merge','--ff-only','home/main')
-        r.run('git','push','--receive-pack=git -c receive.autogc=false receive-pack','home','HEAD:main')
+        branch=source_branch()
+        if branch=='main':
+            r.run('git','fetch','home','main')
+            r.run('git','merge','--ff-only','home/main')
+        else:
+            ensure_public_tree()
+            os.environ['ML_STUDIO_FILTERED_RELEASE']='1'
+        r.run('git','push','--receive-pack=git -c receive.autogc=false receive-pack','home','HEAD:refs/heads/'+branch)
         c=config();prelog=r.PRIVATE/'pipeline-preflight.log'
         probe();remote(['probe'],prelog,sync=True)
         if check:
@@ -544,6 +594,26 @@ def coordinator(notes=None,check=False,no_changelog=False,mac_only=False):
         if not maintenance:
             j.step('Post Discord changelog', post_discord)
         def backup(_):
+            if branch!='main':
+                index,_=artifacts(plans, MAC_PLATFORMS if mac_only else PLATFORMS)
+                key='mac-arm64' if mac_only else 'windows'
+                manifest=json.loads(index[f'platforms/{key}.json'][0].read_text())
+                source=index[manifest['source']][0]
+                relative=Path('releases')/(str(r.version())+'-public')/'ML Studio Source.zip'
+                dest=r.shared_folder()/relative
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                if dest.exists():
+                    if digest(source)!=digest(dest):raise RuntimeError('Public backup already exists with different content')
+                else:
+                    pending=dest.with_suffix('.pending')
+                    shutil.copyfile(source,pending)
+                    if digest(source)!=digest(pending):raise RuntimeError('Public backup checksum differs')
+                    os.replace(pending,dest)
+                latest=dict(version=r.version(),source=relative.as_posix(),sha256=digest(dest),
+                    commit=r.git('rev-parse','HEAD'),github=json.loads((out/'GITHUB-VERIFIED.json').read_text())['url'])
+                atomic_json(r.shared_folder()/'LATEST-PUBLIC.json',latest)
+                receipt=out/'BACKUP-VERIFIED.json';atomic_json(receipt,latest)
+                return str(dest),[dest,receipt]
             env=dict(os.environ,LEMON_JUCE_SOURCE=c['juce_source'],PYTHONUTF8='1')
             b.command(out/'backup.log','powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',c['source_sync'],'-Source',r.ROOT,env=env)
             latest=json.loads((r.shared_folder()/'LATEST.json').read_text(encoding='utf-8-sig'));p=r.shared_folder()/latest['source']

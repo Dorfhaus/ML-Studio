@@ -170,7 +170,7 @@ struct Drag {
 
 /// Every parameter id in the host's order: the knobs, then the switches.
 pub fn ids() -> impl Iterator<Item = &'static str> {
-    DEFS.iter().map(|d| d.id).chain([params::TEMPO_ID, params::MID_SIDE_ID])
+    DEFS.iter().map(|d| d.id).chain([params::TEMPO_ID, params::MID_SIDE_ID, "duck", "duck_amount"])
 }
 
 pub struct Logic {
@@ -186,14 +186,19 @@ pub struct Logic {
     pub hosted: bool,
     /// The room visual's clock: it starts a turn, corner first, when the editor opens.
     opened: Instant,
+    last_frame: Instant,
+    field: room::ReturnField,
     /// A fixed turn angle instead of the clock (tests, screenshots).
     pub still: Option<f32>,
 }
 
 impl Logic {
     pub fn new(params: Arc<ReverbParams>, shared: Arc<Shared>, ctx: Option<Arc<dyn GuiContext>>) -> Self {
+        for meter in &shared.levels {
+            meter.store(0, Ordering::Relaxed);
+        }
         let vals = Vals::new(&*params, params.live.clone(), ctx);
-        let mut l = Logic { vals, params, shared, view: ViewState::default(), hits: Vec::new(), drag: None, hint: String::new(), copied: None, hosted: false, opened: Instant::now(), still: None };
+        let mut l = Logic { vals, params, shared, view: ViewState::default(), hits: Vec::new(), drag: None, hint: String::new(), copied: None, hosted: false, opened: Instant::now(), last_frame: Instant::now(), field: Default::default(), still: None };
         l.sync_tempo_text();
         l
     }
@@ -208,6 +213,8 @@ impl Logic {
 
     fn name(id: &str) -> String {
         match id {
+            "duck" => "Ducking".into(),
+            "duck_amount" => "Duck amount".into(),
             params::TEMPO_ID => params::TEMPO_NAME.into(),
             params::MID_SIDE_ID => params::MID_SIDE_NAME.into(),
             _ => params::index(id).map_or_else(|| id.to_string(), |k| DEFS[k].name.to_string()),
@@ -233,7 +240,7 @@ impl Logic {
     }
 
     fn range(id: &str) -> (i32, i32) {
-        params::index(id).map_or((0, 1), |k| dsp::RANGES[k])
+        match id { "duck_amount" => (0,100), "duck" => (0,2), _ => params::index(id).map_or((0, 1), |k| dsp::RANGES[k]) }
     }
 
     fn reset(&mut self, id: &str) {
@@ -269,6 +276,10 @@ impl Logic {
                 self.sync_tempo_text();
             }
             (Target::Knob(id) | Target::Fader(id) | Target::Switch(id), Btn::Right) => acts.push(Act::Menu(MenuReq::Param(id.clone()), x, y)),
+            (Target::Mode(_), Btn::Left) if m.alt => self.reset("duck"),
+            (Target::Mode(_), Btn::Middle) => self.reset("duck"),
+            (Target::Mode(mode), Btn::Left) => self.vals.edit_plain("duck",f32::from(*mode)),
+            (Target::Mode(_), Btn::Right) => acts.push(Act::Menu(MenuReq::Param("duck".into()),x,y)),
             (Target::Logo, Btn::Left | Btn::Right) => acts.push(Act::Menu(MenuReq::About, x, y)),
             _ => {}
         }
@@ -341,7 +352,7 @@ impl Logic {
                 m.sep(Cmd::None);
                 m.add(MenuItem::item("Copy value"), Cmd::CopyValue(id.clone()));
                 m.add(MenuItem::item("Paste value").enabled(self.copied.is_some()), Cmd::PasteValue(id.clone()));
-                if params::index(id).is_some() {
+                if params::index(id).is_some() || id=="duck_amount" {
                     m.add(MenuItem::item("Type in value..."), Cmd::TypeIn(id.clone()));
                 }
                 // Automation belongs to the host: offered when Lemon Studio hosts the editor (host link).
@@ -396,7 +407,11 @@ impl Logic {
     /// Paints the editor; `hint` is drawn when the host does not show it.
     pub fn paint(&mut self, c: &mut os_ui::Canvas, palette: &os_theme::Palette) {
         self.sync_tempo_text();
-        let look = view::Look { room: room::look(&self.knobs()), angle: self.angle() };
+        let now = Instant::now();
+        let peaks = self.shared.levels.each_ref().map(|m| f32::from_bits(m.swap(0, Ordering::Relaxed)));
+        self.field.advance(peaks,now.duration_since(self.last_frame).as_secs_f32());
+        self.last_frame = now;
+        let look = view::Look { room: room::look(&self.knobs()), angle: self.angle(), field: &self.field };
         let hint = if self.hosted { String::new() } else { self.hint.clone() };
         self.hits = view::paint(c, palette, &self.vals, &self.view, &look, &hint);
     }
@@ -935,7 +950,7 @@ mod tests {
         for id in [params::TEMPO_ID, params::MID_SIDE_ID] {
             centre(&l, &Target::Switch(id.into()));
         }
-        assert_eq!(ids().count(), PARAMS + 2);
+        assert_eq!(ids().count(), PARAMS + 4);
     }
 
     #[test]
@@ -1027,6 +1042,62 @@ mod tests {
         assert_eq!(l.pick(&MenuReq::Param("tempo".into()), Cmd::Automate("tempo".into()), 0.0, 0.0), vec![Act::Automate(PARAMS)]);
         let (x, y) = centre(&l, &Target::Logo);
         assert!(matches!(l.down(x, y, Btn::Left, Mods::default(), false).last(), Some(Act::Menu(MenuReq::About, _, _))));
+    }
+
+    #[test]
+    fn ducking_panel_and_room_follow_the_wet_return() {
+        let mut ui=logic();
+        ui.hosted=true;
+        for mode in [0,1,2] {
+            let (x,y)=centre(&ui,&Target::Mode(mode));
+            assert!(y>view::BEZEL.bottom());
+            ui.down(x,y,Btn::Left,Mods::default(),false);
+            assert_eq!(ui.vals.plain("duck"),f32::from(mode));
+        }
+        let (x,y)=centre(&ui,&Target::Knob("duck_amount".into()));
+        assert!(y>view::BEZEL.bottom());
+        ui.typed("duck_amount","71%");
+        ui.wheel(x,y,1.,Mods::default());
+        assert_eq!(ui.vals.plain("duck_amount"),72.);
+        assert_eq!(ids().nth(dsp::PARAMS+3),Some("duck_amount"));
+        let mut reverb=dsp::Reverb::new(32000,ui.params.settings(&crate::params::default_state()),120.);
+        reverb.duck_mode=2;
+        reverb.duck_amount=0.72;
+        let preview=std::env::var_os("ML_REVERB_PREVIEW").map(std::path::PathBuf::from);
+        let mut wet_peak=0.0_f32;
+        let mut heard_tail=false;
+        for frame in 0..75 {
+            let mut left=[0.;1280];
+            let mut right=[0.;1280];
+            let hit=if (4..12).contains(&frame) {Some(4)} else if (27..35).contains(&frame) {Some(27)} else {None};
+            if let Some(start)=hit {
+                for i in 0..left.len() {
+                    let t=((frame-start)*1280+i) as f32 /32000.;
+                    let envelope=(t*120.).min(1.)*(-t*4.5).exp()*0.7;
+                    left[i]=envelope*((t*1382.).sin()+0.4*(t*2074.).sin());
+                    right[i]=envelope*((t*1382.).sin()+0.4*(t*2764.).sin());
+                }
+            }
+            let levels=reverb.process_metered(&mut left,&mut right);
+            wet_peak=wet_peak.max(levels[0]);
+            heard_tail |= frame>35 && levels[0]>0.001;
+            ui.shared.levels.each_ref().into_iter().zip(levels).for_each(|(m,v)|m.store(v.to_bits(),Ordering::Relaxed));
+            ui.still=Some(room::angle_at(frame as f64*0.04));
+            ui.last_frame=Instant::now()-std::time::Duration::from_millis(40);
+            let mut c=os_ui::Canvas::new(view::W,view::H,1.).unwrap();
+            ui.paint(&mut c,&os_plugkit::palette());
+            if let Some(dir)=&preview {
+                let mut pixels=vec![0;(view::W*view::H) as usize];
+                c.copy_to_xrgb(&mut pixels);
+                let mut pm=tiny_skia::Pixmap::new(view::W,view::H).unwrap();
+                for (rgba,pixel) in pm.data_mut().chunks_exact_mut(4).zip(pixels) {
+                    rgba.copy_from_slice(&[(pixel>>16) as u8,(pixel>>8) as u8,pixel as u8,255]);
+                }
+                pm.save_png(dir.join(format!("room-{frame:02}.png"))).unwrap();
+            }
+        }
+        assert!(wet_peak>0.02 && heard_tail);
+        assert!(ui.field.level[2]<0.02);
     }
 
     /// `REVERB_PNG=<dir> cargo test -p lemon-reverb -- --ignored`: the editor at a few settings, as PNGs.

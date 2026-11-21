@@ -614,11 +614,21 @@ pub fn join_group(s: &mut State, r: usize, name: &str) {
     autosize(s);
 }
 
-/// Assign only ungrouped clip channels. Existing custom groups and channel order stay intact.
-pub(crate) fn organize_clips(s: &mut State) {
-    for (kind, name) in [(ChannelKind::AudioClip, "Audio"), (ChannelKind::Automation, "Automation")] {
+/// File ungrouped channels by type. Existing groups and channel order stay intact.
+pub(crate) fn organize_channels(s: &mut State) {
+    fn category(channel: &os_model::Channel) -> Option<&'static str> {
+        match channel.kind {
+            ChannelKind::Plugin | ChannelKind::Layer => Some("Instruments"),
+            ChannelKind::AudioClip => Some("Audio"),
+            ChannelKind::Sampler if channel.sample_path.is_some() => Some("Audio"),
+            ChannelKind::Automation => Some("Automation"),
+            _ => None,
+        }
+    }
+
+    for name in ["Instruments", "Audio", "Automation"] {
         let rows: Vec<_> = s.project.channels.iter().enumerate()
-            .filter(|(r,c)| c.kind == kind && !s.rack.groups.iter().any(|g|g.members.contains(r)))
+            .filter(|(r,c)| category(c) == Some(name) && !s.rack.groups.iter().any(|g|g.members.contains(r)))
             .map(|(r,_)|r).collect();
         if rows.is_empty() { continue; }
         let g = s.rack.groups.iter().position(|g|g.name == name).unwrap_or_else(|| {
@@ -630,7 +640,7 @@ pub(crate) fn organize_clips(s: &mut State) {
 }
 
 pub(crate) fn focus_channel(s: &mut State, row: usize) {
-    organize_clips(s);
+    organize_channels(s);
     if !crate::settings_file::flag("rack_auto_filter",true) || in_filter(s,row) { return; }
     s.rack.filter = s.rack.groups.iter().position(|g|g.members.contains(&row)).map_or(Filter::Unsorted,Filter::Group);
     s.rack_scroll=0.;
@@ -650,12 +660,9 @@ pub(crate) fn focus_source(s: &mut State, source: os_model::ClipSource) {
     }
 }
 
-/// New instruments follow the selected custom group, never an audio/automation group.
-pub(crate) fn added_instrument(s: &mut State, row: usize) {
-    if let Filter::Group(g)=s.rack.filter {
-        if let Some(g)=s.rack.groups.get_mut(g).filter(|g|g.name!="Audio"&&g.name!="Automation") { g.members.insert(row); }
-    }
-    focus_channel(s,row);
+/// Keep newly added channels in view after filing them by type.
+pub(crate) fn added_channel(s: &mut State, row: usize) {
+    focus_channel(s, row);
     autosize(s);
 }
 
@@ -861,6 +868,8 @@ pub fn set_graph_open(s: &mut State, open: bool) {
     }
 }
 
+pub(crate) const SELECTION_SLOT_VISIBILITY: &str = "visible_rack-selection-slot";
+
 pub(crate) const STEP_GRID_VISIBILITY: &str = "visible_rack-steps";
 
 pub(crate) fn show_steps() -> bool {
@@ -877,7 +886,7 @@ pub(crate) fn set_window_size(s: &mut State, width: f32, height: f32) {
 
 /// Apply Auto resize after the shown rows changed.
 pub fn autosize(s: &mut State) {
-    organize_clips(s);
+    organize_channels(s);
     if s.rack.auto_resize==AutoResize::Min && s.screen.1>0. {
         let work=s.work_rect();
         let fit=(crate::views::rack::height_overhead(s)+crate::views::rack::rows_h(s).max(crate::views::rack::row_pitch(s))).min((work.h-4.).max(crate::views::rack::min_h(s)));
@@ -1421,17 +1430,28 @@ pub fn ask_purge(s: &mut State) -> Option<String> {
 /// (`history::delete_channels`).
 pub fn delete_rows(app: &mut App, rows: &[usize]) {
     let n = app.state.project.channels.len();
-    let gone: Vec<usize> = rows.iter().copied().filter(|&r| r < n).collect();
+    let mut gone: Vec<usize> = rows.iter().copied().filter(|&r| r < n).collect();
+    gone.sort_unstable();
+    gone.dedup();
+    if gone.is_empty() {
+        return;
+    }
+    if gone.len() == n {
+        app.state.message = Some("A project keeps at least one channel".into());
+        app.invalidate();
+        return;
+    }
+    let count = gone.len();
+    let first = gone[0];
+    let order: Vec<_> = (0..n).filter(|r| gone.binary_search(r).is_err()).collect();
     let back = gone.iter().filter_map(|&r| app.plugin_copy(r).map(|(i, blob)| (r, i, blob))).collect();
     crate::history::delete_channels(&mut app.state, gone, back);
-    let order: Vec<usize> = (0..n).filter(|r| !rows.contains(r)).collect();
-    let first = rows.iter().copied().min().unwrap_or(0);
     reorder(app, &order);
     let s = &mut app.state;
     let r = first.min(s.project.channels.len().saturating_sub(1));
     s.rack.select_only(r);
     s.selected_channel = r;
-    s.message = Some(if rows.len() == 1 { "Deleted the channel".into() } else { format!("Deleted {} channels", rows.len()) });
+    s.message = Some(if count == 1 { "Deleted the channel".into() } else { format!("Deleted {count} channels") });
 }
 
 /// Move the selected channels one row up (`dir` -1) or down (+1).
@@ -1590,6 +1610,7 @@ pub enum RCmd {
     MixerReset(usize),
     RouteSelected(usize, bool),
     AssignFree(usize),
+    SplitOutputs(usize),
     // Display filter (§21).
     SetFilter(Filter),
     AutoFilter,
@@ -1845,6 +1866,11 @@ pub(crate) fn default_channel_menu(s: &State, r: usize, x: f32, y: f32, catalog:
     }
     items.extend(crate::rack_controls::routing_items(s, r));
     let paste = it("Paste", RCmd::Paste(r));
+    let delete = if !catalog && s.rack.sel.contains(&r) && s.rack.sel.len() > 1 {
+        RCmd::DeleteSel
+    } else {
+        RCmd::Delete(r)
+    };
     items.extend([
         PItem::sep(),
         PItem::sub("Pattern editing", vec![
@@ -1873,7 +1899,7 @@ pub(crate) fn default_channel_menu(s: &State, r: usize, x: f32, y: f32, catalog:
         PItem::sep(),
         it("Clone", RCmd::Clone(r)),
         it("Clone (Complete)", RCmd::CloneComplete(r)),
-        it("Delete...", RCmd::Delete(r)).key("D"),
+        it("Delete...", delete).key("D"),
     ]);
     Popup { x, y, items, sub: None, scroll: [0; 2], cascade: Vec::new() }
 }
@@ -2068,6 +2094,7 @@ pub fn sample_chosen(app: &mut App, r: usize, p: std::path::PathBuf) {
         ch.sample_path = Some(path.clone());
     }
     s.sample_loads.push((r, path));
+    added_channel(s, r);
     s.piano.dirty = true;
 }
 
@@ -2215,6 +2242,13 @@ pub fn run(app: &mut App, c: RCmd) -> Option<String> {
             None
         }
         // spec: ui/mixer-track-commands.md §1
+        RCmd::SplitOutputs(row) => {
+            let previous = s.project.channels.get(row)?.misc.split_outputs;
+            crate::history::record(s, "Split instrument outputs", crate::history::Snap::SplitOutputs(row, previous));
+            s.project.channels[row].misc.split_outputs = !previous;
+            s.piano.dirty = true;
+            None
+        }
         RCmd::AssignFree(r) => crate::mixer::route_free(s, &[r]),
         RCmd::AssignFreeSel => crate::mixer::route_free(s, &sel),
         RCmd::SelectMixerTracks => {
@@ -2504,7 +2538,12 @@ pub fn key(app: &mut App, key: &winit::keyboard::Key, ctrl: bool, alt: bool) -> 
             let j = if *k == NamedKey::PageUp { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
             RCmd::SetFilter(all[j])
         }
-        Key::Named(NamedKey::Delete) if !ctrl => RCmd::DeleteSel,
+        Key::Named(NamedKey::Delete) if !ctrl => {
+            if app.repeat {
+                return true;
+            }
+            RCmd::DeleteSel
+        }
         Key::Named(NamedKey::Escape) => {
             s.hide(Win::ChannelRack);
             app.invalidate();
@@ -2686,7 +2725,6 @@ pub fn from_model(s: &mut State) {
         rack.groups.push(Group { name: name.clone(), members });
     }
     rack.filter = match p.current_group.map(|g| g as usize) {
-        None if p.groups.is_empty() => Filter::Unsorted,
         None => Filter::All,
         Some(g) => match file_to_ui.get(g) {
             Some(Some(u)) => Filter::Group(*u),
@@ -2696,7 +2734,10 @@ pub fn from_model(s: &mut State) {
     };
     read_loops(s);
     s.rack.pattern_seen=Some(s.pattern);
-    organize_clips(s);
+    organize_channels(s);
+    if s.rack.filter == Filter::Unsorted && shown(s).is_empty() {
+        s.rack.filter = Filter::All;
+    }
 }
 
 fn read_loops(s:&mut State) {
@@ -2722,7 +2763,7 @@ fn read_loops(s:&mut State) {
 
 /// Writes the rack state into the project before a save (the inverse of [`from_model`]).
 pub fn to_model(s: &mut State) {
-    organize_clips(s);
+    organize_channels(s);
     let rack = &s.rack;
     let p = &mut s.project;
     // Groups in file order: the user groups, with "Unsorted" where the file had it (else last, like FL's Alt+G).
@@ -2811,6 +2852,35 @@ mod tests {
     }
 
     #[test]
+    fn new_channels_join_their_type_from_the_instrument_picker_and_sample_drop() {
+        let mut app = App::new(None);
+        app.plugins = crate::plugins::Plugins::builtins();
+        let plugin = app.plugins.available.iter()
+            .position(|item| item.desc.name == crate::osc3::LEMON_TRIO).unwrap();
+        app.state.rack.groups = vec![Group { name: "Custom".into(), members: [0].into() }];
+        app.state.rack.filter = Filter::Group(0);
+        crate::plugin_menu::add_generator(&mut app, plugin, None);
+        let instrument = app.state.selected_channel;
+        assert!(app.state.rack.groups.iter().any(|g| g.name == "Instruments" && g.members.contains(&instrument)));
+        assert_eq!(app.state.rack.groups[0].members, [0].into());
+        assert!(in_filter(&app.state, instrument));
+
+        app.sample_to_channel("rack-category-test.wav".into(), None);
+        let sample = app.state.selected_channel;
+        assert_eq!(app.state.project.channels[sample].kind, ChannelKind::Sampler);
+        assert!(app.state.rack.groups.iter().any(|g| g.name == "Audio" && g.members.contains(&sample)));
+        assert!(in_filter(&app.state, sample));
+        let s = &mut app.state;
+        to_model(s);
+        let groups = s.project.groups.clone();
+        let ids = (s.project.channels[instrument].rack.group, s.project.channels[sample].rack.group);
+        from_model(s);
+        to_model(s);
+        assert_eq!(s.project.groups, groups);
+        assert_eq!((s.project.channels[instrument].rack.group, s.project.channels[sample].rack.group), ids);
+    }
+
+    #[test]
     fn automatic_clip_groups_preserve_custom_groups_and_roundtrip() {
         let mut app=App::new(None);let s=&mut app.state;
         s.project=crate::app::test_project();
@@ -2818,7 +2888,7 @@ mod tests {
         s.project.channels[2].kind=ChannelKind::Automation;
         s.rack.groups=vec![Group{name:"My drums".into(),members:[0].into()}];
         s.rack.filter=Filter::Group(0);
-        organize_clips(s);
+        organize_channels(s);
         assert_eq!(s.rack.filter,Filter::Group(0));
         assert!(s.rack.groups[0].members.contains(&0));
         assert!(s.rack.groups.iter().any(|g|g.name=="Audio"&&g.members.contains(&1)));

@@ -448,7 +448,8 @@ pub fn toggle(c: &mut Canvas, cx: f32, cy: f32, on: bool, st: State) {
 
 /// Panel or card: outlined, radius 10.
 pub fn plug_panel(c: &mut Canvas, r: Rect) {
-    outlined(c, r, 10.0, plug::PANEL_LINE, plug::PANEL);
+    c.fill_rrect(r,8.,plug::PANEL_LINE);
+    c.fill_rect_gradient(r.inset(1.),plug::PANEL.mix(Color::rgb(0x708197),0.12),plug::PANEL.mix(Color::rgb(0x10151b),0.35),7.);
 }
 
 /// Greys out a panel (`plug_panel`) whose controls do nothing yet: the editor background over it, at the strength of
@@ -459,7 +460,9 @@ pub fn plug_veil(c: &mut Canvas, r: Rect) {
 
 /// Display well (graphs, waveform), radius `radius`.
 pub fn plug_well(c: &mut Canvas, r: Rect, radius: f32) {
-    outlined(c, r, radius, plug::WELL_LINE, plug::WELL);
+    c.fill_rrect(r, radius, plug::WELL_LINE);
+    c.fill_rect_gradient(r.inset(1.), plug::WELL.mix(Color::rgb(0x131c26), 0.4),
+        plug::WELL, (radius - 1.).max(0.));
 }
 
 /// Field (list box, button group): outlined dark rounded box; hover lifts it, pressed darkens it.
@@ -481,7 +484,9 @@ pub fn plug_button(c: &mut Canvas, r: Rect, radius: f32, st: State) -> Color {
         return brand::COLORED_DARK;
     }
     let fill = if st.pressed { Color::rgb(0x3a3a3a) } else if st.hover { Color::rgb(0x525252) } else { plug::FACE };
-    outlined(c, r, radius, plug::FACE_LINE, fill);
+    c.fill_rrect(r, radius, plug::FACE_LINE);
+    let top = if st.pressed {fill} else {fill.mix(Color::rgb(0x8493a6), 0.17)};
+    c.fill_rect_gradient(r.inset(1.), top, fill.mix(plug::WELL, 0.22), (radius - 1.).max(0.));
     if st.hover { Color::rgb(0xffffff) } else { brand::TEXT }
 }
 

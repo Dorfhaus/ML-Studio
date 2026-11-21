@@ -558,6 +558,26 @@ mod tests {
         assert_eq!(a.state.project, before);
     }
     #[test]
+    fn paste_on_the_same_linked_lane_keeps_the_copied_source() {
+        let mut a = app();
+        attached::toggle(&mut a);
+        attached::bind(&mut a.state, 0, 2);
+        let s = &mut a.state;
+        let original = pl::clips(s)[0].clone();
+        assert_eq!(route(s, 0), 1);
+        assert_eq!(attached::owner(s, 0), Some(2));
+        s.playlist.sel = vec![0];
+        pl::copy(s);
+        s.playlist.track = 0;
+        s.playlist.pos = 768;
+        let channels = s.project.channels.clone();
+        pl::paste(s);
+        let copy = pl::clips(s).last().unwrap();
+        assert_eq!((copy.track, copy.position, copy.source), (original.track, 768, original.source));
+        assert_eq!(s.project.channels, channels);
+    }
+
+    #[test]
     fn unattached_editing_paste_layout_and_menus_keep_the_original_behavior() {
         let mut a = app();
         let original = a.state.project.clone();

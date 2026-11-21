@@ -92,6 +92,7 @@ pub fn clip(s: f32, t: f32, k: f32, r: f32) -> f32 {
     }
 }
 
+#[derive(Clone)]
 pub struct SoftClipper {
     applied: [i32; PARAMS],
     t: f32,

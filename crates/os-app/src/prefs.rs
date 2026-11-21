@@ -367,13 +367,11 @@ pub const AUTO_KEEP_ON_DISK: Check = Check { key: "auto_keep_long_audio_on_disk"
 pub const THREADED_SAMPLE_LOADING: Check =
     Check { key: "threaded_project_sample_loading", label: "Threaded project sample loading", default: false };
 
-/// General ▸ Display: stored and shown only (the choices of Main GUI scaling). Lemon Studio draws no cursors of its
-/// own yet: the system's follow the system's size. Spec: ui/settings-choices.md "Advanced: Cursors scaling and Legacy
-/// scaling (2026-10-16)".
+/// General ▸ Display: use the system size or specify cursor scaling independently of the interface.
 pub const CURSORS_SCALING: Combo = Combo {
     key: "cursors_scaling",
-    label: "Cursors scaling",
-    choices: &["System", "100%", "125%", "150%", "175%", "200%", "250%", "300%", "350%", "400%"],
+    label: "Cursor size",
+    choices: &["System", "50%", "75%", "100%", "125%", "150%", "175%", "200%", "250%", "300%", "350%", "400%"],
     default: 0,
 };
 
@@ -1349,8 +1347,8 @@ main_gui_scaling = 200%
         let s = Store::parse(
             "fast_sample_preview=0\nauto_keep_long_audio_on_disk=0\nthreaded_project_sample_loading=1\ncursors_scaling=250%\nlegacy_scaling=300%\n",
         );
-        assert_eq!((checks(&s), combos(&s)), ([false, false, true], (6, 3)));
-        assert_eq!(CURSORS_SCALING.choices, MAIN_GUI_SCALING.choices);
+        assert_eq!((checks(&s), combos(&s)), ([false, false, true], (8, 3)));
+        assert_eq!(&CURSORS_SCALING.choices[1..3], ["50%", "75%"]);
         assert_eq!(LEGACY_SCALING.choices, ["Main", "100%", "200%", "300%", "400%"]);
 
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };

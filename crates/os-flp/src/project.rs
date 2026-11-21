@@ -842,6 +842,7 @@ pub fn load(file: &FlpFile) -> Result<Project, ProjectError> {
     read_strip_chunk(file, &mut p);
     read_parametric_chunk(file, &mut p);
     read_pitch_controls(file,&mut p);
+    read_output_routing(file,&mut p);
     read_peak_links(file,&mut p);
     read_channel_layouts(file,&mut p);
     read_strip_bypass(file,&mut p);
@@ -3307,6 +3308,7 @@ pub fn apply(project: &Project, file: &mut FlpFile) -> Result<(), ProjectError> 
     write_strip_chunk(project, file);
     write_parametric_chunk(project, file);
     write_pitch_controls(project,file);
+    write_output_routing(project,file);
     write_peak_links(project,file);
     write_channel_layouts(project,file);
     write_strip_bypass(project,file);
@@ -3857,6 +3859,7 @@ pub fn create(project: &Project) -> Result<FlpFile, ProjectError> {
     write_strip_chunk(project, &mut file);
     write_parametric_chunk(project, &mut file);
     write_pitch_controls(project,&mut file);
+    write_output_routing(project,&mut file);
     write_peak_links(project,&mut file);
     write_channel_layouts(project,&mut file);
     write_strip_bypass(project,&mut file);
@@ -6007,6 +6010,18 @@ mod tests {
     /// back; writing the same model again changes nothing; clearing them works (spec: flp/events/project-info.md,
     /// channels.md, patterns.md).
     #[test]
+    fn split_instrument_outputs_persist_and_clear() {
+        let mut model=new_project();
+        model.channels[0].misc.split_outputs=true;
+        let mut file=FlpFile::parse(&create(&model).unwrap().to_bytes().unwrap()).unwrap();
+        let mut reopened=load(&file).unwrap();
+        assert!(reopened.channels[0].misc.split_outputs);
+        reopened.channels[0].misc.split_outputs=false;
+        apply(&reopened,&mut file).unwrap();
+        assert!(!load(&file).unwrap().channels[0].misc.split_outputs);
+    }
+
+    #[test]
     fn rack_settings_round_trip() {
         let mut file = FlpFile::parse(&create(&new_project()).unwrap().to_bytes().unwrap()).unwrap();
         let mut m = load(&file).unwrap();
@@ -6811,6 +6826,22 @@ fn read_extra_fx(file:&FlpFile,p:&mut Project) {
     }
 }
 
+fn write_output_routing(p: &Project, file: &mut FlpFile) {
+    file.chunks.retain(|c| c.tag != Tag(*b"MOUT"));
+    let mut data = vec![1];
+    for channel in p.channels.iter().filter(|c| c.misc.split_outputs) {
+        data.extend(channel.index.to_le_bytes());
+    }
+    if data.len() > 1 { file.chunks.push(Chunk { tag: Tag(*b"MOUT"), body: ChunkBody::Raw(data) }); }
+}
+fn read_output_routing(file: &FlpFile, p: &mut Project) {
+    for chunk in file.chunks.iter().filter(|c| c.tag == Tag(*b"MOUT")) {
+        let ChunkBody::Raw(data) = &chunk.body else {continue};
+        if data.first() != Some(&1) {continue}
+        let ids: std::collections::HashSet<_> = data[1..].chunks_exact(2).map(|v|u16::from_le_bytes([v[0],v[1]])).collect();
+        for channel in &mut p.channels {channel.misc.split_outputs = ids.contains(&channel.index);}
+    }
+}
 fn write_pitch_controls(p: &Project, file: &mut FlpFile) {
     file.chunks.retain(|c| c.tag != Tag(*b"LPCH"));
     let mut d = vec![1]; d.extend(p.varispeed_cents.to_le_bytes());

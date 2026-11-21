@@ -115,6 +115,7 @@ pub trait Instrument: Send {
     /// Renders `left.len()` frames at `rate`, overwriting both buffers.
     fn process(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]);
     /// Additional stereo outputs routed to consecutive mixer tracks after the channel's track.
+    fn set_split_outputs(&mut self, _split: bool) {}
     fn extra_outputs(&self) -> usize { 0 }
     /// Copies an extra port from the most recent processing block. False means silence.
     fn extra_output(&mut self, _port:usize, _left:&mut[f32], _right:&mut[f32]) -> bool { false }

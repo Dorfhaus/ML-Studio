@@ -512,6 +512,7 @@ pub struct Plugin {
     list: Box<Events<MAX_EVENTS>>,
     /// Zeroed channels for inputs the host has no audio for, and outputs it does not use.
     scratch: Vec<f32>,
+    aux: os_host::instrument_outputs::InstrumentOutputs,
     in_ptrs: Vec<*const f32>,
     out_ptrs: Vec<*mut f32>,
     fx_in: (Vec<f32>, Vec<f32>),
@@ -577,6 +578,7 @@ impl Plugin {
             midi: Box::new([MidiEvent::default(); MAX_EVENTS]),
             list: Box::new(Events { count: 0, reserved: 0, events: [std::ptr::null_mut(); MAX_EVENTS] }),
             scratch: Vec::new(),
+            aux: Default::default(),
             in_ptrs: Vec::new(),
             out_ptrs: Vec::new(),
             fx_in: (Vec::new(), Vec::new()),
@@ -606,6 +608,7 @@ impl Plugin {
         (self.ins, self.outs) = self.inst.channels();
         let max = MAX_FRAMES as usize;
         self.scratch = vec![0.0; (self.ins + self.outs) * max];
+        self.aux.configure(self.outs.saturating_sub(2).div_ceil(2), max);
         self.in_ptrs = Vec::with_capacity(self.ins);
         self.out_ptrs = Vec::with_capacity(self.outs);
         self.fx_in = (Vec::with_capacity(max), Vec::with_capacity(max));
@@ -803,7 +806,7 @@ impl Plugin {
     }
 
     /// Processes one piece (at most `MAX_FRAMES` frames): `input` is an effect's input, else the inputs are silent.
-    fn run(&mut self, left: &mut [f32], right: &mut [f32], input: Option<(&[f32], &[f32])>, key: Option<(&[f32], &[f32])>) {
+    fn run(&mut self, offset: usize, left: &mut [f32], right: &mut [f32], input: Option<(&[f32], &[f32])>, key: Option<(&[f32], &[f32])>) {
         let n = left.len();
         let max = MAX_FRAMES as usize;
         let base = self.scratch.as_mut_ptr();
@@ -862,7 +865,15 @@ impl Plugin {
         if self.outs == 1 {
             right.copy_from_slice(left);
         }
-        let loud = left.iter().chain(right.iter()).any(|v| v.abs() > 1e-5);
+        let mut aux_loud = false;
+        if input.is_none() {
+            for c in (2..self.outs).step_by(2) {
+                let l = (self.ins+c)*max;
+                let r = (self.ins+(c+1).min(self.outs-1))*max;
+                aux_loud |= self.aux.route(c/2-1, offset, (&self.scratch[l..l+n], &self.scratch[r..r+n]), (left,right));
+            }
+        }
+        let loud = aux_loud || left.iter().chain(right.iter()).any(|v| v.abs() > 1e-5);
         self.sounding = loud;
         self.steady += n as u64;
         if !loud {
@@ -892,9 +903,9 @@ impl Plugin {
                 ir.clear();
                 il.extend_from_slice(&left[a..b]);
                 ir.extend_from_slice(&right[a..b]);
-                self.run(&mut left[a..b], &mut right[a..b], Some((&il, &ir)),key.map(|(l,r)|(&l[a..b],&r[a..b])));
+                self.run(a, &mut left[a..b], &mut right[a..b], Some((&il, &ir)),key.map(|(l,r)|(&l[a..b],&r[a..b])));
             } else {
-                self.run(&mut left[a..b], &mut right[a..b], None,None);
+                self.run(a, &mut left[a..b], &mut right[a..b], None,None);
             }
             at = end;
         }
@@ -1208,7 +1219,13 @@ impl os_engine::Instrument for Plugin {
         self.song = Some(*info);
     }
 
+    fn set_split_outputs(&mut self, split: bool) { self.aux.split = split; }
+    fn extra_outputs(&self) -> usize { self.aux.count() }
+    fn extra_output(&mut self, port: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        self.aux.read(port, left, right)
+    }
     fn process(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]) {
+        self.aux.begin(left.len());
         left.fill(0.0);
         right.fill(0.0);
         if self.rate != rate {

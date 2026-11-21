@@ -525,4 +525,5 @@ pub(super) fn transport(ui: &mut Ui, s: &State, f: &FrameInfo, x: f32, y: f32) {
     let tempo = Rect::new(x + 130.0, y + 5.0, 55.0, 19.0);
     ui.hit(tempo, Action::Tempo, "Tempo: drag whole number or decimal digit; right-click for options");
     super::toolbar::tempo_readout(ui, s, tempo, f.tempo, Color::rgb(0x263e40), false);
+    super::toolbar::tap_button(ui, s, Rect::new(x + 135.0, y + 25.0, 45.0, 13.0));
 }

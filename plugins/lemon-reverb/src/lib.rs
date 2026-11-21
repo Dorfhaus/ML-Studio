@@ -25,13 +25,14 @@ use params::ReverbParams;
 /// What the audio thread and the editor share.
 pub struct Shared {
     pub rate: AtomicU32,
+    levels: [AtomicU32; 3],
     /// Set while an editor is open.
     pub editor_open: AtomicBool,
 }
 
 impl Default for Shared {
     fn default() -> Self {
-        Shared { rate: AtomicU32::new(44100), editor_open: AtomicBool::new(false) }
+        Shared { levels: Default::default(), rate: AtomicU32::new(44100), editor_open: AtomicBool::new(false) }
     }
 }
 
@@ -106,11 +107,14 @@ impl Plugin for LemonReverb {
 
     fn reset(&mut self) {
         self.dsp.clear();
+        for level in &self.shared.levels { level.store(0, Ordering::Relaxed); }
     }
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, ctx: &mut impl ProcessContext<Self>) -> ProcessStatus {
         let s = self.settings();
         self.dsp.set(s);
+        self.dsp.duck_mode=self.params.live.value(&self.params.duck) as u8;
+        self.dsp.duck_amount = self.params.live.value(&self.params.duck_amount) as f32 / 100.;
         if let Some(bpm) = ctx.transport().tempo {
             self.dsp.set_tempo(bpm);
         }
@@ -119,7 +123,14 @@ impl Plugin for LemonReverb {
             return ProcessStatus::Normal;
         }
         let (left, right) = out.split_at_mut(1);
-        self.dsp.process(left[0], right[0]);
+        if self.shared.editor_open.load(Ordering::Relaxed) {
+            let levels = self.dsp.process_metered(left[0],right[0]);
+            for (meter,value) in self.shared.levels.iter().zip(levels) {
+                meter.fetch_max(value.to_bits(), Ordering::Relaxed);
+            }
+        } else {
+            self.dsp.process(left[0], right[0]);
+        }
         // The tail rings on after the input stops.
         ProcessStatus::KeepAlive
     }
@@ -150,6 +161,56 @@ os_plugkit::linked_clap_entry!(LemonReverb);
 mod tests {
     use super::*;
     use os_engine::effects::reverb::{DEFAULTS, WET};
+
+    #[test]
+    fn amount_scales_wet_attenuation_and_dry_signal_never_lights_the_return() {
+        let render = |mode,depth,dry_only| {
+            let mut settings=Settings::default();
+            if dry_only {settings.knobs[WET]=0;settings.knobs[os_engine::effects::reverb::EARLY]=0;}
+            let mut dsp=Reverb::new(32000,settings.clone(),120.);
+            dsp.duck_mode=mode;dsp.duck_amount=depth;
+            let mut left:Vec<_>=(0..16000).map(|i|(i as f32*0.12).sin()*0.6).collect();
+            let mut right=left.clone();
+            let m=dsp.process_metered(&mut left,&mut right);
+            let mut normal=Reverb::new(32000,settings,120.);
+            normal.duck_mode=mode;normal.duck_amount=depth;
+            let mut l:Vec<_>=(0..16000).map(|i|(i as f32*0.12).sin()*0.6).collect();
+            let mut r=l.clone();
+            normal.process(&mut l,&mut r);
+            assert_eq!(l,left);
+            m
+        };
+        let bypass=render(0,1.,false);
+        assert_eq!(render(2,0.,false),bypass);
+        let half=render(2,0.5,false);
+        let full=render(2,1.,false);
+        assert!((half[2]*2.-full[2]).abs()<1e-5);
+        assert!(bypass[0]>half[0] && half[0]>full[0]);
+        assert!(full[2]>render(1,1.,false)[2]);
+        assert_eq!(render(2,1.,true)[..2], [0.;2]);
+    }
+
+    #[test]
+    fn hard_duck_silences_the_return_under_quiet_input_and_releases_the_tail() {
+        for rate in [44100, 48000, 96000] {
+            let mut settings = Settings::default();
+            settings.knobs[os_engine::effects::reverb::DRY] = 0;
+            let mut reverb = Reverb::new(rate, settings, 120.);
+            reverb.duck_mode = 2;
+            reverb.duck_amount = 1.;
+            let mut left: Vec<_> = (0..rate / 4)
+                .map(|i| 0.003 * (i as f32 * 220. * std::f32::consts::TAU / rate as f32).sin())
+                .collect();
+            let mut right = vec![0.; left.len()];
+            assert_eq!(reverb.process_metered(&mut left, &mut right)[2], 1.);
+            for wet in [&left, &right] {
+                assert!(wet[rate as usize / 100..].iter().all(|&sample| sample == 0.));
+            }
+            left.fill(0.); right.fill(0.);
+            let tail = reverb.process_metered(&mut left, &mut right);
+            assert!(tail[0].max(tail[1]) > 1e-6);
+        }
+    }
 
     #[test]
     fn editor_edits_reach_the_sound_and_stored_bytes_play_as_stored() {

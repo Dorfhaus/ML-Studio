@@ -285,6 +285,7 @@ impl Logic {
             }
             (Target::LoadSample, Btn::Left) => acts.push(Act::OpenDialog),
             (Target::Flag(b), Btn::Left) => self.toggle_flag(*b),
+            (Target::OscEnv(n), Btn::Left) => self.view.osc_env=if self.view.osc_env==Some(*n){None}else{Some(*n)},
             (Target::Tab(i), Btn::Left) => self.view.tab = *i,
             (Target::SubTab(i), Btn::Left) => self.view.sub = *i,
             (Target::EnvPoint(i), Btn::Left) => {

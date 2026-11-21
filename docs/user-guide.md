@@ -20,9 +20,15 @@ Keywords: rex rx2 rcy recycle loop import sample chop slices tempo
 Import .rx2, .rex or .rcy through the Browser, the Playlist audio drop, the Channel Rack or the Sampler/Chop file chooser. Decoding is included in ML Studio; it needs no separate REX runtime download. Playlist and Sampler receive the reconstructed audio loop. ML Chop also uses the file's original slice positions and tempo instead of redetecting its slices. Use the existing fit-to-project-tempo option when you want imported loops to follow the project tempo; importing alone does not change that preference.
 Save normally to retain the source path, or use the project sample-collection/ZIP workflow to carry the source with the project. Import can be undone. REX export is not included. Files larger than 64 MiB or decoded loops longer than 16,777,216 frames are refused.
 
-### Resize the Playlist loop selection
+### Tap the project tempo
+Keywords: tap tempo BPM toolbar transport
+Click **TAP** beside the BPM readout to open the Tempo Tapper. Tap its pad in time, then use **Apply tempo**. Ctrl+F5 or View > Tempo tapper also opens it. Settings > Visibility > Toolbar shortcuts > Tempo Tapper shortcut controls the toolbar button.
+
+### Draw and move timeline loops
 Keywords: loop ruler time selection edge drag
-Right-drag in the Playlist ruler to select a loop. The loop range is saved with the project. A loop that starts offscreen is brought into view when you reopen. Near either end of the loop, the pointer becomes a horizontal resize arrow. Drag that edge to resize the loop while keeping the other edge fixed. A right-click inside the loop keeps it selected. Double-click the ruler away from the edges to clear it.
+In the Playlist or Piano Roll ruler, right-drag, Ctrl+left-drag (Command+left-drag on macOS), or hold the second click of a double-click and drag to select a loop. Shift+left-drag inside the selection to move it without changing its length. The Playlist range loops in Song mode, and the Piano Roll range loops in Pattern mode. Double-click the ruler without dragging to clear a range. In the Playlist, double-click away from the resize handles.
+
+The Playlist loop is saved with the project and brought into view when you reopen. Drag either edge to resize the loop while keeping the opposite edge fixed. A right-click inside a Playlist loop keeps it selected.
 
 ### Type notes without losing C or T
 Keywords: typing keyboard piano slice mute shortcuts
@@ -326,6 +332,8 @@ Use ghost notes for reference to other channels and key or scale guides to see u
 Keywords: rack marquee multi select group rows drag mute solo reorder pitch pan volume delete clone
 Drag across the channel selectors to select a range. Shift-click selectors to extend a range. On a selected row, mute, solo and supported Pitch, Volume or Pan moves apply to the selection. Pitch, volume and pan edits preserve relative values within the selected group where the control range permits. Delete removes the selected channels. Check the project Undo history before making a second large edit.
 Ctrl-drag a row to reorder it. If it belongs to the selection, move the selected rows together and use the insertion line as a guide. The Channel Rack Options > View > Auto resize choice offers Off, Minimum height and Maximum height. A rack with more rows than fit can scroll.
+
+Click a channel's narrow selection slot between its Mixer track number and the **G** (Global Pitch Follow) button to select it without opening its plugin. The outline shows selection, and the slot lights up when the channel plays. Shift-click adds or removes a channel, and double-click selects all visible rows. To remove the selected channels together, press **Delete** with the rack focused, or right-click a selected slot or channel name and choose **Delete**. Undo restores the whole group. Settings > Visibility > Channel Rack can hide the slot. The vintage rack uses the selector next to the channel name.
 Use Clone for another channel or Clone (Complete) when you need independent pattern material and supported automation, plugin state and matching Playlist placement. Review the clones and their routing before changing shared effects.
 Related: Route selected channels to the Mixer | Program steps and patterns
 
@@ -997,7 +1005,7 @@ Assign an LFO or envelope to a control to add movement. Right-click a modulated 
 
 ### Make a beat with ML Drums
 
-Add **ML Drums** from the Channel Rack instrument picker. The eight pads start with a playable kit. A normal Channel Rack step plays the kick. In the Piano Roll or on a MIDI controller, notes 36–43 and 60–67 both play pads 1 through 8. During playback the SEQ view follows the project tempo and song position. Click steps to program a beat and use the lane controls for swing, probability and per-step edits.
+Add **ML Drums** from the Channel Rack instrument picker. Choose **Pads** for eight square triggers, or **Rows** for the original layout. The eight pads start with a playable kit. A normal Channel Rack step plays the kick. In the Piano Roll or on a MIDI controller, notes 36–43 and 60–67 both play pads 1 through 8. During playback the SEQ view follows the project tempo and song position. Click steps to program a beat and use the lane controls for swing, probability and per-step edits.
 
 In Windows, drag a one-shot from the ML Studio Browser or File Explorer onto a pad in the PADS view. You can also use the pad’s file picker. Adjust its start, end, pitch, decay, level and pan. Choose a sample folder in the toolbar to analyze your own collection and explore the Map. Scanning makes samples available for selection and dice rolls while keeping the current kit in place.
 
@@ -1297,10 +1305,10 @@ Save a new sample or drag an edited range into the project. For a linked cleanup
 ![ML Tesla | Waveform editor and processing toolbar](../crates/os-app/assets/plugin-picker/tesla_empty.png)
 Related: Clean up audio in Tesla | ML Tesla time stretch and pitch shift
 
-### ML Convolver
+### ML Space
 Keywords: convolution reverb impulse response WAV load import wet dry
 
-Choose **ML Convolver** in a Mixer effect slot. Click **Small room** to try the included synthetic room, or **Load WAV** to choose your own impulse response. Drag/drop onto the editor also works. Supported files: mono/stereo RIFF WAV, PCM 8/16/24/32-bit or float32, 8–192 kHz, up to 10 seconds and 16 MiB. Four-channel true-stereo IRs are not supported.
+Choose **ML Space** in a Mixer effect slot. Use **Collection** to select Studio, Chamber, Plate, Hall, Cathedral or Ambience. Choose Tight, Warm, Open or Bright to load one of the 24 modeled stereo impulses. Click **Small room** for the original room, or **Load WAV** to choose your own impulse response. Drag/drop onto the editor also works. Supported files: mono/stereo RIFF WAV, PCM 8/16/24/32-bit or float32, 8–192 kHz, up to 10 seconds and 16 MiB. Four-channel true-stereo IRs are not supported.
 
 Cancelling the file picker leaves the impulse unchanged. Invalid files display an error and retain the previous impulse. **Clear IR** returns to dry audio. Without an impulse the signal passes dry regardless of Mix. The impulse is embedded in projects and presets, so the original file can move afterward. Import, Small room and Clear IR participate in host Undo/Redo. Preparation runs in the background; the current impulse continues until the replacement is ready, then crossfades during playback.
 
@@ -1393,12 +1401,24 @@ Start with modest **Feedback** and **Mix**, then adjust each band's **Level**. T
 
 These tools are available in the normal Mixer effect picker without a scan or download. Their extra displays follow **Settings > Visibility > Stock plugins > Advanced DSP controls**. Hiding them preserves audio processing and saved settings.
 
+### Routing multi-output instruments
+
+By default an instrument’s secondary outputs play on its assigned mixer insert. To mix the outputs separately, open the Channel Rack mixer routing menu and enable **Split plugin outputs to consecutive inserts**. The main stereo output stays on the assigned insert and the following pairs feed the following inserts. This choice is saved in the project. ML Chop retains its existing per-pad routing.
+
+### Stock effect controls
+
+ML Chorus, ML Delay and ML Multiband Delay open in Normal view. Click Advanced for the complete controls. Both views edit the same effect. ML Reverb has a dedicated Ducking panel below the room. Choose Gentle or Hard and set Amount from 0% to 100%. Off bypasses ducking and remembers the amount. The gain-reduction meter shows the attenuation in dB. In the room, waves follow the stereo reverb return after ducking. They fade with the tail and contract and shift toward amber as ducking increases. ML Pitch Shift includes formant shift and vibrato depth and rate. On Hard at 100%, active input closes the wet return in 2 ms. The dry signal continues. After a 35 ms hold the tail fades back in.
+
+### TIME-12
+
+Choose TIME-12 from a mixer effect slot to load the bundled time modulation effect.
+
 ### ML Time Shaper
 Keywords: time shaper rhythmic gate stutter repeat chop pump steps tempo
 
 Add **ML Time Shaper** from a Mixer effect slot. **Gate** follows the sixteen step levels to make rhythmic chops or pumping. **Repeat** replays the first slice of each cycle and also follows those levels. **Cycle** is measured in song beats; four beats means four quarter notes, regardless of time signature. **Repeats** selects two to eight slices. Sync follows 40–300 BPM; stopped transport runs freely at the last supplied tempo (120 BPM when unavailable).
 
-Start with **All on** for repeat effects, **Chop** for alternating gates, or **Pump** for rising levels. **Clear** sets every step to silence. Drag a bar vertically to edit a level; Escape cancels the active drag. Each step is automatable. **Smooth** softens the slice/gate edges; zero gives hard rhythmic cuts. Mode, step level, Mix and Output edits are smoothed. **Mix 0%** is dry; no fixed delay is added. Pattern edits and presets support the host Undo command. Reopening the effect or project restores the pattern. This tool provides gating and stutter repeats, not arbitrary reverse/speed curves.
+Start with **All on** for repeat effects, **Chop** for alternating gates, or **Pump** for rising levels. **Clear** sets every step to silence. Drag a bar vertically to edit a level; Escape cancels the active drag. Each step is automatable. **Smooth** softens the slice/gate edges; zero gives hard rhythmic cuts. Mode, step level, Mix and Output edits are smoothed. **Mix 0%** is dry; no fixed delay is added. Pattern edits and presets support the host Undo command. Reopening the effect or project restores the pattern. Switch between the volume and time editors to store 36 patterns in each bank. Use the time graph for playback offsets, including reverse, stutter and tape-stop shapes. Choose Linear, Hold or Smooth interpolation. The extended cycle spans eight quarter-note beats. Hosts sending MIDI to the effect can trigger volume slots using note numbers 24–59 and time slots using 60–95.
 
 ### ML Vocal Tune
 Keywords: vocal tune automatic pitch correction SnapTune key scale learning voice
@@ -1638,7 +1658,7 @@ Related: Choose where plugin editor windows open | Use sample metadata and loadi
 ### Choose where plugin editor windows open
 Keywords: plugin window first launch default detached second monitor editors limit plugin toolbar off screen keyboard
 Go to Settings > General > Plugin windows. **Detach all new plugins** changes the default for plugins added from now on. Existing editors keep their saved mode. On Windows, **Open detached plugins with the main window** puts a newly detached window on the main window's monitor. An editor with a saved position reopens there. A plugin window's D button changes the current editor's mode.
-**Limit the number of open plugin editors** closes the earliest opened editor when opening another would exceed 25. Closing an editor keeps audio processing active. **Don't limit windows to screen** lets you drag a detached plugin title bar past the screen edges on Windows. Docked windows stay constrained to the workspace. **Hide plugin window toolbar by default** and **Disable typing keyboard priority by default** currently store preferences without changing editor behavior. The same applies to **Cursors scaling** and **Legacy scaling** in General > Display.
+**Limit the number of open plugin editors** closes the earliest opened editor when opening another would exceed 25. Closing an editor keeps audio processing active. **Don't limit windows to screen** lets you drag a detached plugin title bar past the screen edges on Windows. Docked windows stay constrained to the workspace. **Hide plugin window toolbar by default** and **Disable typing keyboard priority by default** currently store preferences without changing editor behavior. **Legacy scaling** in General > Display is stored for future use. Use **Cursor size** on that page to resize the app pointer and editing tools independently of the interface. System follows the default sizing or the theme’s saved cursor size. Choose **Legacy** in Theme > Icons & Fonts for the original-size tool artwork.
 Related: Put ML Studio windows on several monitors | Plugin manager and plugin editors
 
 ### Use sample metadata and loading preferences
@@ -1733,7 +1753,7 @@ Related: Browse or search the User Guide | Show a window or restore your workspa
 Keywords: toolbar presets panels detached tap tempo touch controller plugin performance project picker
 Use View > Toolbars to choose visible panels and access toolbar layout editing. Move or hide sections you rarely use and use Workspace Visibility to expose optional buttons. Save a layout if you switch between recording, arrangement and mixing setups.
 
-Right-click the hint bar and choose **Float hint bar**. Drag its body to move it around the workspace, or drag its bottom-right corner to change its width and height. Press Escape during a drag to cancel. Its position and size are saved in your profile. Choose **Hint text size** in the same right-click menu for 9, 11, 13, 16, 20 or 24 px. Larger sizes stay at the chosen size; enlarge the floating panel when you need more space. Right-click it and choose **Dock hint bar** to return it to the toolbar. Settings > Visibility > Toolbar panels > Hint panel controls whether the bar is shown.
+Right-click the docked hint bar and choose **Move hint bar in toolbar**. Drag the panel to its new position, then click **Done** to keep the layout. To place it in the workspace, choose **Float hint bar**. Drag its body to move it around the workspace, or drag its bottom-right corner to change its width and height. Press Escape during a drag to cancel. Its position and size are saved in your profile. Choose **Hint text size** in the same right-click menu for 9, 11, 13, 16, 20 or 24 px. Larger sizes stay at the chosen size; enlarge the floating panel when you need more space. Right-click it and choose **Dock hint bar** to return it to the toolbar. Settings > Visibility > Toolbar panels > Hint panel controls whether the bar is shown.
 Open the Tempo tapper to estimate BPM from taps, the Touch controller for on-screen control, and Plugin performance monitor to inspect processing load. The Project Picker helps locate project patterns, clips and other sources. Plugin Picker opens the installed instrument/effect catalog.
 Related: Show or hide interface features | Build action sequences and toolbar buttons | Read the toolbar and project time
 
@@ -1899,6 +1919,8 @@ Related: Browse or search the User Guide | Report a problem and check for update
 ![playlist-menu | Playlist menu with the Edit submenu open](assets/guide/playlist-menu.jpg)
 Keywords: playlist triangle options edit tools snap grouping zoom markers visibility arrangement track header ruler
 The Playlist's menu offers Edit, Tools, Tool, Snap, Select, Zoom and Time markers. Use Edit for clipboard actions, Duplicate, Make unique, space insertion/removal and clip mutes. Tools includes consolidation, Playlist track export and quick quantization. Tool selects Pencil, Brush, Comp, Slice, Select, Delete, Mute, Zoom, Slip or Playback.
+
+Shift-drag a clip to copy it. The copy appears when it reaches a new timeline position or track. Use **Make unique** when you want a separate editable source for one placement.
 View and visible clip controls determine which editing details are shown. Snap controls timeline placement. Select includes similar or muted sources and time selection around clips. Group and Ungroup change which clips move together. Zoom offers focused, in/out and selection-based navigation.
 - Right-click a track header for rename and color, row height, folders and groups, move/insert/delete, mute and solo, track type and routing, take lanes, Freeze and Bounce. Some attached Mixer rows use Mixer ordering and routing.
 - Right-click the ruler or a marker for markers, loop placement, time signature, marker behavior and moving content. Marker profiles can save, replace or merge markers. Open the arrangement name menu to switch or manage alternate arrangements.
@@ -1923,6 +1945,8 @@ Related: Use the Piano Roll editing tools | Edit note properties and the event e
 ### Channel Rack menus
 Keywords: Channel Rack options channel context graph filter selected sort fill transpose mixer number
 Open the rack Options menu for Add instrument, Edit channels, Organize, Mixer routing, Audio tools and View. Edit channels handles selected channel operations, including clone, mute, delete, transpose and color. Organize handles groups, filters, sorting, moving and cleanup. Mixer routing assigns or selects inserts. Audio tools provides consolidation and bounce where available. Consolidation keeps the Mixer live; bounce follows the Bounce to next free Mixer insert preference.
+
+New plugin instruments and layers appear under **Instruments** in the Channel Rack filter. Loaded samples and Playlist audio clips appear under **Audio**, and automation clips appear under **Automation**. Channels already assigned to custom groups keep those groups. Choose **All** to see every channel.
 Under **View**, turn off **Show step grid** for a compact Channel Rack. The layout keeps the channel controls and Add button visible. Turn it back on to restore the wider view, step editor, note previews and horizontal scroll position. Pattern playback and Piano Roll editing are still available in the compact layout. **Settings > Visibility > Channel Rack > Step grid** controls the same profile preference.
 Right-click a channel name to open Piano Roll, change or insert an instrument, open the graph editor, load a sample, change sample tempo or stretch, set Cut itself, edit pattern steps, consolidate, rename, clone or delete. Fill each 2, 4 or 8 steps gives an even pattern. Advanced fill and step rotation modify the current pattern.
 Right-click the Mixer number for destination and selected routing options. Right-click a knob for its value and automation options. Use the LED context for channel mute and solo. Rack View controls the Mixer number display, zipped rows, name alignment, button width and automatic height.
@@ -2208,7 +2232,7 @@ Related: Use Glide Notes and slide pitches | Draw, move and edit notes
 ### Select notes, a pitch range or a time range in Piano Roll
 Keywords: piano roll select notes E Ctrl add keyboard pitch range ruler right drag stretch deselect
 Choose the Select tool (E by default) and drag a box around notes; Ctrl adds to the selection. On the keyboard, Ctrl/Command+Shift-drag selects notes across the chosen pitches. These gestures select notes in the current Piano Roll context, not Mixer channels.
-Drag the Piano Roll ruler to move the play start. Right-drag the ruler to select a time range. In Pattern mode, you can draw, paint, move, resize, or delete notes while that range keeps looping. Ctrl+D clears the selection and its time range. With Pencil or Brush, right-click empty grid to deselect. Alt+wheel over a note edits velocity; over empty grid it changes row height. If a custom Controls binding overrides a gesture, restore that event or use the assigned action.
+Drag the Piano Roll ruler to move the play start. Use right-drag, Ctrl+left-drag (Command+left-drag on macOS), or hold the second click of a double-click and drag to select a time range. Shift+left-drag inside the range to move it. In Pattern mode, you can draw, paint, move, resize, or delete notes while that range keeps looping. Ctrl+D clears the selection and its time range. With Pencil or Brush, right-click empty grid to deselect. Alt+wheel over a note edits velocity; over empty grid it changes row height. If a custom Controls binding overrides a gesture, restore that event or use the assigned action.
 With Stretch active, drag note ends to scale selected timing and lengths; dragging note bodies still moves notes. Right-click empty grid to turn Stretch off. Undo reverses an unintended completed edit.
 Related: Use the Piano Roll editing tools | Customize mouse and keyboard behavior
 
@@ -3833,7 +3857,7 @@ Location: Settings > General > Samples and bouncing.
 Checkbox; default: off.
 This is a per-profile preference. Existing saved choices override the default. A hidden preference can be revealed through Settings > Visibility; a disabled control may require another setting or a supported context.
 
-### Setting: Cursors scaling
+### Setting: Cursor size
 Keywords: setting: cursors scaling reference controls options settings
 Location: Settings > General > Display.
 

@@ -33,7 +33,7 @@ impl RowDrag {
             return None;
         }
         let row = match *action {
-            Action::ChannelSelect(row) | Action::RackSelect(row) | Action::RackRoll(row) => Some(row),
+            Action::ChannelSelect(row) | Action::RackSelect(row) | Action::RackSelection(row) | Action::RackRoll(row) => Some(row),
             Action::Step(row, _) if app.ctrl => Some(row),
             Action::RackArea | Action::RackStepGap => views::rack::row_at(s, y),
             _ => return None,

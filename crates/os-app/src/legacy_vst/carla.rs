@@ -21,19 +21,34 @@ use os_vst2::state::Saved;
 type Handle = *mut c_void;
 type EngineCallback = unsafe extern "C" fn(Handle, u32, u32, i32, i32, i32, f32, *const c_char);
 
+struct CallbackState {
+    editor:Arc<AtomicBool>,
+    graph:Mutex<Option<Graph>>,
+}
+#[derive(Default)]
+struct Graph { plugin:Option<u32>, ports:Vec<(u32,u32,i32)> }
 unsafe extern "C" fn callback(
     context: Handle,
     action: u32,
-    _: u32,
+    group: u32,
     value: i32,
-    _: i32,
+    flags: i32,
     _: i32,
     _: f32,
     _: *const c_char,
 ) {
     const UI_STATE_CHANGED: u32 = 12;
+    let state=unsafe {&*context.cast::<CallbackState>()};
+    if matches!(action,20|24) {
+        if let Ok(mut slot)=state.graph.lock() {
+            if let Some(g)=slot.as_mut() {
+                if action==20 && flags==0 {g.plugin=Some(group);}
+                if action==24 {g.ports.push((group,value as u32,flags));}
+            }
+        }
+    }
     if action == UI_STATE_CHANGED {
-        unsafe { &*context.cast::<AtomicBool>() }.store(value > 0, Ordering::Release);
+        state.editor.store(value > 0, Ordering::Release);
         os_host::wake();
     }
 }
@@ -168,6 +183,9 @@ macro_rules! functions {
 }
 
 functions! {
+    carla_get_native_patchbay64_plugin: unsafe extern "C" fn() -> *const Native,
+    carla_patchbay_refresh: unsafe extern "C" fn(Handle,bool)->bool,
+    carla_patchbay_connect: unsafe extern "C" fn(Handle,bool,u32,u32,u32,u32)->bool,
     carla_get_native_rack_plugin: unsafe extern "C" fn() -> *const Native,
     carla_create_native_plugin_host_handle: unsafe extern "C" fn(*const Native, Handle) -> Handle,
     carla_host_handle_free: unsafe extern "C" fn(Handle),
@@ -204,6 +222,8 @@ fn string(ptr: *const c_char) -> String {
 }
 
 struct Engine {
+    callbacks:Box<CallbackState>,
+    output_count:usize,
     api: Arc<Api>,
     native: &'static Native,
     instance: Handle,
@@ -256,7 +276,9 @@ impl Engine {
             dispatch: host_dispatch,
         });
         unsafe {
-            let native = (api.carla_get_native_rack_plugin)()
+            let output_count=desc.features.iter().find_map(|s|s.strip_prefix("audio-outputs:")?.parse::<usize>().ok()).unwrap_or(2).clamp(1,64);
+            let patch=desc.kind==os_host::Kind::Instrument && output_count>2;
+            let native = (if patch{api.carla_get_native_patchbay64_plugin}else{api.carla_get_native_rack_plugin})()
                 .as_ref()
                 .ok_or("Carla has no rack descriptor")?;
             let instance = (native.instantiate)(&*host);
@@ -270,6 +292,8 @@ impl Engine {
                 native,
                 instance,
                 engine,
+                callbacks:Box::new(CallbackState{editor:editor.clone(),graph:Mutex::new(None)}),
+                output_count:if patch{output_count}else{2},
                 _host: host,
                 _resources: resources,
                 clock,
@@ -282,7 +306,7 @@ impl Engine {
             (result.api.carla_set_engine_callback)(
                 engine,
                 Some(callback),
-                Arc::as_ptr(&result.editor).cast_mut().cast(),
+                (&*result.callbacks as *const CallbackState).cast_mut().cast(),
             );
             (result.api.carla_set_engine_option)(engine, 20, 0, result._resources.as_ptr());
             (result.api.carla_set_engine_option)(engine, 21, 0, result._resources.as_ptr());
@@ -303,10 +327,31 @@ impl Engine {
                     string((result.api.carla_get_last_error)(engine))
                 ));
             }
+            if patch {result.connect_outputs()?;}
             Ok(result)
         }
     }
 
+    fn connect_outputs(&self)->Result<(),String>{
+        *self.callbacks.graph.lock().unwrap()=Some(Graph::default());
+        unsafe {(self.api.carla_patchbay_refresh)(self.engine,false);}
+        let graph=self.callbacks.graph.lock().unwrap().take().ok_or("No bridge routing graph")?;
+        let plugin=graph.plugin.ok_or("Bridge could not locate the instrument in its routing graph")?;
+        let ports=|plugin_node:bool, flags:i32|{
+            let mut v:Vec<_>=graph.ports.iter().filter(|p|(p.0==plugin)==plugin_node && p.2==flags).map(|p|(p.0,p.1)).collect();
+            v.sort_unstable();v.dedup();v
+        };
+        let outputs=ports(true,2);let dest=ports(false,3);
+        let midi=ports(false,8);let inputs=ports(true,9);
+        let connect=|(a,b):(u32,u32),(c,d):(u32,u32)| unsafe {(self.api.carla_patchbay_connect)(self.engine,false,a,b,c,d)};
+        if outputs.len()<self.output_count || dest.len()<self.output_count || midi.is_empty() || inputs.is_empty(){
+            return Err("Bridge did not expose the requested audio and MIDI ports".into());
+        }
+        if !connect(midi[0],inputs[0]) || !(0..self.output_count).all(|i|connect(outputs[i],dest[i])){
+            return Err("Bridge could not connect the instrument outputs".into())
+        }
+        Ok(())
+    }
     fn activate(&mut self, rate: u32) {
         if self.active && self.clock.rate == rate {
             return;
@@ -368,8 +413,10 @@ impl Engine {
                 (self.api.carla_set_parameter_value)(self.engine, 0, id, value);
             }
         }
-        let mut input = [block.input[0].as_mut_ptr(), block.input[1].as_mut_ptr()];
-        let mut output = [block.output[0].as_mut_ptr(), block.output[1].as_mut_ptr()];
+        let mut input = [block.silence.as_mut_ptr();64];
+        input[0]=block.input[0].as_mut_ptr();input[1]=block.input[1].as_mut_ptr();
+        let mut output=[std::ptr::null_mut();64];
+        for (ptr,ch) in output.iter_mut().zip(&mut block.output){*ptr=ch.as_mut_ptr();}
         unsafe {
             (self.native.process)(
                 self.instance,
@@ -421,7 +468,8 @@ impl Drop for Engine {
 
 struct Block {
     input: [[f32; FRAMES]; 2],
-    output: [[f32; FRAMES]; 2],
+    output:Vec<[f32;FRAMES]>,
+    silence:[f32;FRAMES],
     events: Vec<Midi>,
     params: Vec<(u32, f32)>,
     frames: usize,
@@ -481,6 +529,8 @@ struct Bridge {
     result: mpsc::Receiver<Box<Block>>,
     block: Option<Box<Block>>,
     audio: BufferedAudio,
+    aux:os_host::instrument_outputs::InstrumentOutputs,
+    aux_block:Vec<[f32;FRAMES]>,
     events: Vec<Midi>,
     parameters: Vec<(u32, f32)>,
     song: Option<TransportInfo>,
@@ -523,6 +573,9 @@ pub(super) fn create(runtime: &Path, desc: Descriptor) -> Result<SharedPlugin, S
             }
         })
         .collect();
+    let ports=engine.output_count;
+    let mut aux=os_host::instrument_outputs::InstrumentOutputs::default();
+    aux.configure(ports.saturating_sub(2).div_ceil(2),FRAMES);
     let engine = Arc::new(Mutex::new(engine));
     let worker_engine = engine.clone();
     let (work, jobs) = mpsc::sync_channel::<Work>(1);
@@ -554,7 +607,7 @@ pub(super) fn create(runtime: &Path, desc: Descriptor) -> Result<SharedPlugin, S
         .map_err(|err| format!("Could not start the Carla audio worker: {err}"))?;
     let block = Box::new(Block {
         input: [[0.; FRAMES]; 2],
-        output: [[0.; FRAMES]; 2],
+        output: vec![[0.;FRAMES];if ports>2 {64}else{2}],silence:[0.;FRAMES],
         events: Vec::with_capacity(MAX_EVENTS),
         params: Vec::with_capacity(MAX_EVENTS),
         frames: 0,
@@ -570,6 +623,7 @@ pub(super) fn create(runtime: &Path, desc: Descriptor) -> Result<SharedPlugin, S
         result,
         block: Some(block),
         audio: BufferedAudio::default(),
+        aux,aux_block:vec![[0.;FRAMES];ports.saturating_sub(2)],
         events: Vec::with_capacity(MAX_EVENTS),
         parameters: Vec::with_capacity(MAX_EVENTS),
         song: None,
@@ -612,9 +666,10 @@ impl Bridge {
     }
 
     fn render(&mut self, rate: u32, left: &mut [f32], right: &mut [f32], effect: bool) {
+        if !effect {self.aux.begin(left.len());}
         let song = self.song.take();
         if self.audio.rate != rate {
-            self.audio.clear();
+            self.audio.clear();self.aux_block.fill([0.;FRAMES]);
             self.audio.rate = rate;
         }
         let mut offset = 0;
@@ -648,6 +703,10 @@ impl Bridge {
                     *delayed = next;
                 }
             }
+            for (port, pair) in self.aux_block.chunks(2).enumerate() {
+                self.aux.route(port,offset,(&pair[0][begin..begin+count],&pair[pair.len()-1][begin..begin+count]),
+                    (&mut left[offset..end],&mut right[offset..end]));
+            }
             self.audio.filled += count;
             if self.audio.filled == FRAMES {
                 self.render_quantum();
@@ -660,6 +719,7 @@ impl Bridge {
     }
 
     fn render_quantum(&mut self) {
+        self.aux_block.fill([0.;FRAMES]);
         let mut missed_block = false;
         if let Some(since) = self.waiting_since {
             match self.result.try_recv() {
@@ -686,7 +746,7 @@ impl Bridge {
         block.offline = self.offline;
         block.song = self.audio.song;
         block.input.copy_from_slice(&self.audio.channels);
-        block.output = [[0.0; FRAMES]; 2];
+        block.output.fill([0.;FRAMES]);
         block.events.clear();
         if missed_block {
             for channel in 0..16 {
@@ -717,6 +777,9 @@ impl Bridge {
                         *sample = if value.is_finite() { value } else { 0.0 };
                     }
                 }
+                for (dest,source) in self.aux_block.iter_mut().zip(block.output.iter().skip(2)) {
+                    for (d,s) in dest.iter_mut().zip(source) {*d=if s.is_finite(){*s}else{0.};}
+                }
                 self.block = Some(block);
             }
             Err(mpsc::RecvTimeoutError::Timeout) if !self.offline => {
@@ -730,6 +793,9 @@ impl Bridge {
 }
 
 impl Instrument for Bridge {
+    fn set_split_outputs(&mut self,split:bool){self.aux.split=split;}
+    fn extra_outputs(&self)->usize{self.aux.count()}
+    fn extra_output(&mut self,port:usize,l:&mut[f32],r:&mut[f32])->bool{self.aux.read(port,l,r)}
     fn note_on(&mut self, offset: u32, key: u8, velocity: f32) {
         self.midi(
             offset,
@@ -778,6 +844,7 @@ impl Instrument for Bridge {
     }
     fn reset(&mut self) {
         self.audio.clear();
+        self.aux_block.fill([0.;FRAMES]);
         self.events.clear();
         self.parameters.clear();
         for channel in 0..16 {

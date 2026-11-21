@@ -492,22 +492,52 @@ fn title_tools(ui: &mut Ui, s: &State, r: Rect, right: f32) -> f32 {
         let active=mx::view(s)==mode;
         ui.c.fill_rrect(b,3.0,if active {ui.t.accent} else if hover {ui.t.button_hi} else {ui.t.s(0x292f32)});
         let ink=if active {ui.t.s(0x182024)} else {ui.t.text};
-        if mode==crate::rack_mixer::VIEW {
-            // One vertical console module with stacked knobs, deliberately unlike either grid icon.
-            ui.c.stroke_rrect(Rect::new(b.x+7.,b.y+2.,9.,14.),1.,1.,ink);
-            for y in [5.,8.,11.] {ui.c.fill_circle(b.x+11.5,b.y+y,1.2,ink);}
-            ui.c.fill_rect(Rect::new(b.x+9.,b.y+14.,5.,1.),ink);
-            continue;
-        }
-        let count=if mode>=mx::TRADITIONAL {3} else {2};
-        let w=if mode>=mx::TRADITIONAL {4.0} else {7.0};
-        for col in 0..count {
-            let x=b.x+3.0+col as f32*(w+2.0);
-            ui.c.stroke_rrect(Rect::new(x,b.y+3.0,w,12.0),0.0,1.0,ink);
-            ui.c.fill_rect(Rect::new(x,b.y+8.0,w,2.0),ink);
-        }
+        let (columns, width) = match mode {
+            crate::rack_mixer::VIEW => (1, 7.0),
+            mx::TRADITIONAL.. => (3, 4.0),
+            _ => (2, 7.0),
+        };
+        mixer_view_icon(ui.c, b, columns, width, ink);
     }
     next
+}
+
+fn mixer_view_icon(c: &mut os_ui::Canvas, button: Rect, columns: usize, width: f32, ink: Color) {
+    // Snap the outlines and controls to the same device-pixel grid.
+    let scale = c.scale;
+    let edge = scale.round().max(1.0);
+    let width = (width * scale).round().max(2.0 * edge + 1.0);
+    let height = (12.0 * scale).round();
+    let gap = (2.0 * scale).round();
+    let total = columns as f32 * width + (columns - 1) as f32 * gap;
+    let left = (button.cx() * scale - total / 2.0).round();
+    let top = (button.cy() * scale - height / 2.0).round();
+    let mut fill = |x: f32, y: f32, w: f32, h: f32| {
+        c.fill_cell(Rect::new((left + x) / scale, (top + y) / scale, w / scale, h / scale), ink);
+    };
+    let inner_width = width - 2.0 * edge;
+    for col in 0..columns {
+        let x = col as f32 * (width + gap);
+        for y in [0.0, height - edge] {
+            fill(x, y, width, edge);
+        }
+        for side in [x, x + width - edge] {
+            fill(side, edge, edge, height - 2.0 * edge);
+        }
+        if columns == 1 {
+            // A single console module with three knobs and a fader cap.
+            let control_y = |step: f32| (height * step / 5.0 - edge / 2.0).round();
+            let knob_x = ((width - edge) / 2.0).round();
+            for step in [1.0, 2.0, 3.0] {
+                fill(knob_x, control_y(step), edge, edge);
+            }
+            // Use equal pixel margins on both sides of the fader cap.
+            let inset = ((width - 3.0 * scale) / 2.0).round().max(edge);
+            fill(inset, control_y(4.0), width - 2.0 * inset, edge);
+        } else {
+            fill(x + edge, ((height - edge) / 2.0).round(), inner_width, edge);
+        }
+    }
 }
 
 fn mix(a: Color, b: Color, t: f32) -> Color {
@@ -770,12 +800,12 @@ fn strip_body(ui:&mut Ui,s:&State,n:u16,left:f32,bottom:f32,active:Option<KnobId
     }
     // Select from the strip body. Below it, only explicit send controls and the footer take clicks.
     let top = ly.y(HEAD_Y0);
-    ui.hit(Rect::new(left, top, width, (bottom - ROUTING_DECK_H - top).max(0.)), Action::Mix(MHit::Strip(n)), mx::name(s, n));
-    let hov = ui.hovering(Rect::new(left, ly.y(HEAD_Y0), width, ly.y(PANEL_Y1) - ly.y(HEAD_Y0)));
+    let hov = ui.hit(Rect::new(left, top, width, (bottom - ROUTING_DECK_H - top).max(0.)), Action::Mix(MHit::Strip(n)), mx::name(s, n));
 
     // Header number (insert strips only; the master's "M" sits in the fixed header band).
     if n != 0 && !attached {
         let hr = Rect::new(left, ly.y(HEAD_Y0), width, ly.y(HEAD_Y1) - ly.y(HEAD_Y0) + 1.0);
+        ui.live(Live::MixerNumber(n), hr.outset(2.));
         if full && t.style.vintage_2005 {
             vintage_number(ui, hr, n, selected || also);
         } else {
@@ -1987,9 +2017,10 @@ fn channel_controls_style(ui:&mut Ui,s:&State,n:u16,active:Option<KnobId>,r:Rect
             } else {
                 Rect::new(cx-radius-3.*scale,y+10.*scale,radius*2.+6.*scale,(row-12.*scale).max(1.))
             };
-            ui.hit(hit,Action::Knob(id),s.knob_hint(id));
+            let hovered = ui.hit(hit,Action::Knob(id),s.knob_hint(id));
+            let lit = active.map_or(hovered, |dragged| dragged == id);
             let cap=Color::rgb(*color);
-            if full {console_skin::knob(ui,id,cx,cy,radius,s.knob(id),cap,ui.hovering(Rect::new(cx-radius,cy-radius,2.*radius,2.*radius)));}else{
+            if full {console_skin::knob(ui,id,cx,cy,radius,s.knob(id),cap,lit);}else{
             ui.c.fill_circle(cx,cy+scale,radius+1.5*scale,Color::rgb(0x141718));
             ui.c.fill_circle(cx,cy,radius+0.5*scale,mix(cap,Color::rgb(0x202627),0.35));
             ui.c.fill_circle(cx,cy-0.7*scale,radius-1.2*scale,mix(cap,Color::rgb(0x515550),0.24));
@@ -2015,7 +2046,10 @@ fn channel_controls_style(ui:&mut Ui,s:&State,n:u16,active:Option<KnobId>,r:Rect
                     KnobId::Eq(_,_,k) => {
                         let label=if k==0 {format!("{:+.1} dB",(v*2.-1.)*18.)}else{text};
                         let width=(ui.c.text_width(console_font(ui,s,10).bold(),&label)+8.).min(r.w);
-                        readout=Some((Rect::new((cx-width/2.).clamp(r.x,r.right()-width),cy+radius+3.*scale,width,16.),label,None));
+                        let height = if full { row.min(16.) } else { 16. };
+                        let below = cy+radius+3.*scale;
+                        let top = if full { below.min(y+row-height) } else { below };
+                        readout=Some((Rect::new((cx-width/2.).clamp(r.x,r.right()-width),top,width,height),label,None));
                     }
                     KnobId::Strip(_,0|3) => {
                         let label=if v==0. {"OFF".into()}else if id==KnobId::Strip(n,0) {format!("{:.0}",os_dsp::channel_strip::cut_hz(v))}else{format!("{:.0}%",v*100.)};

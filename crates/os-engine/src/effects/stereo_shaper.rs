@@ -137,6 +137,7 @@ impl AllPass {
     }
 }
 
+#[derive(Clone)]
 pub struct StereoShaper {
     applied: [i32; PARAMS],
     target: [f32; 4],
@@ -159,6 +160,24 @@ pub struct StereoShaper {
 }
 
 impl StereoShaper {
+    /// Snapshot into an already prepared bank for a live control crossfade.
+    pub fn copy_state_from(&mut self, source: &Self) {
+        self.applied = source.applied;
+        self.target = source.target;
+        self.gains = source.gains;
+        self.limit = source.limit;
+        self.rate = source.rate;
+        self.c = source.c;
+        self.line.copy_state_from(&source.line);
+        self.delayed = source.delayed;
+        self.phased = source.phased;
+        self.allpass = source.allpass;
+        self.mem = source.mem;
+        self.primed = source.primed;
+        // The linked stereo insert uses only the main outputs. Difference output is scratch.
+        self.diff.clear();
+    }
+
     /// A new instance, the rate known: the editor defaults, the matrix at zero (it has not rendered anything yet).
     pub fn new(rate: u32) -> StereoShaper {
         StereoShaper {

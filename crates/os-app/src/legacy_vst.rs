@@ -54,8 +54,8 @@ pub(crate) fn load(
     let runtime =
         setup::installed().ok_or("Install the 32-bit VST2 bridge in Settings > Plugins.")?;
     let descriptors = match descriptors {
-        Some(cached) => cached.to_vec(),
-        None => discover(&runtime, path)?,
+        Some(cached) if cached.iter().all(|d| d.features.iter().any(|f| f.starts_with("audio-outputs:"))) => cached.to_vec(),
+        _ => discover(&runtime, path)?,
     };
     Ok(Arc::new(BridgeLibrary {
         path: path.to_owned(),
@@ -145,7 +145,7 @@ fn parse_discovery(path: &Path, lines: &str) -> Result<Vec<Descriptor>, String> 
                         .unwrap_or(0)
                 };
                 let kind = match (num("audio.ins"), num("audio.outs"), num("midi.ins")) {
-                    (0, 1..=2, 1..) => Kind::Instrument,
+                    (0, 1..=64, 1..) => Kind::Instrument,
                     (1..=2, 1..=2, _) => Kind::Effect,
                     _ => Kind::Other,
                 };
@@ -157,7 +157,7 @@ fn parse_discovery(path: &Path, lines: &str) -> Result<Vec<Descriptor>, String> 
                     name: name.into(),
                     vendor: data.get("maker").copied().unwrap_or("").into(),
                     version: String::new(),
-                    features: vec![os_host::VST2_X86.into()],
+                    features: vec![os_host::VST2_X86.into(),format!("audio-outputs:{}",num("audio.outs"))],
                     kind,
                     path: path.to_owned(),
                 });

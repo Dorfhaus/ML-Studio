@@ -131,6 +131,10 @@ pub fn block(p: &Osc3Params, bend: f64) -> dsp::Block {
     };
     dsp::Block {
         osc: [osc(0), osc(1), osc(2)],
+        m1: f(COUNT)/128.,
+        adsr:std::array::from_fn(|n|{
+            let k=COUNT+1+4*n;[f(k)/1000.,f(k+1)/1000.,f(k+2)/128.,f(k+3)/1000.]
+        }),
         m2: f(MIX2) / 128.0,
         m3: f(MIX3) / 128.0,
         am: p.flag(AM_BYTE),

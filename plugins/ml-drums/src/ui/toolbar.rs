@@ -98,10 +98,13 @@ pub fn draw_toolbar_snapshot(
                     };
 
                     let tab_w = 32.0;
-                    let resp = ui.add(tab("PADS", ViewMode::PadStrip).min_size(egui::vec2(tab_w, 20.0)));
+                    let resp = ui.add(tab("ROWS", ViewMode::PadStrip).min_size(egui::vec2(tab_w, 20.0)));
                     theme::tip(resp.clone(), "Pad strip view", tooltips_on);
                     if resp.clicked() && view_mode != ViewMode::PadStrip {
                         action = ToolbarAction::SetView(ViewMode::PadStrip);
+                    }
+                    if ui.add(tab("PADS", ViewMode::PadGrid).min_size(egui::vec2(tab_w,20.))).clicked() {
+                        action = ToolbarAction::SetView(ViewMode::PadGrid);
                     }
                     let resp = ui.add(tab("MAP", ViewMode::SampleMap).min_size(egui::vec2(tab_w, 20.0)));
                     theme::tip(resp.clone(), "Sample map scatter plot", tooltips_on);

@@ -127,7 +127,9 @@ pub struct PianoState {
     /// The user put the play-start marker somewhere (a click or drag in the ruler, the song position slider in pattern
     /// mode) since the project opened: Ctrl+V pastes there (spec: ui/piano-keys.md §4 rule 7).
     pub marker_placed: bool,
-    /// Time selection made by right-dragging the ruler (ticks, start..end); the only selection
+    /// Last plain press on this editor's ruler, for double-click selection.
+    pub last_ruler: Option<crate::timeline_range::RulerClick>,
+    /// Time selection made by dragging the ruler (ticks, start..end); the only selection
     /// that shades the grid (§10).
     pub range: Option<(u32, u32)>,
     /// Key row pitch in pixels (vertical zoom, §3a; the measured default is [`ROW`]).
@@ -177,6 +179,7 @@ impl Default for PianoState {
             zoom_back: None,
             marker: 0,
             marker_placed: false,
+            last_ruler: None,
             range: None,
             row_h: ROW,
             clip_session:None,

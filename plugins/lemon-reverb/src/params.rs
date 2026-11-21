@@ -164,6 +164,8 @@ pub fn parse_text(t: Text, s: &str, min: i32, max: i32, tempo: bool) -> Option<i
 pub struct ReverbParams {
     /// The knobs in the original's order.
     pub p: Vec<IntParam>,
+    pub duck: IntParam,
+    pub duck_amount: IntParam,
     pub tempo: BoolParam,
     pub mid_side: BoolParam,
     /// The pre-delay text follows the tempo switch.
@@ -193,7 +195,10 @@ impl Default for ReverbParams {
         let shown = tempo_shown.clone();
         let tempo = BoolParam::new(TEMPO_NAME, false).with_callback(Arc::new(move |b| shown.store(b, Ordering::Relaxed)));
         let mid_side = BoolParam::new(MID_SIDE_NAME, false);
-        ReverbParams { p, tempo, mid_side, tempo_shown, raw: RwLock::new(default_state()), raw_version: AtomicU64::new(0), live: Arc::default() }
+        let duck_amount = IntParam::new("Duck amount", 100, IntRange::Linear {min:0, max:100})
+            .with_value_to_string(Arc::new(|v| format!("{v}%")))
+            .with_string_to_value(Arc::new(|s| s.trim().trim_end_matches('%').trim().parse().ok()));
+        ReverbParams { duck_amount, duck: IntParam::new("Ducking",0,IntRange::Linear{min:0,max:2}).with_value_to_string(Arc::new(|v|["Off","Gentle","Hard"][v.clamp(0,2) as usize].into())), p, tempo, mid_side, tempo_shown, raw: RwLock::new(default_state()), raw_version: AtomicU64::new(0), live: Arc::default() }
     }
 }
 
@@ -205,6 +210,8 @@ unsafe impl Params for ReverbParams {
         let mut m: Vec<_> = self.p.iter().zip(&DEFS).map(|(p, d)| (d.id.to_string(), p.as_ptr(), String::new())).collect();
         m.push((TEMPO_ID.to_string(), self.tempo.as_ptr(), String::new()));
         m.push((MID_SIDE_ID.to_string(), self.mid_side.as_ptr(), String::new()));
+        m.push(("duck".into(),self.duck.as_ptr(),String::new()));
+        m.push(("duck_amount".into(), self.duck_amount.as_ptr(), String::new()));
         m
     }
 
@@ -331,6 +338,9 @@ pub fn plugin_state_from_fl(fl: &[u8]) -> Vec<u8> {
     let mut params: Vec<String> = values_of(&b).iter().zip(&DEFS).map(|(v, d)| format!("\"{}\":{{\"i32\":{v}}}", d.id)).collect();
     params.push(format!("\"{TEMPO_ID}\":{{\"bool\":{}}}", b[TEMPO_BYTE] != 0));
     params.push(format!("\"{MID_SIDE_ID}\":{{\"bool\":{}}}", b[MID_SIDE_BYTE] != 0));
+    let (duck, amount) = os_engine::effects::reverb::Reverb::duck_settings(fl);
+    params.push(format!(r#""duck":{{"i32":{duck}}}"#));
+    params.push(format!(r#""duck_amount":{{"i32":{amount}}}"#));
     let state = format!(
         "{{\"version\":\"{}\",\"params\":{{{}}},\"fields\":{{\"{STATE_FIELD}\":\"\\\"{}\\\"\"}}}}",
         env!("CARGO_PKG_VERSION"),
@@ -355,7 +365,17 @@ pub fn fl_from_plugin_state(blob: &[u8]) -> Option<Vec<u8>> {
         }
     }
     let flag = |id: &str, at: usize| params.get(id).and_then(|p| p.get("bool")).and_then(|x| x.as_bool()).unwrap_or(raw[at] != 0);
-    Some(to_fl(&vals, flag(TEMPO_ID, TEMPO_BYTE), flag(MID_SIDE_ID, MID_SIDE_BYTE), &raw))
+    let mut out=to_fl(&vals,flag(TEMPO_ID,TEMPO_BYTE),flag(MID_SIDE_ID,MID_SIDE_BYTE),&raw);
+    let duck=params["duck"]["i32"].as_u64().unwrap_or(0).min(2) as u8;
+    let amount = params["duck_amount"]["i32"].as_i64().unwrap_or(100).clamp(0,100) as u8;
+    let tail = &out[STATE_LEN..];
+    let mut old_len = if tail.starts_with(b"DUCK") { tail.len().min(5) } else { 0 };
+    if old_len == 5 && tail.get(5..8) == Some(b"AMT") && tail.len() >= 9 { old_len = 9; }
+    let mut extension = Vec::new();
+    if duck != 0 || amount != 100 { extension.extend(b"DUCK"); extension.push(duck); }
+    if amount != 100 { extension.extend(b"AMT"); extension.push(amount); }
+    out.splice(STATE_LEN..STATE_LEN+old_len,extension);
+    Some(out)
 }
 
 #[cfg(test)]
@@ -446,7 +466,21 @@ mod tests {
         assert_eq!(p.p.len(), PARAMS);
         assert_eq!(p.p[12].name(), "Wet level");
         assert_eq!(p.settings(&b), Settings::default());
-        assert_eq!(p.param_map().len(), PARAMS + 2);
+        assert_eq!(p.param_map().len(), PARAMS + 4);
+    }
+
+    #[test]
+    fn duck_amount_roundtrips_with_old_modes_and_unknown_tails() {
+        for (mode,amount) in [(0,100),(1,100),(2,100),(1,0),(2,37),(0,64)] {
+            let mut state=default_state();
+            if mode!=0 || amount!=100 {state.extend(b"DUCK");state.push(mode);}
+            if amount!=100 {state.extend(b"AMT");state.push(amount);}
+            state.extend(b"unrelated");
+            let restored=fl_from_plugin_state(&plugin_state_from_fl(&state)).unwrap();
+            assert_eq!(restored,state);
+            let dsp=os_engine::effects::reverb::Reverb::from_state(&restored,48000).unwrap();
+            assert_eq!((dsp.duck_mode,(dsp.duck_amount*100.).round() as u8),(mode,amount));
+        }
     }
 
     #[test]

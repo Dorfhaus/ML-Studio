@@ -162,6 +162,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Live MIDI note glow", crate::midi_play::RACK_ACTIVITY),
         ("Loop mode button", "visible_rack-loop"),
         ("Graph editor shortcut", "visible_rack-graph"),
+        ("Channel selection slot", crate::rack::SELECTION_SLOT_VISIBILITY),
         ("Channel selection outline", crate::rack_drag::OVERLAY_VISIBILITY),
     ]),
     #[cfg(plugin_windows)]
@@ -210,6 +211,7 @@ pub(crate) const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("Custom window layout menu", crate::workspace_layout::VISIBILITY),
         (crate::prefs::DOUBLE_CLICK_RESET.label, "visible_double-click-reset"),
         (crate::prefs::HOVER_MENUS.label, "visible_hover-main-menus"),
+        (crate::prefs::CURSORS_SCALING.label, "visible_cursor-size"),
         ("Solo Playlist tracks export", crate::export_form::SOLO_VISIBILITY),
         ("Advanced Export tab", crate::export_form::ADVANCED_VISIBILITY),
         ("Auto-number duplicate exports", crate::export_form::NUMBER_VISIBILITY),

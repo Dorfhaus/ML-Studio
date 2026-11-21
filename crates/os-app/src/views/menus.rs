@@ -944,7 +944,7 @@ pub fn paint_dropdown(ui: &mut Ui, s: &State, menu: usize, k: f32) {
         }
         for (i, item) in items.iter().enumerate() {
             if recent_before(menu, items, i) {
-                y = paint_recent(ui, &recent, Rect::new(col.x, y, col.w, 0.0), open);
+                y = paint_recent(ui, &recent, Rect::new(col.x, y, col.w, 0.0), open.filter(|_| away));
             }
             if !in_menu(s, menu, item) {
                 flat += 1;
@@ -962,7 +962,7 @@ pub fn paint_dropdown(ui: &mut Ui, s: &State, menu: usize, k: f32) {
                     if ok {
                         let hov = ui.hit(rr, item_action(menu, flat, item), item.label);
                         ui.menu_row(crate::app::MENU_DROPDOWN);
-                        if hov || open == Some(flat) {
+                        if hov || (away && open == Some(flat)) {
                             light(ui, rr);
                         }
                     } else if !works(menu, item) {
@@ -1250,6 +1250,9 @@ pub fn toolbar_items(s: &State) -> Vec<crate::playlist::PItem> {
     if o.hint_bar && crate::workspace_visibility::shown("visible_hint") {
         let label = if s.bar.floating_hint.is_some() { "Dock hint bar" } else { "Float hint bar" };
         items.push(PItem::new(label, Cmd::Toolbar(Switch::FloatHint)));
+        if s.bar.floating_hint.is_none() && !s.bar.editing {
+            items.push(PItem::new("Move hint bar in toolbar", Cmd::Toolbar(Switch::Edit)));
+        }
         items.push(PItem::sub("Hint text size", [9,11,13,16,20,24].into_iter().map(|size|
             PItem::new(format!("{size} px"), Cmd::Toolbar(Switch::HintText(size)))
                 .mark(Mark::Radio(s.bar.hint_font_size() == size))).collect()));

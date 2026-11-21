@@ -167,6 +167,9 @@ impl Extension for Panel {
 pub struct Vocoder {
     pub(crate) params: Arc<FxParams>,
     banks: [Bank; 2],
+    previous: [Bank; 2],
+    previous_source: i32,
+    bank_blend: f32,
     rate: f32,
     phase: f64,
     smoothed: [f32; 3],
@@ -178,7 +181,7 @@ impl Default for Vocoder {
     fn default() -> Self {
         Self {
             params: Arc::new(FxParams::new(&VOCODER)),
-            banks: [Bank::default(), Bank::default()],
+            banks: Default::default(), previous: Default::default(), previous_source: 0, bank_blend: 1.,
             rate: 48000.,
             phase: 0.,
             smoothed: [1., 1., 130.8128],
@@ -210,6 +213,14 @@ impl Vocoder {
     fn update(&mut self) {
         let p: [i32; 9] = std::array::from_fn(|i| self.params.v(i));
         if p != self.last {
+            let switching = p[0] != self.last[0] || p[2..7] != self.last[2..7];
+            if switching && self.last[0] >= 0 {
+                // Finish the current transition before adopting another filter bank.
+                if self.bank_blend < 1. { return; }
+                self.previous.clone_from(&self.banks);
+                self.previous_source = self.last[0];
+                self.bank_blend = 0.;
+            }
             if p[0] != self.last[0] || p[2] != self.last[2] {
                 for b in &mut self.banks {
                     b.clear();
@@ -273,11 +284,19 @@ impl Vocoder {
                 };
                 let c = if c.is_finite() { c } else { 0. };
                 cp = cp.max(c.abs());
-                let wet = self.banks[ch].sample(m as f64, c as f64) * self.fade;
+                let mut wet = self.banks[ch].sample(m as f64, c as f64) * self.fade;
+                if self.bank_blend < 1. {
+                    let old_carrier = if self.previous_source == self.last[0] { c }
+                        else if self.previous_source == 0 { saw }
+                        else { carrier.and_then(|(a,b)| if ch == 0 { a.get(i) } else { b.get(i) }).copied().filter(|x| x.is_finite()).unwrap_or(0.) };
+                    let old = self.previous[ch].sample(m as f64, old_carrier as f64);
+                    wet = old + self.bank_blend * (wet - old);
+                }
                 let v = (input[ch] * (1. - self.smoothed[0]) + wet * self.smoothed[0])
                     * self.smoothed[1];
                 if ch == 0 { l[i] = v } else { r[i] = v }
             }
+            self.bank_blend = (self.bank_blend + 1. / (0.005 * self.rate)).min(1.);
         }
         self.readings.main.store(mp.to_bits(), Ordering::Relaxed);
         self.readings.carrier.store(cp.to_bits(), Ordering::Relaxed);
@@ -331,6 +350,7 @@ impl Plugin for Vocoder {
         }
         self.phase = 0.;
         self.fade = 0.;
+        self.bank_blend = 1.;
         self.last = [i32::MIN; 9];
         self.smoothed = [
             self.params.v(7) as f32 / 1000.,

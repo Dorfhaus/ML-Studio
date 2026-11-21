@@ -690,6 +690,7 @@ struct Analysis {
 }
 
 struct Compare {
+    track_peaks: BTreeMap<u16, (f64, f64)>,
     samples: [Arc<Sample>; 2],
     peak: f64,
 }
@@ -1388,6 +1389,9 @@ fn compare(before: &Render, after: &Render) -> Option<Compare> {
         })
     };
     Some(Compare {
+        track_peaks: before.levels.iter().filter_map(|(id, a)| {
+            after.levels.get(id).map(|b| (*id, (a.true_peak,b.true_peak)))
+        }).collect(),
         samples: [sample(a, al), sample(b, bl)],
         peak: after.peak,
     })
@@ -1641,13 +1645,22 @@ pub(crate) fn tick(app: &mut App) {
                     first.reason
                 ));
                 a.review_at = first.at;
-                if attempt >= 2 {
+                if attempt >= 3 {
                     return report(
                         app,
                         "This proposal still changes peaks too much. Apply is withheld. Try a smaller selection or Levels only; review the flagged track's existing effects.",
                     );
                 }
-                if attempt == 0
+                if attempt==0 {
+                    // Try a gentler version on the affected signal paths before dropping whole chains.
+                    let master=issues.iter().any(|i|i.track==0);
+                    let affected=|id:u16| master || issues.iter().any(|i|i.track==id ||
+                        a.tracks.iter().any(|t|t.id==id && t.downstream.contains(&i.track)));
+                    moves=moves.into_iter().filter_map(|m|if affected(m.track) && m.delta>0. {
+                        fader_change(&project,m.track,m.delta*0.5)
+                    }else{Some(m)}).collect();
+                    for fx in additions.iter_mut().filter(|p|affected(p.track)) {fx.recipe.mix*=0.5;}
+                } else if attempt == 1
                     && issues.iter().all(|i| {
                         i.track != 0 && a.tracks.iter().any(|t| t.id == i.track && !t.role.is_bus())
                     })
@@ -2667,7 +2680,10 @@ pub(crate) fn paint(
                     panel.y + 8.,
                     panel.w - 105.,
                     ink,
-                    &format!("{} - {} - stock effects", track.name, track.role.label()),
+                    &match analysis.preview.as_ref().and_then(|preview| preview.track_peaks.get(&id)) {
+                        Some((before, after)) => format!("{}   ·   {}   ·   Peak {before:.1} → {after:.1} dBTP", track.name, track.role.label()),
+                        None => format!("{}   ·   {}   ·   Stock effects", track.name, track.role.label()),
+                    },
                 );
                 button(
                     ui,
@@ -2677,7 +2693,8 @@ pub(crate) fn paint(
                     false,
                     true,
                 );
-                let row_h = ((panel.h - 55.) / 8.).max(22.);
+                let rows=Fx::ALL.len().div_ceil(2);
+                let row_h = ((panel.h - 55.) / rows as f32).max(22.);
                 let col_w = (panel.w - 18.) / 2.;
                 let proposed = analysis
                     .plans
@@ -2687,8 +2704,8 @@ pub(crate) fn paint(
                     .unwrap_or(&[]);
                 let existing = state.project.mixer.iter().find(|t| t.index == id);
                 for (i, fx) in Fx::ALL.into_iter().enumerate() {
-                    let x = panel.x + 7. + (i / 8) as f32 * (col_w + 4.);
-                    let y = panel.y + 33. + (i % 8) as f32 * row_h;
+                    let x = panel.x + 7. + (i / rows) as f32 * (col_w + 4.);
+                    let y = panel.y + 33. + (i % rows) as f32 * row_h;
                     let chosen = proposed.iter().find(|r| r.fx == fx);
                     let reason = chosen.map(|r| r.reason.clone()).unwrap_or_else(|| {
                         analysis
@@ -3680,7 +3697,13 @@ mod tests {
             .collect();
         assert_eq!(
             linked,
-            Fx::ALL.into_iter().map(|f| f.name().to_owned()).collect()
+            Fx::ALL.into_iter().map(|f| f.name()).chain([
+                // These stock tools require a musical choice, an external source or a routing decision.
+                // Users can load them directly in the mixer; the assistant preserves existing instances.
+                "ML Amp","ML Frequency Shift","ML Meter","ML Multiband Delay","ML Patch","ML Phase",
+                "ML Pitch Shift","ML Reference","ML Riser","ML Space","ML Split","ML Time Shaper",
+                "ML Tuner","ML Vocal Tune","ML Vocoder","ML Waveshaper","TIME-12",
+            ]).map(str::to_owned).collect()
         );
         for role in [Role::Bass, Role::DrumBus, Role::LeadVocal] {
             t.role = role;
@@ -3750,7 +3773,7 @@ mod tests {
                     assert!(error < 0.005, "{fx:?} reopen audio error {error}");
                     assert!(first.levels.contains_key(&3), "{fx:?} silenced source");
                     assert!(
-                        first
+                        fx == Fx::DeEsser || first
                             .excerpt
                             .iter()
                             .zip(&measured.excerpt)

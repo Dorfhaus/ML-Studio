@@ -77,6 +77,7 @@ struct Asset {
     revision: u64,
 }
 pub(crate) struct Exchange {
+    family: AtomicU32,
     asset: Mutex<Asset>,
     revision: AtomicU64,
     rate: AtomicU32,
@@ -89,6 +90,7 @@ pub(crate) struct Exchange {
 impl Exchange {
     fn new() -> Self {
         Self {
+            family: AtomicU32::new(0),
             asset: Mutex::new(Asset {
                 ir: None,
                 saved: "null".into(),
@@ -206,6 +208,11 @@ impl Extension for Panel {
         if !os_plugkit::visibility::stock_dsp_controls() {
             return;
         }
+        let family = self.shared.family.load(Ordering::Relaxed) as usize;
+        crate::button(c,Rect::new(390.,170.,230.,30.),&format!("Collection   {}   >",Impulse::FAMILIES[family]));
+        for (i,name) in Impulse::VARIANTS.iter().enumerate() {
+            crate::button(c,Rect::new(16.+i as f32*153.,330.,145.,30.),name);
+        }
         crate::button(c, Rect::new(16., 170., 120., 30.), "Load WAV…");
         crate::button(c, Rect::new(146., 170., 120., 30.), "Small room");
         crate::button(c, Rect::new(276., 170., 100., 30.), "Clear IR");
@@ -250,6 +257,16 @@ impl Extension for Panel {
     fn click(&self, x: f32, y: f32, _: Option<&Arc<dyn GuiContext>>) -> bool {
         if !os_plugkit::visibility::stock_dsp_controls() {
             return false;
+        }
+        if Rect::new(390.,170.,230.,30.).contains(x,y) {
+            self.shared.family.fetch_update(Ordering::Relaxed,Ordering::Relaxed,|f|Some((f+1)%6)).ok();
+            return true
+        }
+        for i in 0..4 {
+            if Rect::new(16.+i as f32*153.,330.,145.,30.).contains(x,y) {
+                self.shared.replace(Some(Impulse::factory(self.shared.family.load(Ordering::Relaxed) as usize,i)),true);
+                return true
+            }
         }
         if Rect::new(16., 170., 120., 30.).contains(x, y) {
             if let Some(p) = rfd::FileDialog::new()
@@ -486,7 +503,7 @@ impl Convolver {
     }
 }
 impl Plugin for Convolver {
-    const NAME: &'static str = "ML Convolver";
+    const NAME: &'static str = "ML Space";
     const VENDOR: &'static str = "ML Studio";
     const URL: &'static str = "";
     const EMAIL: &'static str = "";

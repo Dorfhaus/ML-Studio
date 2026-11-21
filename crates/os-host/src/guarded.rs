@@ -176,6 +176,7 @@ impl<P: Plugin> Instrument for Guarded<P> {
             }
         }
     }
+    fn set_split_outputs(&mut self, split: bool) { self.run((), |p| p.set_split_outputs(split)); }
     fn extra_outputs(&self)->usize { self.look(0,|p|p.extra_outputs()) }
     fn extra_output(&mut self,port:usize,left:&mut[f32],right:&mut[f32])->bool {
         let ok=self.run(false,|p|p.extra_output(port,left,right));

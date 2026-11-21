@@ -28,7 +28,8 @@ pub struct Pitch {
     gain: f32,
     shifted: f32,
     smooth: f32,
-    last: [i32; 3],
+    phase: f64,
+    last: [i32; 5],
 }
 impl Processor for Pitch {
     fn new(rate: u32, data: Arc<Readings>) -> Self {
@@ -45,7 +46,7 @@ impl Processor for Pitch {
             gain: 1.,
             shifted: 0.,
             smooth: 1. - (-1. / (rate as f32 * 0.01)).exp(),
-            last: [i32::MIN; 3],
+            phase:0.,last: [i32::MIN; 5],
         }
     }
     fn latency(&self) -> u32 {
@@ -58,21 +59,21 @@ impl Processor for Pitch {
         self.mix = p.v(3) as f32 / 1000.;
         self.gain = 10f32.powf(p.v(4) as f32 / 200.);
         self.shifted = if p.v(0) != 0 || p.v(1) != 0 { 1. } else { 0. };
-        self.last = [i32::MIN; 3];
+        self.phase=0.; self.last = [i32::MIN; 5];
         self.data
             .set(0, self.latency as f32 * 1000. / self.rate as f32);
     }
     fn process(&mut self, l: &mut [f32], r: &mut [f32], p: &FxParams) {
-        let settings = [p.v(0), p.v(1), p.v(2)];
+        let settings = [p.v(0), p.v(1), p.v(2),p.v(5),p.v(6)];
         if settings != self.last {
             self.stretch.set_transpose_factor_semitones(
                 settings[0] as f32 + settings[1] as f32 / 100.,
                 None,
             );
-            self.stretch.set_formant_factor(1., settings[2] != 0);
+            self.stretch.set_formant_factor_semitones(settings[3] as f32/10., settings[2] != 0);
             self.last = settings;
         }
-        let shifted = if settings[0] != 0 || settings[1] != 0 {
+        let shifted = if settings[0] != 0 || settings[1] != 0 || settings[3]!=0 || settings[4]!=0 {
             1.
         } else {
             0.
@@ -82,6 +83,11 @@ impl Processor for Pitch {
         let mut input = [0f32; 512];
         let mut output = [0f32; 512];
         for (ll, rr) in l.chunks_mut(256).zip(r.chunks_mut(256)) {
+            if settings[4]>0 {
+                let modulation=self.phase.sin() as f32*settings[4] as f32/100.;
+                self.stretch.set_transpose_factor_semitones(settings[0] as f32+settings[1] as f32/100.+modulation,None);
+                self.phase=(self.phase+std::f64::consts::TAU*p.v(7) as f64*0.1*ll.len() as f64/self.rate as f64)%std::f64::consts::TAU;
+            }
             for i in 0..ll.len() {
                 input[2 * i] = ll[i];
                 input[2 * i + 1] = rr[i];

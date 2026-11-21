@@ -199,6 +199,11 @@ fn settings(v: &[i32]) -> Settings {
 
 struct ChorusSound(Chorus);
 
+impl Clone for ChorusSound {
+    fn clone(&self) -> Self { Self(self.0.clone()) }
+    fn clone_from(&mut self, source: &Self) { self.0.copy_state_from(&source.0); }
+}
+
 impl Sound for ChorusSound {
     fn set(&mut self, v: &[i32]) {
         self.0.set(&settings(v));
@@ -220,7 +225,7 @@ impl Sound for ChorusSound {
 fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
     let mut effect = ChorusSound(Chorus::with_settings(rate, &settings(v)));
     effect.set(v);
-    Box::new(effect)
+    super::quality::ControlTransition::<_, { SETTINGS.len() }>::boxed(effect, v, rate)
 }
 
 pub struct ChorusKind;

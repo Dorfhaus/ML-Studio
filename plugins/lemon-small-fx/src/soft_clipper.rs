@@ -109,6 +109,7 @@ fn curve(c: &mut Canvas, r: Rect, v: &[i32]) {
     });
 }
 
+#[derive(Clone)]
 struct Clip {
     shaper: SoftClipper,
     oversampling: Oversampler,
@@ -141,14 +142,14 @@ impl Sound for Clip {
     }
 }
 
-fn sound(_rate: u32, v: &[i32]) -> Box<dyn Sound> {
+fn sound(rate: u32, v: &[i32]) -> Box<dyn Sound> {
     let mut clip = Clip {
         shaper: SoftClipper::with_settings(&settings(v)),
         oversampling: Oversampler::default(),
         ceiling: false,
     };
     clip.set(v);
-    Box::new(clip)
+    super::quality::ControlTransition::<_, { SETTINGS.len() }>::boxed(clip, v, rate)
 }
 
 pub struct SoftClipperKind;
@@ -197,9 +198,11 @@ mod tests {
         }
         // Stored values outside the ranges play as stored (threshold 0: the curve from 0).
         s.set(&[0, 128]);
-        let mut l = vec![1.0f32];
-        let mut r = vec![0.0f32];
+        let mut l = vec![1.0f32; 193];
+        let mut r = vec![0.0f32; 193];
         s.process(&mut l, &mut r);
-        assert_eq!(l[0], (1.0 - (-1.0f64).exp()) as f32);
+        assert_eq!(l[0], d.sample(1.0));
+        assert_eq!(l[192], (1.0 - (-1.0f64).exp()) as f32);
+        assert!(l.windows(2).all(|pair| (pair[1]-pair[0]).abs() < 0.01));
     }
 }

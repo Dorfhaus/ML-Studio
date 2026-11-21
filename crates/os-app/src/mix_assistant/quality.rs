@@ -109,6 +109,19 @@ impl Level {
         (self.rms(0.95) - self.rms(0.5)).max(0.)
     }
 
+    /// Peak excursions relative to the channel's normal active peaks, ignoring silent gaps.
+    pub(super) fn peak_excursion(&self) -> f64 {
+        let gate=(self.rms(0.5)-18.).max(-65.) as f32;
+        let active=||self.frames.iter().filter(|f| f.rms>gate).map(|f|f64::from(f.peak));
+        if active().count()<12 {return 0.}
+        // A sustained syllable can cover less than one percent of a long performance.
+        // Two adjacent active frames reject isolated one-frame clicks.
+        let sustained = self.frames.windows(2)
+            .filter(|w| w.iter().all(|f| f.rms > gate))
+            .map(|w| f64::from(w[0].peak.min(w[1].peak)))
+            .fold(-90., f64::max);
+        (quantile(active(),0.99).max(sustained)-quantile(active(),0.6)).max(0.)
+    }
     pub(super) fn burst_ms(&self) -> f64 {
         let threshold = self.rms(0.75) as f32;
         let mut spans = Vec::new();
@@ -183,6 +196,9 @@ pub(super) fn change(before: &Level, after: &Level) -> Change {
         .enumerate()
         .filter(|(_, (a, b))| a.rms > gate && b.rms.is_finite())
         .collect();
+    if pairs.is_empty() {
+        return Change {median:0.,reduction:0.,surge:0.,at:0}
+    }
     let median = quantile(
         pairs.iter().map(|(_, (a, b))| f64::from(b.rms - a.rms)),
         0.5,
@@ -279,6 +295,20 @@ pub(super) fn validate(before: &Render, after: &Render, tracks: &[Track]) -> Vec
 mod tests {
     use super::*;
 
+    #[test]
+    fn mix_assistant_short_loud_syllable_survives_long_song_percentiles() {
+        let mut level=Level {frames:vec![Frame {rms:-25.,peak:-18.,bands:[-36.;6]};1000],..Default::default()};
+        level.frames[300].peak=-2.;
+        assert_eq!(level.peak_excursion(),0.);
+        level.frames[301].peak=-3.;
+        assert_eq!(level.peak_excursion(),15.);
+    }
+    #[test]
+    fn mix_assistant_silent_window_has_neutral_change() {
+        let level=Level::default();
+        let result=change(&level,&level);
+        assert_eq!([result.median,result.reduction,result.surge],[0.;3]);
+    }
     #[test]
     fn mix_assistant_detects_a_late_surge_even_when_global_peak_is_unchanged() {
         let mut a = Level {

@@ -10,7 +10,7 @@ use crate::{app::Scroll, help, views::settings::SAct};
 pub struct Windows { header_samples:Option<(u16,Vec<String>)>, stems:Option<(u16,u32,Vec<std::path::PathBuf>)>, panes:Vec<Pane>, screens:Vec<[i32;4]>, main:Option<crate::app::ViewContext>, changed:bool, layout_generation:u64 }
 struct Pane {
     kind:Win, window:Rc<Window>, surface:softbuffer::Surface<Rc<Window>,Rc<Window>>, canvas:Canvas,
-    cursor:Option<(crate::app::Cursor,u16,u8)>,
+    cursor: Option<crate::CursorStyle>,
     eq_visible: bool,
     guide_press: Option<help::Hit>,
     guide_scroll: Option<(f32, f32, f32)>,
@@ -194,9 +194,10 @@ impl Windows {
             _=>{}
         }
         #[cfg(windows)] if p.kind==Win::Mixer && redraw && p.refresh_editors {for h in app.plugins.hosted.values(){if let Some(e)=&h.rack_editor{e.refresh();}}}
-        if matches!(p.kind,Win::PianoRoll|Win::Playlist){
-            let key=(app.cursor(),(scale*100.).round().clamp(50.,400.) as u16,app.theme.colors.appearance.icon_pack);
-            if p.cursor!=Some(key){crate::apply_window_cursor(&p.window,_el,key.0,key.1,key.2,cache);p.cursor=Some(key);}
+        let style = crate::cursor_style(app, &p.window, app.cursor());
+        if p.cursor != Some(style) {
+            crate::apply_window_cursor(&p.window, _el, style, cache);
+            p.cursor = Some(style);
         }
         p.hover=app.hover.clone();
         if redraw {p.refresh_editors=false;}
@@ -260,7 +261,8 @@ impl Windows {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 app.shift = pane.mods.shift_key();
-                help::guide_key(app, &event.logical_key, crate::ctrl(pane.mods), pane.mods.alt_key(), true, height);
+                let key = crate::normalize_shortcut_key(app, event.logical_key, event.physical_key, pane.mods);
+                help::guide_key(app, &key, crate::ctrl(pane.mods), pane.mods.alt_key(), true, height);
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                 self.main = Some(app.take_view_context());

@@ -738,7 +738,7 @@ fn ruler_paint(ui: &mut Ui, s: &State, g: &PGeom, ruler: Rect, f: &FrameInfo) {
     let vintage = t.style.vintage_2005;
     let face = if vintage { Color::rgb(0x151824) } else { t.ruler };
     ui.c.fill_rect(ruler, face);
-    ui.hit(ruler, Action::PlRuler, "Song position (right-drag: time selection)");
+    ui.hit(ruler, Action::PlRuler, "Song position · Ctrl-drag, right-drag or double-click and drag to select time · Shift-drag to move the range");
     ui.c.push_clip(ruler);
     if let Some((a, b)) = s.project.playlist_loop {
         ui.c.fill_rect(Rect::span(g.x_of(a as f32), g.x_of(b as f32), ruler.y, ruler.bottom()), t.playhead.with_alpha(60));
@@ -1759,8 +1759,14 @@ fn header(ui: &mut Ui, s: &State, f: &FrameInfo, g: &PGeom, row: u16, x: f32, w:
     let hint = active.map(|ch| format!("Automation: {} (click to select another)", pl::source_name(s, ClipSource::Channel(*ch)))).unwrap_or_else(|| "Track automation: choose a parameter".into());
     let toggle=Rect::new(auto.x-21.0,auto.y+2.0,18.0,10.0);
     ui.hit(toggle.outset(2.0),Action::PlAutomationToggle(row),"Show / hide automation overlay");
-    ui.c.fill_rect(toggle,if active.is_some(){t.glyph}else{t.text_faint.shade(-0.5)});
-    ui.c.fill_rect(Rect::new(toggle.x+if active.is_some(){10.0}else{2.0},toggle.y+2.0,6.0,6.0),if active.is_some(){ui.t.tx(0x253039)}else{t.text});
+    let on = active.is_some();
+    let rail = if on { t.glyph } else { t.text_faint.shade(-0.5) };
+    let thumb = if on { t.s(0x253039) } else { t.text };
+    ui.c.fill_rect(toggle, rail);
+    ui.c.fill_rect(
+        Rect::new(toggle.x + if on { 10.0 } else { 2.0 }, toggle.y + 2.0, 6.0, 6.0),
+        os_theme::fl::readable(thumb, rail, 0.45),
+    );
     let hot = ui.hit(auto, Action::PlAutomation(row), hint);
     clip_kind_icon(ui, PickKind::Automation, auto.inset(1.0), crate::attached_mixer::lane_icon(s,row,hot).unwrap_or(if active.is_some() || hot { t.glyph } else { t.text_faint }));
     let hovered = ui.hit(led, Action::PlLed(row), "Mute track (right-click / Ctrl+click: solo)");
@@ -1979,6 +1985,7 @@ fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f3
         ui.c.stroke_rrect(Rect::new(r.x + m.line, r.y + m.line, r.w - 2.0 * m.line, r.h - 2.0 * m.line), 0.0, m.border, t.menu_pop_border);
     }
     ui.hit(r, Action::Swallow, "");
+    let keep_open_highlight = !r.contains(ui.mouse.0, ui.mouse.1);
     for (i, it) in items.iter().enumerate() {
         let (col, off) = layout[i];
         // A column out of view is placed beside the shown ones.
@@ -2017,7 +2024,8 @@ fn popup_list(ui: &mut Ui, items: &[pl::PItem], x: f32, y: f32, screen: (f32, f3
         // planned). Disabled entries never light up.
         let live = it.enabled && (it.children.is_empty() || any_enabled(&it.children));
         if it.enabled {
-            let lit = ui.hit(rr, action, it.display_label(language).to_string()) || open == Some(i);
+            let lit = ui.hit(rr, action, it.display_label(language).to_string())
+                || (keep_open_highlight && open == Some(i));
             ui.menu_row(menu);
             if lit && lemon {
                 os_ui::kit::row_highlight(ui.c, t, rr);

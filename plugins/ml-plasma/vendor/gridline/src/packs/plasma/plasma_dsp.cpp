@@ -2554,17 +2554,18 @@ class PlasmaGen final : public Generator {
   bool stepGains(int m, bool ramp) {
     const float tgt[4] = {static_cast<float>(busGain(GV(G_Bus1Vol))), static_cast<float>(busGain(GV(G_Bus2Vol))),
                           static_cast<float>(busGain(GV(G_DirectVol))), static_cast<float>(masterGain(GV(G_MasterVol)))};
-    const bool glide = modLaw_ && gainsSet_;
+    const bool glide = gainsSet_;
     if (!glide)
       for (int k = 0; k < 4; ++k) gainNow_[k] = tgt[k];
     gainsSet_ = true;
     const bool gliding = glide && (gainNow_[0] != tgt[0] || gainNow_[1] != tgt[1] || gainNow_[2] != tgt[2] || gainNow_[3] != tgt[3]);
     if (!gliding) return false;
-    const float gk = static_cast<float>(1.0 - std::exp(-1.0 / (0.1134 * sr_)));
+    const double seconds = modLaw_ ? 0.1134 : 0.003;
+    const float gk = static_cast<float>(1.0 - std::exp(-1.0 / (seconds * sr_)));
     for (int i = 0; i < m; ++i)
       for (int k = 0; k < 4; ++k) {
         gainNow_[k] += (tgt[k] - gainNow_[k]) * gk;
-        if (std::fabs(tgt[k] - gainNow_[k]) < 0.01f) gainNow_[k] = tgt[k];
+        if (std::fabs(tgt[k] - gainNow_[k]) < (modLaw_ ? 0.01f : 1e-6f)) gainNow_[k] = tgt[k];
         if (ramp) gainRamp_[static_cast<size_t>(k)][static_cast<size_t>(i)] = gainNow_[k];
       }
     return true;

@@ -46,6 +46,7 @@ pub const MAX: usize = 384;
 
 /// One setting: the original's saved state holds it as int `k` (its place in [`Spec::settings`], unless
 /// [`Spec::fields`] maps it).
+#[derive(Clone, Copy)]
 pub struct Setting {
     /// The parameter's id (host automation and saved sessions).
     pub id: &'static str,

@@ -19,11 +19,13 @@ pub(crate) enum Fx {
     Hall,
     Delay,
     Balance,
+    DeEsser,
     Tesla,
 }
 impl Fx {
-    pub(super) const ALL: [Self; 16] = [
+    pub(super) const ALL: [Self; 17] = [
         Self::Eq,
+        Self::DeEsser,
         Self::Compressor,
         Self::Press,
         Self::Transient,
@@ -57,6 +59,7 @@ impl Fx {
             Self::Hall => "ML Hall",
             Self::Delay => "ML Delay",
             Self::Balance => "ML Balance",
+            Self::DeEsser => "ML De-Esser",
             Self::Tesla => "ML Tesla",
         }
     }
@@ -77,6 +80,7 @@ impl Fx {
             Self::Hall => "Longer space for pads and backing vocals",
             Self::Delay => "Quiet tempo-related echo with bounded feedback",
             Self::Balance => "Optional 1 dB input trim (separate from balancing)",
+            Self::DeEsser => "Tame short bursts of vocal sibilance",
             Self::Tesla => "Audio editor / recorder: use manually, never auto-record",
         }
     }
@@ -362,6 +366,10 @@ fn recipe_for(
                 .unwrap();
             r.values.push(("Volume", f64::from(v)));
         }
+        Fx::DeEsser => {
+            r.values.extend([("Amount", (350.*s).round()), ("Mix", 850.)]);
+            r.reason = "Reduce sibilant consonants while preserving the rest of the vocal".into();
+        }
         Fx::Tesla => {}
     }
     r
@@ -397,6 +405,8 @@ pub(super) fn choices(form: &Form, project: &Project, track: &Track) -> Vec<Reci
     let bright = track.level.high_fraction > 0.34;
     let overlap = focus_for(form).and_then(|f| quality::masking(track, f));
     let harsh = harsh_band(track);
+    let de_ess = matches!(track.role,Role::LeadVocal|Role::BackingVocal) && harsh.is_some();
+    let vocal_de_esser = has(Fx::DeEsser) || track.fx_choices.get(&Fx::DeEsser).copied().unwrap_or(de_ess);
     let reference_cut = (!has(Fx::Eq))
         .then(|| {
             let (role, profile) = profile?;
@@ -431,9 +441,10 @@ pub(super) fn choices(form: &Form, project: &Project, track: &Track) -> Vec<Reci
                             || mud
                             || bright
                             || overlap.is_some()
-                            || harsh.is_some()
+                            || (harsh.is_some() && !vocal_de_esser)
                             || reference_cut.is_some())
                 }
+                Fx::DeEsser => de_ess,
                 Fx::Press => use_press,
                 Fx::Transient => use_transient,
                 Fx::Compressor => {
@@ -441,7 +452,9 @@ pub(super) fn choices(form: &Form, project: &Project, track: &Track) -> Vec<Reci
                         && !use_press
                         && !use_transient
                         && !has(Fx::Transient)
-                        && track.level.dynamics() > form.genre.dynamics_gate(track.role)
+                        && (track.level.dynamics() > form.genre.dynamics_gate(track.role)
+                            || matches!(track.role,Role::LeadVocal|Role::BackingVocal|Role::Bass)
+                                && track.level.peak_excursion()>form.genre.dynamics_gate(track.role)+3.)
                         && !dynamics_in_path
                         && !has(Fx::Press)
                         && m.strip[1] == 0
@@ -517,7 +530,7 @@ pub(super) fn choices(form: &Form, project: &Project, track: &Track) -> Vec<Reci
                         quality::HZ[band]
                     ));
                 }
-                if let Some(threshold) = harsh {
+                if let Some(threshold) = harsh.filter(|_| !vocal_de_esser) {
                     let fader = db(fader_gain(m.volume.unwrap_or(0.8)));
                     r.values.extend([
                         ("Band 6 freq", os_engine::effects::eq::freq_pos(4000.)),

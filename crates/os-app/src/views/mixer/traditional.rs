@@ -382,12 +382,12 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
         ui.c.fill_rect(Rect::new(body_rect.right() - 1.0, body_rect.y, 1.0, body_rect.h), ui.t.s(0x1c1f21));
     }
     // Select from the strip body. Below it, only explicit send controls and the footer take clicks.
-    ui.hit(Rect::new(left, header_top, width, (bottom - ROUTING_DECK_H - header_top).max(0.)), Action::Mix(MHit::Strip(n)), mx::name(s, n));
-    let hov = ui.hovering(Rect::new(left, ly.y(HEAD_Y0), width, ly.y(PANEL_Y1) - ly.y(HEAD_Y0)));
+    let hov = ui.hit(Rect::new(left, header_top, width, (bottom - ROUTING_DECK_H - header_top).max(0.)), Action::Mix(MHit::Strip(n)), mx::name(s, n));
 
     // Header number (insert strips only; the master's "M" sits in the fixed header band).
     if n != 0 {
         let hr = Rect::new(left, ly.y(HEAD_Y0), width, ly.y(HEAD_Y1) - ly.y(HEAD_Y0) + 1.0);
+        ui.live(Live::MixerNumber(n), hr.outset(2.));
         let header = if selected {
             Chrome::MixerSelectedHeader.get(t).or_else(|| Chrome::MixerHeader.get(t))
         } else {
@@ -436,12 +436,12 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     let frame_color = if paint.vintage { t.s(0x191d1e) } else { t.trad_meter_frame };
     let well_color = if paint.vintage { t.s(0x232729) } else { t.trad_meter_well };
     let radius = paint.style.radius.unwrap_or(if lemon { lk::r_small(t) } else { 2.0 });
-    ui.c.fill_rrect(meter, radius, frame_color);
-    let well = meter.inset(2.0);
+    let (meter, well) = meter_well(meter, ui.c.scale);
+    ui.c.fill_rrect_matched(meter, radius, frame_color);
     if lemon || paint.style.radius.is_some() {
-        ui.c.fill_rrect(well, paint.style.radius.map_or(2.5, |r| (r - 1.0).max(0.0)), well_color);
+        ui.c.fill_rrect_matched(well, paint.style.radius.map_or(2.5, |r| (r - 1.0).max(0.0)), well_color);
     } else {
-        ui.c.fill_rect(Rect::new(well.x, well.y, well.w - 1.0, well.h), well_color);
+        ui.c.fill_rect(well, well_color);
     }
     if t.style.vintage_2005 && crate::workspace_visibility::shown("visible_mixer-meters") {
         for side in 0..2 {
@@ -651,18 +651,31 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     }
 }
 
+// Snap the origin and size separately so neighbouring strips have the same physical
+// dimensions even when their logical centres land on opposite sides of a pixel.
+fn meter_well(r: Rect, scale: f32) -> (Rect, Rect) {
+    let snap = |v: f32| (v * scale).round() / scale;
+    let outer = Rect::new(snap(r.x), snap(r.y), snap(r.w), snap(r.h));
+    (outer, outer.inset((2.0 * scale).round().max(1.0) / scale))
+}
+
 fn stereo_meter(c: &mut os_ui::Canvas, area: Rect, levels: &meters::Meter,
     cfg: &meters::Settings, ys: &dyn Fn(f32) -> f32, paint: &MeterPaint,
 ) {
     if area.is_empty() || !c.visible(area) {
         return;
     }
-    let gap = area.w * paint.style.gap.unwrap_or(0.0);
-    let available = (area.w - gap) * 0.5;
-    let width = available * paint.style.width.unwrap_or(1.0);
-    let inset = (available - width) * 0.5;
-    for lane in 0..2 {
-        let x = area.x + inset + lane as f32 * (available + gap);
+    let scale = c.scale;
+    let left = (area.x * scale).round();
+    let pixels = (area.w * scale).round();
+    let gap = (pixels * paint.style.gap.unwrap_or(0.0)).round();
+    let half = ((pixels - gap) * 0.5).floor();
+    if half < 1.0 { return; }
+    let bar = (half * paint.style.width.unwrap_or(1.0)).round().clamp(1.0, half);
+    let margin = ((half - bar) * 0.5).floor();
+    let width = bar / scale;
+    for (lane, offset) in [margin, pixels - margin - bar].into_iter().enumerate() {
+        let x = (left + offset) / scale;
         paint_meter_bar(c, x, width, area.bottom(), levels.db[lane], levels.hold[lane], cfg, ys, paint);
     }
 }
@@ -672,9 +685,9 @@ pub(crate) fn preview_peak_meter(c: &mut os_ui::Canvas, t: &Palette, rect: Rect,
 ) {
     let paint = MeterPaint::traditional(t);
     let radius = paint.style.radius.unwrap_or(2.0);
-    c.fill_rrect(rect, radius, t.trad_meter_frame);
-    let well = rect.inset(2.0);
-    c.fill_rrect(well, (radius - 1.0).max(0.0), t.trad_meter_well);
+    let (rect, well) = meter_well(rect, c.scale);
+    c.fill_rrect_matched(rect, radius, t.trad_meter_frame);
+    c.fill_rrect_matched(well, (radius - 1.0).max(0.0), t.trad_meter_well);
     let floor = cfg.v[meters::k::FLOOR_DB];
     let y = |db| well.bottom() - meters::frac(db, floor, false) * well.h;
     if paint.style.ticks != Some(false) {
@@ -686,7 +699,6 @@ pub(crate) fn preview_peak_meter(c: &mut os_ui::Canvas, t: &Palette, rect: Rect,
     stereo_meter(c, well, &levels, cfg, &y, &paint);
 }
 
-/// The number header is square and the strip face rounds into the bottom edge.
 fn selection_outline(canvas: &mut os_ui::Canvas, bounds: Rect, radius: f32, color: Color) {
     const STROKE: f32 = 1.5;
     let edge = bounds.inset(STROKE / 2.0);

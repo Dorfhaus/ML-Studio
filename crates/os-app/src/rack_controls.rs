@@ -33,6 +33,10 @@ pub fn routing_items(s: &State, row: usize) -> Vec<crate::playlist::PItem> {
     if !crate::workspace_visibility::shown(ROUTING_VISIBILITY) { return Vec::new(); }
     let selected = rows(s, row).len() > 1;
     let mut items = vec![PItem::new(if selected { "Route selected channels to mixer..." } else { "Route channel to mixer..." }, Cmd::Rack(RCmd::RouteSelected(row, false)))];
+    if let Some(channel) = s.project.channels.get(row).filter(|c| c.kind == os_model::ChannelKind::Plugin) {
+        items.push(PItem::new("Split plugin outputs to consecutive inserts", Cmd::Rack(RCmd::SplitOutputs(row)))
+            .mark(crate::playlist::Mark::Check(channel.misc.split_outputs)));
+    }
     if selected { items.push(PItem::new("Route selected channels to consecutive mixer tracks...", Cmd::Rack(RCmd::RouteSelected(row, true)))); }
     items
 }

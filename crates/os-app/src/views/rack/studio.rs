@@ -482,7 +482,7 @@ fn controls(
     let hot = ui.hit(
         name,
         Action::ChannelSelect(index),
-        "Click: plug-in window; drag: select channels; Ctrl+drag: move rows",
+        "Click: plug-in window; Ctrl+click: select only; drag: select channels; Ctrl+drag: move rows",
     );
     let legacy = assigned.map_or(base, |color| base.mix(color, 0.27));
     ui.c.fill_rrect(name, RADIUS, flat.unwrap_or_else(|| if hot { legacy.shade(0.10) } else { legacy }));
@@ -536,7 +536,25 @@ fn controls(
         label(ui, route, &number, text(ui, hot), false);
     }
 
-    let follow = Rect::new(name.right() + 6.0, y + 3.0, 28.0, name.h - 6.0);
+    let show_selection = crate::workspace_visibility::shown(rk::SELECTION_SLOT_VISIBILITY);
+    if show_selection {
+        let selection = Rect::new(name.right() + 1.0, y, 8.0, name.h);
+        let hot = ui.hit(
+            selection,
+            Action::RackSelection(index),
+            "Select channel · Shift-click to add or remove · Double-click to select all · Lights while playing",
+        );
+        ui.live(Live::Sounding, selection);
+        let slot = Rect::new(selection.x + 1.0, selection.y + 5.0, 6.0, selection.h - 10.0);
+        ui.c.fill_rrect(slot, 1.5, ui.t.sunken);
+        if sounding {
+            ui.c.fill_rrect(slot.inset(1.5), 0.75, ui.t.accent);
+        }
+        let outline = if selected { ui.t.accent } else if hot { ui.t.text } else { ui.t.text_faint };
+        ui.c.stroke_rrect(slot, 1.5, if selected { 1.5 } else { 1.0 }, outline);
+    }
+    let follow_x = name.right() + if show_selection { 11.0 } else { 6.0 };
+    let follow = Rect::new(follow_x, y + 3.0, 28.0, name.h - 6.0);
     face(
         ui,
         follow,
@@ -736,14 +754,7 @@ fn sequence(
                 Action::Step(index, step),
                 "Step - click or drag to paint (left / right)",
             );
-            let tone = if on {
-                0xf2f2f3
-            } else if grid.alternate(step) {
-                0x303034
-            } else {
-                0x262629
-            };
-            let color = if on { Color::rgb(tone) } else { ui.t.s(tone) };
+            let color = if on { ui.t.step_on } else if grid.alternate(step) { ui.t.step_b } else { ui.t.step_a };
             let color = if hot {
                 color.mix(ui.t.accent, 0.30)
             } else if !on && step >= length {
@@ -751,7 +762,11 @@ fn sequence(
             } else {
                 color
             };
-            ui.c.fill_rrect(cell, 3.0, color);
+            if let Some(finish) = ui.t.appearance.rack_steps.or(ui.t.appearance.buttons) {
+                os_ui::kit::styled_surface(ui.c, ui.t, cell, 3.0, ui.t.rack_control_border, color, color, finish);
+            } else {
+                ui.c.fill_rrect(cell, 3.0, color);
+            }
             if on {
                 let cap = Rect::new(cell.x + 4.0, cell.y + 3.0, cell.w - 8.0, 1.6);
                 ui.c.fill_rrect(

@@ -590,6 +590,7 @@ pub struct Plugin {
     takes_notes: bool,
     /// Zeroed channels for inputs the host has no audio for, and output channels it does not use.
     scratch: Vec<f32>,
+    aux: os_host::instrument_outputs::InstrumentOutputs,
     ptrs: Vec<*mut c_void>,
     bus_in: Vec<AudioBusBuffers>,
     bus_out: Vec<AudioBusBuffers>,
@@ -703,6 +704,7 @@ impl Plugin {
                 outs: Vec::new(),
                 takes_notes: false,
                 scratch: Vec::new(),
+            aux: Default::default(),
                 ptrs: Vec::new(),
                 bus_in: Vec::new(),
                 bus_out: Vec::new(),
@@ -802,8 +804,8 @@ impl Plugin {
             for b in 0..n_in.min(2) {
                 c.activate_bus(AUDIO, INPUT, b as i32, 1);
             }
-            if n_out > 0 {
-                c.activate_bus(AUDIO, OUTPUT, 0, 1);
+            for bus in 0..if self.desc.kind == os_host::Kind::Instrument {n_out} else {n_out.min(1)} {
+                c.activate_bus(AUDIO, OUTPUT, bus as i32, 1);
             }
             self.takes_notes = c.get_bus_count(EVENT, INPUT) > 0;
             if self.takes_notes {
@@ -821,6 +823,7 @@ impl Plugin {
             self.outs = channels(OUTPUT, n_out);
         }
         let total: usize = self.ins.iter().chain(&self.outs).sum();
+        self.aux.configure(self.outs.len().saturating_sub(1), self.max_frames as usize);
         self.scratch = vec![0.0; total * self.max_frames as usize];
         self.ptrs = Vec::with_capacity(total);
         self.bus_in = Vec::with_capacity(self.ins.len());
@@ -1314,7 +1317,7 @@ impl Plugin {
             let start = self.ptrs.len();
             for c in 0..ch {
                 let host = if b == 0 { [ol, or].get(c).copied() } else { None };
-                let p = host.unwrap_or_else(|| unsafe { base.add(k * max) });
+                let p = host.unwrap_or_else(|| unsafe { let p = base.add(k * max); std::ptr::write_bytes(p, 0, n); p });
                 k += 1;
                 self.ptrs.push(p as *mut c_void);
             }
@@ -1339,7 +1342,11 @@ impl Plugin {
             right.copy_from_slice(left);
         }
         self.take_outputs();
-        let loud = left.iter().chain(right.iter()).any(|v| v.abs() > 1e-5);
+        let stride = self.max_frames as usize;
+        let first_aux = self.ins.iter().sum::<usize>() + self.outs.first().copied().unwrap_or(0);
+        let auxiliary_sounding = self.outs.iter().skip(1).any(|&channels| channels > 0)
+            && self.scratch[first_aux * stride..].chunks(stride).any(|ch| ch[..n].iter().any(|v| v.abs() > 1e-5));
+        let loud = auxiliary_sounding || left.iter().chain(right.iter()).any(|v| v.abs() > 1e-5);
         self.sounding = self.tail == INFINITE_TAIL || loud;
         self.steady += n as i64;
         // Quiet output ends the released voices (not with an infinite tail: such a plug-in may sound later).
@@ -1822,7 +1829,13 @@ impl os_engine::Instrument for Plugin {
             self.voice_release(offset, key, voice);
         }
     }
+    fn set_split_outputs(&mut self, split: bool) { self.aux.split = split; }
+    fn extra_outputs(&self) -> usize { self.aux.count() }
+    fn extra_output(&mut self, port: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        self.aux.read(port, left, right)
+    }
     fn process(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]) {
+        self.aux.begin(left.len());
         left.fill(0.0);
         right.fill(0.0);
         if self.rate != rate {
@@ -1853,6 +1866,15 @@ impl os_engine::Instrument for Plugin {
             let n = (left.len() - at).min(max);
             self.set_context(song.map(|s| s.advanced(at as u64, rate)));
             self.process_chunk(&mut left[at..at + n], &mut right[at..at + n], None, None);
+            let mut channel = self.ins.iter().sum::<usize>() + self.outs.first().copied().unwrap_or(0);
+            for (port, &channels) in self.outs.iter().skip(1).enumerate() {
+                if channels > 0 {
+                    let l = channel*max;
+                    let r = (channel+usize::from(channels>1))*max;
+                    self.aux.route(port, at, (&self.scratch[l..l+n], &self.scratch[r..r+n]), (&mut left[at..at+n], &mut right[at..at+n]));
+                }
+                channel += channels;
+            }
             at += n;
         }
         self.debug_level(rate, left, right);

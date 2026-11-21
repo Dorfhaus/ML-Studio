@@ -159,7 +159,7 @@ pub(crate) fn visible_layout(s:&State)->crate::toolbar::Layout {
         for row in &mut layout.rows {
             row.retain(|panel| match panel {
                 Panel::Caption => s.vintage_2005,
-                Panel::Hint => s.vintage_2005 && inline_hint(s),
+                Panel::Hint => inline_hint(s),
                 Panel::Cpu => !legacy_vintage(s) && shown("visible_cpu") && crate::settings_file::flag("toolbar_cpu_visible",true),
                 Panel::Ai => !legacy_vintage(s) && (s.ai.enabled || !s.ai.client.is_empty() || shown("visible_ai")),
                 Panel::Update => !legacy_vintage(s) && shown("visible_update"),
@@ -218,13 +218,7 @@ pub(crate) fn wrap(mut layout: crate::toolbar::Layout, width: f32, actions: f32)
 }
 
 pub(super) fn placements(s: &State, width: f32) -> Vec<Placed> {
-    let mut panels = place(display_layout(s), (width - s.toolbar_actions.width(s.vintage_2005)).max(0.0), s.bar.editing);
-    if s.toolbar_actions.hint > 0.0 {
-        let right_inset = if s.vintage_2005 { 20.0 } else { 124.0 };
-        panels.push(Placed { panel: Panel::Hint, row: 0, idx: 0,
-            x: width - right_inset - Panel::Hint.width(), w: Panel::Hint.width() });
-    }
-    panels
+    place(display_layout(s), (width - s.toolbar_actions.width(s.vintage_2005)).max(0.0), s.bar.editing)
 }
 
 /// Measured once so the fit calculation and the painted buttons reserve identical space.
@@ -237,11 +231,10 @@ pub struct ActionSizes {
     feedback: f32,
     cpu: f32,
     scope: f32,
-    hint: f32,
 }
 
 impl ActionSizes {
-    pub fn measure(canvas: &mut os_ui::Canvas, hint: bool, ai_active: bool, vintage: bool) -> Self {
+    pub fn measure(canvas: &mut os_ui::Canvas, ai_active: bool, vintage: bool) -> Self {
         let font = Font::new(12);
         let button = |canvas: &mut os_ui::Canvas, key, font, label| {
             if shown(key) { canvas.text_width(font, label).ceil() + 18.0 } else { 0.0 }
@@ -252,7 +245,6 @@ impl ActionSizes {
             tesla: if shown("visible_tesla") && crate::settings_file::flag("toolbar_tesla", false) { 30.0 } else { 0.0 },
             donate: if crate::donate::active() { 0.0 } else { 90.0 },
             feedback: button(canvas, "visible_feedback", Font::new(11), "Report a bug"),
-            hint: if hint && shown("visible_hint") { Panel::Hint.width() + 6.0 } else { 0.0 },
             scope: if vintage && shown("visible_vintage_scope") { 145.0 } else { 0.0 },
             cpu: if vintage {
                 if shown("visible_vintage_cpu") { 107.0 } else { 0.0 }
@@ -267,7 +259,7 @@ impl ActionSizes {
     pub fn combined(self)->bool{self.cpu==245.}
     pub fn width(self, vintage: bool) -> f32 {
         let fixed_actions = vintage && !crate::settings_file::flag("toolbar_vintage_custom_layout",false);
-        self.tesla + self.scope + self.hint + self.donate + 38.0 + if fixed_actions { self.ai + self.cpu + self.update + self.feedback } else if vintage { 0. } else { 104.0 }
+        self.tesla + self.scope + self.donate + 38.0 + if fixed_actions { self.ai + self.cpu + self.update + self.feedback } else if vintage { 0. } else { 104.0 }
     }
 }
 
@@ -476,10 +468,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
     if !l.logo {
         return;
     }
-    // The last placement is the pinned hint when present. Its width is
-    // already reserved with the fixed actions, outside the logo's lane.
-    let panel_count = placed.len() - usize::from(sizes.hint > 0.0);
-    let end = placed[..panel_count].iter().map(|p| p.x + p.w).fold(0.0, f32::max);
+    let end = placed.iter().map(|p| p.x + p.w).fold(0.0, f32::max);
     let radius = 26.0 * h / 81.0;
     let left = radius.max(35.0);
     let right = radius.max(43.0);
@@ -820,6 +809,22 @@ fn transport(ui: &mut Ui, c: &Ctx) {
     // Lemon displays show their digits in the brand colour.
     let digits = if t.style.vintage_2005 {Color::rgb(0x23383d)}else if lemon { t.pill } else { t.glyph };
     tempo_readout(ui, s, tb, f.tempo, digits, c.preview);
+    tap_button(ui, s, a.r(Rect::new(575.0, 5.0, 23.0, 30.0)));
+}
+
+pub(super) fn tap_button(ui: &mut Ui, s: &State, rect: Rect) {
+    if !shown("visible_win-tapper") { return; }
+    let action = Action::ToggleWin(Win::Tapper);
+    let hover = ui.hit(rect, action.clone(), "Tap tempo (Ctrl+F5)");
+    let on = window_shortcut_open(s, &action);
+    let t = ui.t;
+    let face = if on { t.pill } else if hover { t.button_hi } else { t.button };
+    if super::lemon(ui) && !s.vintage_2005 {
+        studio_tile(ui, rect, face);
+    } else {
+        os_ui::kit::bordered(ui.c, rect, 3.0, t.window_border, face);
+    }
+    ui.c.text_center(Font::new(9).bold(), rect, if on { t.pill_text } else { t.glyph }, "TAP");
 }
 
 /// Use grayscale coverage for the small, solid default glyphs so their edges stay the color of the ink.

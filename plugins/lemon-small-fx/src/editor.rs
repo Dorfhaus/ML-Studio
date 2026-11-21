@@ -273,6 +273,10 @@ impl Logic {
 
     pub fn down(&mut self, x: f32, y: f32, btn: Btn, m: Mods, _dbl: bool) -> Vec<Act> {
         self.view.mouse = Some((x, y));
+        if btn==Btn::Left && let Some(r)=view::mode_tab(self.spec).filter(|r|r.contains(x,y)) {
+            self.view.advanced=x>=r.cx();
+            return vec![Act::Repaint]
+        }
         if btn == Btn::Left && self.shared.extension.as_ref().is_some_and(|e| e.click(x, y, self.context.as_ref())) {
             return vec![Act::Repaint];
         }
@@ -423,6 +427,12 @@ impl Logic {
     /// Paints the editor; `hint` is drawn when the host does not show it.
     pub fn paint(&mut self, c: &mut os_ui::Canvas, palette: &os_theme::Palette) {
         let hint = if self.hosted { String::new() } else { self.hint.clone() };
+        let mode = view::mode_tab(self.spec);
+        if let Some(r)=mode.filter(|_|!self.view.advanced) {
+            self.hits=view::normal(self.spec,c,palette,&self.vals,&self.view);
+            view::draw_mode(c,r,false);
+            return
+        }
         if let Some(hits) = self.shared.extension.as_ref().and_then(|e| e.render(c, &self.vals, &self.view, &hint)) {
             self.hits = hits;
             return;
@@ -431,6 +441,7 @@ impl Logic {
         if let Some(extension) = &self.shared.extension {
             extension.paint(c, &self.vals);
         }
+        if let Some(r)=mode {view::draw_mode(c,r,true);}
     }
 }
 
@@ -1007,6 +1018,12 @@ mod tests {
 
     fn logic(spec: &'static Spec) -> Logic {
         let mut l = Logic::new(spec, Arc::new(FxParams::new(spec)), Arc::new(Shared::default()), None);
+        assert!(!l.view.advanced);
+        if let Some(tab) = view::mode_tab(spec) {
+            paint(&mut l);
+            l.down(tab.cx()+10., tab.cy(), Btn::Left, Mods::default(), false);
+            assert!(l.view.advanced);
+        }
         paint(&mut l);
         l
     }

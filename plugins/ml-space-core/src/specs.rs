@@ -1,7 +1,7 @@
 use lemon_small_fx::{Card, Control, Mark, Setting, Spec};
 pub static CONVOLVER: Spec = Spec {
-    name: "ML Convolver",
-    word: "CONVOLVER",
+    name: "ML Space",
+    word: "SPACE",
     about: "ML Studio Convolver. See included third-party notices.",
     settings: &[
         Setting {
@@ -45,7 +45,7 @@ pub static CONVOLVER: Spec = Spec {
     any_version: false,
     fields: &[],
     tail: &[],
-    size: (640, 340),
+    size: (640, 400),
     cards: &[
         Card {
             x0: 8.,
@@ -128,7 +128,7 @@ pub static CONVOLVER: Spec = Spec {
     display: None,
     mark: Mark {
         x: 624.,
-        y: 322.,
+        y: 382.,
         anchor: 1.,
         stacked: false,
     },

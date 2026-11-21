@@ -41,7 +41,7 @@ struct Model {
    throw std::runtime_error("This model architecture is not supported yet (use LSTM, WaveNet, ConvNet or Linear)");
   validate_shape(json.at("config"));
   if(arch=="LSTM" && json["config"].at("input_size")!=1)throw std::runtime_error("Choose an unconditioned mono LSTM model");
-  if(arch=="Linear") {json["config"]["implementation"]="direct";if(json["config"].value("receptive_field",1)>4096)throw std::runtime_error("Use ML Convolver for long impulse responses");}
+  if(arch=="Linear") {json["config"]["implementation"]="direct";if(json["config"].value("receptive_field",1)>4096)throw std::runtime_error("Use ML Space for long impulse responses");}
   nam::dspData config;nam::DspLoadOptions options;options.prewarm=false;
   dsp=nam::get_dsp(json,config,options);
   if(dsp->NumInputChannels()!=1 || dsp->NumOutputChannels()!=1)throw std::runtime_error("Choose a mono NAM model; ML Amp runs two independent copies for stereo");

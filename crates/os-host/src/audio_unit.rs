@@ -66,7 +66,8 @@ unsafe extern "C" {
     fn lm_au_destroy(instance: *mut c_void);
     fn lm_au_activate(instance: *mut c_void, rate: f64) -> i32;
     fn lm_au_reset(instance: *mut c_void);
-    fn lm_au_render(instance: *mut c_void, frames: u32, left: *mut f32, right: *mut f32) -> i32;
+    fn lm_au_bus_count(instance:*mut c_void)->u32;
+    fn lm_au_render(instance: *mut c_void, bus:u32, frames: u32, left: *mut f32, right: *mut f32) -> i32;
     fn lm_au_transport(instance: *mut c_void, time: *const Transport);
     fn lm_au_midi(instance: *mut c_void, offset: u32, status: u32, data1: u32, data2: u32);
     fn lm_au_param_ids(instance: *mut c_void, ids: *mut u32, capacity: u32) -> u32;
@@ -137,7 +138,7 @@ impl Library for Registry {
         let native = unsafe { lm_au_new(number(0), number(8), number(16), &mut status) };
         let native = NonNull::new(native).ok_or_else(|| format!("Could not open {} (Audio Unit error {status})", desc.name))?;
         let mut instance = Unit {
-            native, desc: desc.clone(), rate: 0, requested: 0, failed_rate: 0, delay: 0, editor: false,
+            native, aux:Default::default(), buses:1, desc: desc.clone(), rate: 0, requested: 0, failed_rate: 0, delay: 0, editor: false,
             notes: [false; 128], sounding: false, overflow: false,
             queue: Vec::with_capacity(EVENT_LIMIT), params: Vec::new(), observed: Vec::new(),
             transport: None,
@@ -155,6 +156,8 @@ enum Event {
 
 struct Unit {
     native: NonNull<c_void>,
+    aux:crate::instrument_outputs::InstrumentOutputs,
+    buses:usize,
     desc: Descriptor,
     rate: u32,
     requested: u32,
@@ -254,7 +257,7 @@ impl Unit {
     }
 
     fn render(&mut self, rate: u32, left: &mut [f32], right: &mut [f32], instrument: bool) {
-        if instrument { left.fill(0.); right.fill(0.); }
+        if instrument { self.aux.begin(left.len()); left.fill(0.); right.fill(0.); }
         if rate != self.rate || rate == 0 {
             if rate != self.failed_rate { self.requested = rate; }
             self.queue.clear();
@@ -268,6 +271,7 @@ impl Unit {
             playing: false, tempo: 120., frame: 0, beats: 0., bar_start: 0., bar: 0,
             numerator: 4, denominator: 4, looping: None,
         });
+        let mut auxiliary_sounding=false;
         for start in (0..n).step_by(FRAMES) {
             let end = (start + FRAMES).min(n);
             let time = if time.playing { time.advanced(start as u64, rate) } else { time };
@@ -290,17 +294,29 @@ impl Unit {
                 }
             }
             unsafe {
-                lm_au_render(p, (end - start) as u32, left[start..end].as_mut_ptr(), right[start..end].as_mut_ptr());
+                lm_au_render(p, 0,(end - start) as u32, left[start..end].as_mut_ptr(), right[start..end].as_mut_ptr());
+            }
+            if instrument && self.buses>1 {
+                let mut l=[0.;FRAMES];let mut r=[0.;FRAMES];
+                for bus in 1..self.buses {
+                    let n=end-start;
+                    if unsafe{lm_au_render(p,bus as u32,n as u32,l.as_mut_ptr(),r.as_mut_ptr())}==0 {
+                        auxiliary_sounding |= self.aux.route(bus-1,start,(&l[..n],&r[..n]),(&mut left[start..end],&mut right[start..end]));
+                    }
+                }
             }
         }
         self.queue.clear();
         if instrument {
-            self.sounding = left.iter().chain(right.iter()).any(|sample| sample.abs() > 1e-6);
+            self.sounding = auxiliary_sounding || left.iter().chain(right.iter()).any(|sample| sample.abs() > 1e-6);
         }
     }
 }
 
 impl Instrument for Unit {
+    fn set_split_outputs(&mut self,split:bool){self.aux.split=split;}
+    fn extra_outputs(&self)->usize{self.aux.count()}
+    fn extra_output(&mut self,port:usize,l:&mut[f32],r:&mut[f32])->bool{self.aux.read(port,l,r)}
     fn note_on(&mut self, offset: u32, key: u8, velocity: f32) {
         if key < 128 {
             self.notes[key as usize] = true;
@@ -338,6 +354,8 @@ impl Plugin for Unit {
         self.requested = 0;
         let status = unsafe { lm_au_activate(self.ptr(), f64::from(rate)) };
         self.rate = if status == 0 { rate } else { 0 };
+        self.buses=if status==0{(unsafe{lm_au_bus_count(self.ptr())}) as usize}else{0};
+        self.aux.configure(self.buses.saturating_sub(1),FRAMES);
         self.failed_rate = if status == 0 { 0 } else { rate };
         self.delay = (unsafe { lm_au_latency(self.ptr()) } * f64::from(self.rate)).round().max(0.) as u32;
         if self.params.is_empty() { self.init_parameters(); }

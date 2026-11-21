@@ -317,7 +317,8 @@ impl Engine {
         let (until, wait, export) = (&mut self.busy_until, self.busy_wait, self.exporting);
         for (c, ch) in self.channels.iter().enumerate() {
             let Some(inst) = ch.instrument.0.as_ref().filter(|i| !i.is_poisoned()) else { continue };
-            if let (Some(i), Some(d)) = (lock_busy(inst, until, wait, export), self.pdc.chan_delay.get_mut(c)) {
+            if let (Some(mut i), Some(d)) = (lock_busy(inst, until, wait, export), self.pdc.chan_delay.get_mut(c)) {
+                i.set_split_outputs(ch.split_outputs);
                 *d = i.reported_delay();
                 self.pdc.aux_pad[c].resize_with(i.extra_outputs().min(15),Pad::default);
             }

@@ -26,6 +26,8 @@ pub trait Unit: Default + Send + 'static {
     fn reset(&mut self, p: &FxParams);
     fn audio(&mut self, l: &mut [f32], r: &mut [f32], p: &FxParams);
     fn panel(&self, p: Arc<FxParams>) -> Arc<dyn Extension>;
+    const MIDI: MidiConfig = MidiConfig::None;
+    fn trigger(&mut self, _note: u8, _p: &FxParams) {}
     fn transport(&mut self, _t: &Transport) {}
 }
 pub struct Fx<T: Unit> {
@@ -42,6 +44,7 @@ impl<T: Unit> Default for Fx<T> {
 }
 impl<T: Unit> Plugin for Fx<T> {
     const NAME: &'static str = T::SPEC.name;
+    const MIDI_INPUT: MidiConfig = T::MIDI;
     const VENDOR: &'static str = "ML Studio";
     const URL: &'static str = "";
     const EMAIL: &'static str = "";
@@ -91,7 +94,23 @@ impl<T: Unit> Plugin for Fx<T> {
         let c = b.as_slice();
         if c.len() >= 2 {
             let (l, r) = c.split_at_mut(1);
-            self.dsp.audio(l[0], r[0], &self.params);
+            let mut start = 0;
+            if T::MIDI != MidiConfig::None {
+                while let Some(event) = ctx.next_event() {
+                    if let NoteEvent::NoteOn {timing, note, velocity, ..} = event {
+                        if velocity <= 0. { continue; }
+                        let end = (timing as usize).clamp(start, l[0].len());
+                        if end > start {
+                            self.dsp.audio(&mut l[0][start..end], &mut r[0][start..end], &self.params);
+                        }
+                        self.dsp.trigger(note, &self.params);
+                        start = end;
+                    }
+                }
+            }
+            if start < l[0].len() {
+                self.dsp.audio(&mut l[0][start..], &mut r[0][start..], &self.params);
+            }
         }
         ProcessStatus::KeepAlive
     }

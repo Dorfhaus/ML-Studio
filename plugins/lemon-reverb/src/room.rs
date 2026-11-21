@@ -237,8 +237,52 @@ fn blur(src: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
     out
 }
 
+/// Recent stereo wet-return levels, captured at 40 ms intervals by the editor.
+#[derive(Default)]
+pub struct ReturnField {
+    pub level: [f32; 3],
+    history: [[f32; 2]; 32],
+    fraction: f32,
+    wave_phase: f32,
+}
+
+impl ReturnField {
+    pub fn advance(&mut self, peaks: [f32; 3], elapsed: f32) {
+        let dt = elapsed.max(0.);
+        let old = self.level;
+        for (i, peak) in peaks.into_iter().enumerate() {
+            let value = if i == 2 { peak.clamp(0., 1.) } else {
+                ((20. * peak.max(1e-8).log10() + 66.) / 60.).clamp(0., 1.)
+            };
+            self.level[i] = value.max(old[i] * (-dt / if i == 2 {0.14} else {0.095}).exp());
+        }
+        self.wave_phase=(self.wave_phase + dt*2.4).fract();
+        self.fraction += dt / 0.04;
+        let steps = self.fraction.floor() as usize;
+        self.fraction = self.fraction.fract();
+        if steps >= self.history.len() {self.history.fill([0.;2]);self.history[0]=[self.level[0],self.level[1]];return;}
+        for step in (0..steps.min(self.history.len())).rev() {
+            self.history.rotate_right(1);
+            let blend = (step as f32 * 0.04 / dt.max(0.04)).clamp(0.,1.);
+            self.history[0] = std::array::from_fn(|i| self.level[i] + (old[i]-self.level[i])*blend);
+        }
+    }
+
+    fn energy(&self, time: f32, pan: f32) -> f32 {
+        let index=time.floor() as usize;
+        let a=self.history[index.min(31)];
+        let b=self.history[(index+1).min(31)];
+        let stereo=|v:[f32;2]| v[0] + (v[1]-v[0])*pan;
+        stereo(a) + (stereo(b)-stereo(a))*time.fract()
+    }
+}
+
 /// The panel as `side` x `side` pixels `0x00RRGGBB`: the tint, the lines, the glow (screened over).
 pub fn render(l: &Look, angle: f32, side: usize) -> Vec<u32> {
+    render_field(l,angle,side,None)
+}
+
+pub fn render_field(l: &Look, angle: f32, side: usize, field: Option<&ReturnField>) -> Vec<u32> {
     let side = side.max(1);
     let k = side as f32 / FRAME;
     // Line coverage.
@@ -294,10 +338,49 @@ pub fn render(l: &Look, angle: f32, side: usize) -> Vec<u32> {
         top * (1.0 - ty) + bot * ty
     };
     let mut out = vec![0u32; side * side];
+    // The delay history travels across the projection of the room. A left-heavy return
+    // illuminates the left wall and a ducked return contracts toward the floor.
+    let height = 0.40 + 0.32 * l.elevation.sin();
+    let inv_side = 2. / side as f32;
     for y in 0..side {
         for x in 0..side {
             let a = cov[y * side + x];
             let gl = glow.as_ref().map_or(0.0, |b| (l.glow * sample(b, x, y)).min(1.0));
+            if let Some(f) = field {
+                let dx = (x as f32 + 0.5) * inv_side - 1.;
+                let dy = ((y as f32 + 0.5) * inv_side - 1.08) / height;
+                let reduction = f.level[2];
+                let radius = (dx*dx + dy*dy).sqrt() / (0.99 - 0.22 * reduction);
+                let travel = (radius * 29. - f.fraction).clamp(0.,31.);
+                let pan = (0.5 + dx*0.60).clamp(0.,1.);
+                let energy = f.energy(travel,pan);
+                let front = (energy - f.energy((travel+1.).min(31.),pan)).max(0.);
+                let falloff = (1.-radius).max(0.);
+                let phase=radius*7.5 - f.wave_phase;
+                let ridge=(1.-2.*(phase-phase.round()).abs()).powi(5);
+                let bloom = falloff * (energy * (0.30 + 0.78*ridge) + 1.9*front);
+                let tail = f.level[0] + (f.level[1]-f.level[0])*pan;
+                let wire = (0.24+0.56*tail)*a + gl*(0.13+0.54*tail);
+                let warmth = reduction.sqrt();
+                // Keep the live colours saturated as the return moves from cool to amber.
+                let cool = [42., 214., 255.];
+                let middle = [82., 246., 185.];
+                let warm = [255., 174., 71.];
+                let (from,to,mix) = if warmth<0.45 {(cool,middle,warmth/0.45)}
+                    else {(middle,warm,(warmth-0.45)/0.55)};
+                let crest: [f32;3] = std::array::from_fn(|c| from[c]+(to[c]-from[c])*mix);
+                let shade = (1.-0.42*(dx*dx+dy*dy*0.27)).clamp(0.35,1.);
+                let base = [9.,19.,31.];
+                let mut pixel = 0;
+                for c in 0..3 {
+                    let bg=(base[c]+l.tint[c]*0.09)*shade;
+                    let edge = [95.,151.,183.][c] + [85.,-12.,-65.][c]*warmth;
+                    let v=bg+wire*(edge-bg)+crest[c]*bloom;
+                    pixel=(pixel<<8) | v.round().clamp(0.,255.) as u32;
+                }
+                out[y*side+x]=pixel;
+                continue;
+            }
             let mut px = 0u32;
             for c in 0..3 {
                 let base = l.tint[c] + (LINE[c] - l.tint[c]) * a;

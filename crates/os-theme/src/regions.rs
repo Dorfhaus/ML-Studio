@@ -123,10 +123,10 @@ pub fn apply(palette: &mut Palette, tones: &[Tone; SECTIONS.len()]) {
     let rim = palette.button_border;
     for &key in Palette::NAMES {
         let area = section(key);
-        let i = SECTIONS
-            .iter()
-            .position(|(_, title, _)| *title == area)
-            .expect("known color area");
+        // The record lights have dedicated color settings outside the area grading controls.
+        let Some(i) = SECTIONS.iter().position(|(_, title, _)| *title == area) else {
+            continue;
+        };
         let color = palette.get_mut(key).expect("known color");
         *color = tones[i].color(*color);
     }

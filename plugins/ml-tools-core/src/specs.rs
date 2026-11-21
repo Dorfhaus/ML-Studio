@@ -33,6 +33,9 @@ fn deess_parse(k: usize, s: &str) -> Option<i32> {
 }
 fn pitch_text(k: usize, v: i32) -> String {
     match k {
+        5 => format!("{:+.1} st",v as f32/10.),
+        6 => format!("{v} cents"),
+        7 => format!("{:.1} Hz",v as f32/10.),
         0 => format!("{v:+} st"),
         1 => format!("{v:+} cents"),
         2 => if v == 0 { "Follow pitch" } else { "Preserve" }.into(),
@@ -49,6 +52,7 @@ fn pitch_parse(k: usize, s: &str) -> Option<i32> {
         };
     }
     let n = number(s)?;
+    if k>=5 {return Some(match k {5=>(n*10.).round().clamp(-120.,120.) as i32,6=>n.round().clamp(0.,200.) as i32,_=>(n*10.).round().clamp(5.,120.) as i32})}
     let v = if k >= 3 { (n * 10.).round() } else { n.round() } as i32;
     Some(match k {
         0 => v.clamp(-24, 24),
@@ -213,14 +217,18 @@ pub static PITCH: Spec = Spec {
             start: 0,
             magnet: Some(0),
         },
+        Setting{id:"formant_shift",name:"Formant shift",range:(-120,120),start:0,magnet:Some(0)},
+        Setting{id:"vibrato",name:"Vibrato depth",range:(0,200),start:0,magnet:None},
+        Setting{id:"vibrato_rate",name:"Vibrato rate",range:(5,120),start:50,magnet:None},
     ],
-    studio_settings: 5,
+    studio_settings: 8,
     version: None,
     any_version: false,
     fields: &[],
     tail: &[],
-    size: (660, 235),
+    size: (660, 385),
     cards: &[
+        Card{x0:8.,x1:652.,y0:216.,y1:329.,heading:"VOICE SHAPING"},
         Card {
             x0: 8.,
             x1: 100.,
@@ -258,6 +266,9 @@ pub static PITCH: Spec = Spec {
         },
     ],
     controls: &[
+        Control::Knob{id:"formant_shift",cx:103.,cy:268.,r:24.,caption:"FORMANT SHIFT",bipolar:true},
+        Control::Knob{id:"vibrato",cx:317.,cy:268.,r:24.,caption:"VIBRATO DEPTH",bipolar:false},
+        Control::Knob{id:"vibrato_rate",cx:531.,cy:268.,r:24.,caption:"VIBRATO RATE",bipolar:false},
         Control::Knob {
             id: "semitones",
             cx: 54.,
@@ -300,7 +311,7 @@ pub static PITCH: Spec = Spec {
     display: None,
     mark: Mark {
         x: 652.,
-        y: 215.,
+        y: 365.,
         anchor: 1.,
         stacked: false,
     },

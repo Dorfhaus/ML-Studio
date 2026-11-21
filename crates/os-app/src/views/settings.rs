@@ -918,7 +918,9 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                     Check("Thick lines", false),
                     Check("High visibility", false),
                     Check("Small scrollbars in editors", false),
-                    combo("System", 64.0, "Cursors scaling"),
+                    if crate::workspace_visibility::shown("visible_cursor-size") {
+                        combo(crate::prefs::choice(&crate::prefs::CURSORS_SCALING), 90.0, crate::prefs::CURSORS_SCALING.label)
+                    } else { Gap(0.0) },
                     combo("Main", 64.0, "Legacy scaling"),
                     combo("Off", 146.0, "Colorful waveforms"),
                 ]),
@@ -1109,7 +1111,7 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
                     .chain((0..crate::playlist_tools::CURSOR_PACK_COUNT).step_by(5).map(|i| row(I::CursorPacks(i)))).collect()),
                 g("Custom icon and cursor appearance", vec![
                     txt("Choose colors for icons and cursors with the color wheel. Cursor size is 50–200%."),
-                    txt("Default keeps original cursors and system size. Individual choices override the selected pack."),
+                    txt("Settings > General > Display can override the theme's cursor size. Individual choices override the selected pack."),
                     row(I::Appearance),
                 ]),
                 gf("Individual icons — family and color", true,

@@ -221,6 +221,7 @@ impl Generator {
 // ---------------------------------------------------------------------------------------------------------------
 // The effect
 
+#[derive(Clone)]
 pub struct Chorus {
     hq: bool,
     unity_dry: bool,
@@ -237,6 +238,23 @@ pub struct Chorus {
 }
 
 impl Chorus {
+    /// Snapshot into an already prepared bank for a live control crossfade.
+    pub fn copy_state_from(&mut self, source: &Self) {
+        self.hq = source.hq;
+        self.unity_dry = source.unity_dry;
+        self.applied = source.applied;
+        self.rate = source.rate;
+        self.w = source.w;
+        self.phase = source.phase;
+        self.low = source.low;
+        self.before = source.before;
+        for (to, from) in self.line.iter_mut().zip(&source.line) {
+            to.copy_from_slice(&from[..]);
+        }
+        self.at = source.at;
+        self.generator = source.generator;
+    }
+
     /// A new instance started as at a render: the settings in force, the lines empty, the phases drawn from the fixed
     /// seed.
     pub fn with_settings(rate: u32, s: &Settings) -> Chorus {

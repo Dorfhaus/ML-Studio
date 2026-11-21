@@ -262,7 +262,7 @@ mod tests {
         let mut expected = Canvas::new(26, 26, 1.0).unwrap();
         actual.set_chrome_art(chrome);
         assert!(!actual.chrome_icon(os_ui::ChromeIcon::Right, rect, ink));
-        assert!(crate::playlist_tools::window_cursor_source(crate::app::Cursor::Default, 1.0, 0).is_none());
+        assert!(crate::playlist_tools::window_cursor_source(crate::app::Cursor::Default, 1.0, 0, false).is_none());
 
         for icon in [Icon::Metronome, Icon::ChannelRack, Icon::StretchBand, Icon::Delete, Icon::Vote] {
             actual.clear(Color::rgb(0));
@@ -444,7 +444,7 @@ mod tests {
                 crate::app::Cursor::NwseResize,
                 crate::app::Cursor::NeswResize,
             ] {
-                assert!(crate::playlist_tools::window_cursor_source(cursor, 1.5, family).is_some());
+                assert!(crate::playlist_tools::window_cursor_source(cursor, 1.5, family, false).is_some());
             }
         }
 

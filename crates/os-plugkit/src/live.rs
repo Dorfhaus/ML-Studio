@@ -13,26 +13,43 @@
 //! instances never see or wait on each other's edits. Entries are keyed by the parameter's address, which stays put
 //! while the params object lives (behind the plugin's `Arc`).
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use nih_plug::prelude::*;
 
-#[derive(Clone, Copy)]
+// Each touched parameter has a stable slot for the lifetime of its params object.
+const INACTIVE: u64 = u64::MAX;
+type Link = OnceLock<Box<LiveEdit>>;
 struct LiveEdit {
     addr: usize,
-    /// The editor's value (normalised).
-    norm: f32,
-    /// The host's value when the edit was made.
-    base: f32,
+    // One atomic publication of the host baseline and the editor target.
+    values: AtomicU64,
+    next: Link,
 }
 
-/// One plugin instance's editor edits the host has not handed back yet.
 #[derive(Default)]
-pub struct LiveEdits(Mutex<Vec<LiveEdit>>);
+pub struct LiveEdits {
+    writers: Mutex<()>,
+    buckets: [Link; 32],
+}
 
 impl LiveEdits {
+    fn bucket(&self, addr: usize) -> &Link {
+        &self.buckets[((addr >> 3) ^ (addr >> 10)) & 31]
+    }
+
     /// A full patch recall supersedes edits awaiting host confirmation.
-    pub fn clear(&self) { self.0.lock().unwrap().clear(); }
+    pub fn clear(&self) {
+        let _write = self.writers.lock().unwrap();
+        for bucket in &self.buckets {
+            let mut link = bucket;
+            while let Some(slot) = link.get() {
+                slot.values.store(INACTIVE, Ordering::Release);
+                link = &slot.next;
+            }
+        }
+    }
     /// Records an editor edit: `p` sounds at `norm` (normalised) until its host value moves from what it is now.
     pub fn set(&self, p: ParamPtr, norm: f32) {
         // SAFETY: callers hold pointers from a live params object.
@@ -41,27 +58,43 @@ impl LiveEdits {
     }
 
     fn set_at(&self, addr: usize, norm: f32, host: f32) {
-        if let Ok(mut l) = self.0.lock() {
-            l.retain(|e| e.addr != addr);
-            if (norm - host).abs() > 1e-7 {
-                l.push(LiveEdit { addr, norm, base: host });
+        let _write = self.writers.lock().unwrap();
+        let values = if (norm - host).abs() <= 1e-7 { INACTIVE } else {
+            (u64::from(host.to_bits()) << 32) | u64::from(norm.to_bits())
+        };
+        let mut link = self.bucket(addr);
+        loop {
+            if values == INACTIVE && link.get().is_none() { return; }
+            let slot = link.get_or_init(|| Box::new(LiveEdit {
+                addr, values: AtomicU64::new(INACTIVE), next: Link::new(),
+            }));
+            if slot.addr == addr {
+                slot.values.store(values, Ordering::Release);
+                return;
             }
+            link = &slot.next;
         }
     }
 
-    /// The normalised value the sound should use for the parameter at `addr` (`host` = its host value), or `None` to
-    /// use the host's. Never blocks: while this instance's editor holds the list, the host value is used for this block.
+    /// Audio reads never wait for the editor and never drop a pending edit on contention.
     fn norm_at(&self, addr: usize, host: f32) -> Option<f32> {
-        let mut l = self.0.try_lock().ok()?;
-        let i = l.iter().position(|e| e.addr == addr)?;
-        let e = l[i];
-        if (host - e.base).abs() <= 1e-7 && (host - e.norm).abs() > 1e-7 {
-            Some(e.norm)
-        } else {
-            // Confirmed, or the host changed it since: the host's value from now on.
-            l.swap_remove(i);
-            None
+        let mut link = self.bucket(addr);
+        while let Some(slot) = link.get() {
+            if slot.addr == addr {
+                let values = slot.values.load(Ordering::Acquire);
+                if values == INACTIVE { return None; }
+                let base = f32::from_bits((values >> 32) as u32);
+                let norm = f32::from_bits(values as u32);
+                if (host-base).abs() <= 1e-7 && (host-norm).abs() > 1e-7 {
+                    return Some(norm);
+                }
+                // Never acknowledge a newer edit published during this read.
+                let _ = slot.values.compare_exchange(values, INACTIVE, Ordering::AcqRel, Ordering::Relaxed);
+                return None;
+            }
+            link = &slot.next;
         }
+        None
     }
 
     /// The normalised value the sound uses for `p` (its pending editor edit, else the host's value).
@@ -126,7 +159,8 @@ mod tests {
         assert_eq!(b.value(&p), 0);
         // Another instance holding its list (its editor, or its audio thread) never hides this instance's edit.
         b.set(p.as_ptr(), 1.0);
-        let _held = a.0.lock().unwrap();
+        let _held = a.writers.lock().unwrap();
+        assert_eq!(a.value(&p), 2);
         assert_eq!(b.value(&p), 4);
     }
 }

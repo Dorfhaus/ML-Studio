@@ -36,7 +36,8 @@ fn text(c: &mut Canvas, x: f32, y: f32, label: &str) {
     c.text(Font::new(13), x, y, Color::rgb(0xdddddd), label);
 }
 fn button(c: &mut Canvas, r: Rect, label: &str) {
-    os_ui::kit::lemon::plug_panel(c, r);
+    c.fill_rrect(r,5.,Color::rgb(0x42505b));
+    c.fill_rect_gradient(r.inset(1.),Color::rgb(0x303d46),Color::rgb(0x20282e),4.);
     text(c, r.x + 10., r.y + 8., label);
 }
 impl Panel {
@@ -139,7 +140,9 @@ impl Panel {
             .find(|p| p.bank == bank && p.program == program)
             .map(|p| p.name.clone())
             .unwrap_or("Choose an instrument below".into());
-        text(c, 352., 34., &name.chars().take(48).collect::<String>());
+        c.fill_rect_gradient(Rect::new(342.,22.,420.,88.),Color::rgb(0x17333e),Color::rgb(0x101d25),8.);
+        c.fill_rrect(Rect::new(342.,30.,3.,70.),1.,Color::rgb(0x42dbbc));
+        c.text_clip(Font::new(19).bold(),354.,30.,397.,Color::rgb(0xeaf9f7),&name);
         text(
             c,
             352.,
@@ -213,14 +216,12 @@ impl Panel {
             for (i, preset) in presets.iter().skip(offset).take(12).enumerate() {
                 let x = 16. + (i / 6) as f32 * 380.;
                 let y = 249. + (i % 6) as f32 * 33.;
-                let label = format!(
-                    "{:03} / {}",
-                    preset.program + 1,
-                    preset.name.chars().take(36).collect::<String>()
-                );
-                button(c, Rect::new(x, y, 368., 29.), &label);
-                if bank == preset.bank && program == preset.program {
-                    c.text(Font::new(13), x + 344., y + 8., Color::rgb(0x24b7ff), "*");
+                let selected = bank == preset.bank && program == preset.program;
+                c.fill_rrect(Rect::new(x,y,368.,29.),4.,Color::rgb(if selected {0x164d48} else if i%2==0 {0x27323a} else {0x212a32}));
+                c.text(Font::new(12).bold(),x+10.,y+8.,Color::rgb(0x76c6ba),&format!("{:03}",preset.program+1));
+                c.text_clip(Font::new(13),x+52.,y+8.,304.,Color::rgb(0xe7edf0), &preset.name);
+                if selected {
+                    c.fill_rrect(Rect::new(x+1., y+4., 3., 21.), 1., Color::rgb(0x69e6cb));
                 }
             }
             if self.family_menu.load(Ordering::Relaxed) {
@@ -242,7 +243,7 @@ impl Panel {
                 c,
                 16.,
                 456.,
-                &format!("{} sounds / scroll or use Previous and Next", presets.len()),
+                &if presets.is_empty() {"No sounds in this family".into()} else {format!("Showing {}–{} of {} sounds", offset+1,(offset+12).min(presets.len()),presets.len())},
             );
         }
         text(

@@ -342,6 +342,7 @@ pub fn builtin() -> Vec<Available> {
 /// and they play the slots a project saved with the original EQ, Love Philter and Maximus (spec:
 /// plugins/lemon-parametric-eq-2.md §8, plugins/lemon-pulp-filter.md §6, plugins/lemon-press.md §6). Then Lemon Studio's other effects (`LINKED_EFFECTS`), compiled in too, so
 /// they need no plugin file either.
+mod time12;
 pub fn builtin_effects() -> Vec<Available> {
     const N: usize = FILE_MAPPED.len() + LINKED_EFFECTS.len();
     static LIBS: [OnceLock<Option<Arc<os_clap::Library>>>; N] = [const { OnceLock::new() }; N];
@@ -383,7 +384,7 @@ pub fn builtin_effects() -> Vec<Available> {
 
     ];
     let names = FILE_MAPPED.into_iter().chain(LINKED_EFFECTS);
-    LIBS.iter().zip(entries).zip(names).flat_map(|((lib, entry), name)| linked(lib, entry, name)).chain(std::iter::once(crate::ml_patch::core::available())).collect()
+    LIBS.iter().zip(entries).zip(names).flat_map(|((lib, entry), name)| linked(lib, entry, name)).chain(std::iter::once(time12::available())).chain(std::iter::once(crate::ml_patch::core::available())).collect()
 }
 
 /// The plugins of a CLAP entry table linked into this program.
@@ -1723,7 +1724,7 @@ pub const LINKED_EFFECTS: [&str; 29] = [
     "ML De-Esser",
     "ML Meter",
     "ML Pitch Shift",
-    "ML Convolver",
+    "ML Space",
     "ML Vocoder",
     "ML Reference",
     "ML Split",
@@ -1760,7 +1761,8 @@ pub const EQ_FILE_NAME: &str = "Fruity Parametric EQ 2";
 /// The built-in plugins' earlier names, newest first, with their names now: "Lemon Parametric EQ 2" and "Lemon 3x Osc"
 /// (2026-10-13 to 2026-10-14), and the "Open" names before the line was renamed "Lemon". Plugin files and preset
 /// folders made earlier still carry them (spec: plugins/plugin-formats.md, identity).
-pub const OLD_NAMES: [(&str, &str); 27] = [
+pub const OLD_NAMES: [(&str, &str); 28] = [
+    ("ML Convolver", "ML Space"),
     ("Lemon Master Assistant", "ML Master Assistant"),
     ("Lemon Sampler", "ML Sampler"),
     ("Lemon Trio", "ML Trio"),
@@ -2516,7 +2518,7 @@ mod tests {
 
     #[test]
     fn ml_tools_batch_stock_picker_insert_and_reload() {
-        for name in ["ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Convolver", "ML Vocoder", "ML Reference", "ML Split", "ML Waveshaper", "ML Tuner", "ML Frequency Shift", "ML Multiband Delay", "ML Time Shaper", "ML Vocal Tune", "ML Amp", "ML Riser"] {
+        for name in ["ML De-Esser", "ML Meter", "ML Pitch Shift", "ML Space", "ML Vocoder", "ML Reference", "ML Split", "ML Waveshaper", "ML Tuner", "ML Frequency Shift", "ML Multiband Delay", "ML Time Shaper", "ML Vocal Tune", "ML Amp", "ML Riser"] {
             let mut pl = Plugins { effects: builtin_effects(), scale: 1.0, rate: 48000, ..Plugins::default() };
             let index = pl.effect_index(name).expect("stock effect available without file scanning");
             assert_eq!(pl.effects.iter().filter(|x| x.desc.name == name).count(), 1);
@@ -5000,3 +5002,6 @@ mod chop_drop_tests {
         p.pending_scales.insert(0,1.5);p.drop_key(0);assert!(p.pending_scales.is_empty());
     }
 }
+
+#[cfg(test)]
+mod playback_audit;

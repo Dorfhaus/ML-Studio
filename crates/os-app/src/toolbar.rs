@@ -190,6 +190,7 @@ impl Panel {
     pub fn width(self) -> f32 {
         match self {
             Panel::Hint => return 130., Panel::Recording => return 168.,
+            Panel::Transport if crate::workspace_visibility::shown("visible_win-tapper") => return 222.,
             Panel::Cpu => return if crate::settings_file::flag("toolbar_cpu_combined",true) {245.}
                 else if crate::settings_file::flag("toolbar_cpu_classic",false) {crate::app::CPU_RECT.w+6.} else {54.},
             _ => {}

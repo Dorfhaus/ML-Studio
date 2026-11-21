@@ -514,3 +514,5 @@ mod tests {
         assert!(p.lock().unwrap().desc().is_instrument());
     }
 }
+
+pub mod instrument_outputs;

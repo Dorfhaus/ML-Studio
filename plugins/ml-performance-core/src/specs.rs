@@ -226,11 +226,7 @@ fn vocal_parse(k: usize, t: &str) -> Option<i32> {
     let s = VOCAL.settings.get(k)?;
     Some(v.clamp(s.range.0, s.range.1))
 }
-pub static TIME: Spec = Spec {
-    name: "ML Time Shaper",
-    word: "TIME SHAPER",
-    about: "ML Studio Time Shaper. See included source notices.",
-    settings: &[
+const LEGACY_TIME: &[Setting] = &[
         Setting {
             id: "cycle",
             name: "Cycle",
@@ -385,8 +381,13 @@ pub static TIME: Spec = Spec {
             start: 0,
             magnet: None,
         },
-    ],
-    studio_settings: 22,
+    ];
+pub static TIME: Spec = Spec {
+    name: "ML Time Shaper",
+    word: "TIME SHAPER",
+    about: "ML Studio Time Shaper. See included source notices.",
+    settings: include!(concat!(env!("OUT_DIR"),"/time_settings.rs")),
+    studio_settings: 6+36*32+4,
     version: None,
     any_version: false,
     fields: &[],
@@ -522,7 +523,10 @@ fn time_text(k: usize, v: i32) -> String {
         19 => format!("{:.1}%", v as f64 / 10.),
         20 => format!("{:.1}%", v as f64 / 10.),
         21 => format!("{:.1}%", v as f64 / 10.),
-        _ => String::new(),
+        22 | 23 => (v+1).to_string(),
+        24 => ["Linear","Hold","Smooth"][v.clamp(0,2) as usize].into(),
+        25 => if v==0 {"Standard"}else{"2 bars"}.into(),
+        _ => format!("{:.1}%",v as f64/10.),
     }
 }
 fn time_parse(k: usize, t: &str) -> Option<i32> {
@@ -554,7 +558,9 @@ fn time_parse(k: usize, t: &str) -> Option<i32> {
         19 => (t.trim_end_matches('%').trim().parse::<f64>().ok()? * 10.).round() as i32,
         20 => (t.trim_end_matches('%').trim().parse::<f64>().ok()? * 10.).round() as i32,
         21 => (t.trim_end_matches('%').trim().parse::<f64>().ok()? * 10.).round() as i32,
-        _ => return None,
+        22 | 23 => t.parse::<i32>().ok()?-1,
+        24 | 25 => (0..=TIME.settings[k].range.1).find(|v|time_text(k,*v).eq_ignore_ascii_case(t))?,
+        _ => (t.trim_end_matches('%').trim().parse::<f64>().ok()?*10.).round() as i32,
     };
     let s = TIME.settings.get(k)?;
     Some(v.clamp(s.range.0, s.range.1))
